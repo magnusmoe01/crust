@@ -1041,6 +1041,20 @@ function getSubmissionDayKey(timestamp) {
   return `${year}-${month}-${day}`
 }
 
+function getSubmissionMonthKey(timestamp) {
+  if (!timestamp) {
+    return ''
+  }
+  const date = typeof timestamp.toDate === 'function' ? timestamp.toDate() : timestamp
+  if (!(date instanceof Date)) {
+    return ''
+  }
+
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  return `${year}-${month}`
+}
+
 function getTimestampSeconds(timestamp) {
   if (!timestamp) {
     return 0
@@ -1073,6 +1087,23 @@ function formatSubmissionDayLabel(dayKey) {
   }
 
   return new Date(year, month - 1, day).toLocaleDateString('nb-NO')
+}
+
+function formatSubmissionMonthLabel(monthKey) {
+  if (!monthKey) {
+    return 'Ukjent måned'
+  }
+
+  const [year, month] = monthKey.split('-').map((value) => Number(value))
+  if (!year || !month) {
+    return monthKey
+  }
+
+  const label = new Date(year, month - 1, 1).toLocaleDateString('nb-NO', {
+    month: 'long',
+    year: 'numeric',
+  })
+  return label.charAt(0).toUpperCase() + label.slice(1)
 }
 
 function getSubmissionName(answers, questions = []) {
@@ -2169,6 +2200,8 @@ function FormPage() {
   const [flaggedCategoryPopupOpenId, setFlaggedCategoryPopupOpenId] = useState('')
   const [flaggedActionState, setFlaggedActionState] = useState({})
   const [flaggedCollapsedIds, setFlaggedCollapsedIds] = useState({})
+  const [flaggedHistoryDateFrom, setFlaggedHistoryDateFrom] = useState('')
+  const [flaggedHistoryDateTo, setFlaggedHistoryDateTo] = useState('')
   const [remarkDraftPhone, setRemarkDraftPhone] = useState('')
   const [remarkDraftName, setRemarkDraftName] = useState('')
   const [remarkDraftCategory, setRemarkDraftCategory] = useState('')
@@ -6401,6 +6434,31 @@ function FormPage() {
   const visibleSubmissions = selectedSubmissionDay
     ? submissions.filter((submission) => getSubmissionDayKey(submission.submittedAt) === selectedSubmissionDay)
     : submissions
+  const reviewedSubmissionMonthlyStats = useMemo(() => {
+    const statsByMonth = new Map()
+
+    submissions.forEach((submission) => {
+      if (String(submission.status || '').trim().toLowerCase() !== 'reviewed') {
+        return
+      }
+
+      const monthKey = getSubmissionMonthKey(submission.reviewedAt || submission.statusUpdatedAt || submission.submittedAt)
+      if (!monthKey) {
+        return
+      }
+
+      const current = statsByMonth.get(monthKey) || { monthKey, reviewedCount: 0, flaggedCount: 0 }
+      current.reviewedCount += 1
+
+      if (Array.isArray(submission.flaggedAnswers) && submission.flaggedAnswers.length > 0) {
+        current.flaggedCount += 1
+      }
+
+      statsByMonth.set(monthKey, current)
+    })
+
+    return Array.from(statsByMonth.values()).sort((a, b) => b.monthKey.localeCompare(a.monthKey))
+  }, [submissions])
   const flaggedSubmissions = useMemo(
     () =>
       submissions.filter(
@@ -6447,12 +6505,31 @@ function FormPage() {
       ),
     [flaggedSubmissions],
   )
-  const completedFlaggedSubmissions = useMemo(
-    () =>
-      flaggedSubmissions.filter(
-        (submission) => String(submission.flaggedStatus || '').trim().toLowerCase() === 'complete',
-      ),
-    [flaggedSubmissions],
+  const hasFlaggedHistoryDateSearch = Boolean(flaggedHistoryDateFrom && flaggedHistoryDateTo)
+  const flaggedHistorySubmissions = useMemo(
+    () => {
+      if (!hasFlaggedHistoryDateSearch) {
+        return []
+      }
+
+      return flaggedSubmissions.filter((submission) => {
+        const dayKey = getSubmissionDayKey(submission.submittedAt)
+        if (!dayKey) {
+          return false
+        }
+
+        if (flaggedHistoryDateFrom && dayKey < flaggedHistoryDateFrom) {
+          return false
+        }
+
+        if (flaggedHistoryDateTo && dayKey > flaggedHistoryDateTo) {
+          return false
+        }
+
+        return true
+      })
+    },
+    [flaggedHistoryDateFrom, flaggedHistoryDateTo, flaggedSubmissions, hasFlaggedHistoryDateSearch],
   )
   const configuredWarningCategories = useMemo(
     () => normalizeWarningCategories(formData.warningCategories),
@@ -8981,6 +9058,31 @@ function FormPage() {
               <div className="responses-box submissions-overview" id="submissions-section">
                 <h3>Submissions</h3>
                 {loadingSubmissions ? <p>Loading submissions...</p> : null}
+                {!loadingSubmissions && reviewedSubmissionMonthlyStats.length > 0 ? (
+                  <div className="reviewed-monthly-summary" aria-label="Reviewed submissions per month">
+                    <div className="reviewed-monthly-summary-header">
+                      <h4>Reviewed per month</h4>
+                      <p>Number of reviewed submissions and how many of them are flagged.</p>
+                    </div>
+                    <div className="reviewed-monthly-summary-grid">
+                      {reviewedSubmissionMonthlyStats.map((month) => (
+                        <article key={month.monthKey} className="reviewed-monthly-summary-card">
+                          <h5>{formatSubmissionMonthLabel(month.monthKey)}</h5>
+                          <div className="reviewed-monthly-summary-values">
+                            <p>
+                              <span>Reviewed</span>
+                              <strong>{month.reviewedCount}</strong>
+                            </p>
+                            <p>
+                              <span>Flagged</span>
+                              <strong>{month.flaggedCount}</strong>
+                            </p>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 {!loadingSubmissions && availableSubmissionDays.length > 0 ? (
                   <div className="submissions-filter-bar">
                     <label className="field-block" htmlFor="submission-day-filter">
@@ -9115,9 +9217,53 @@ function FormPage() {
                 {!loadingSubmissions && flaggedSubmissions.length > 0 ? (
                   <div className="flagged-submission-list">
                     {openFlaggedSubmissions.map((submission) => renderFlaggedSubmissionCard(submission))}
-                    {completedFlaggedSubmissions.map((submission) =>
-                      renderFlaggedSubmissionCard(submission, { collapsible: true }),
-                    )}
+                  </div>
+                ) : null}
+                {!loadingSubmissions && flaggedSubmissions.length > 0 ? (
+                  <div className="flagged-history-search">
+                    <div className="flagged-history-search-header">
+                      <h4>Søk i flagg-historikk</h4>
+                      <p>Velg fra- og til-dato for å vise både open og complete flaggede saker.</p>
+                    </div>
+                    <div className="flagged-history-date-row">
+                      <label className="field-block" htmlFor="flagged-history-from">
+                        <span>Fra dato</span>
+                        <input
+                          id="flagged-history-from"
+                          type="date"
+                          value={flaggedHistoryDateFrom}
+                          onChange={(event) => setFlaggedHistoryDateFrom(event.target.value)}
+                        />
+                      </label>
+                      <label className="field-block" htmlFor="flagged-history-to">
+                        <span>Til dato</span>
+                        <input
+                          id="flagged-history-to"
+                          type="date"
+                          value={flaggedHistoryDateTo}
+                          onChange={(event) => setFlaggedHistoryDateTo(event.target.value)}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={() => {
+                          setFlaggedHistoryDateFrom('')
+                          setFlaggedHistoryDateTo('')
+                        }}
+                        disabled={!hasFlaggedHistoryDateSearch}
+                      >
+                        Nullstill
+                      </button>
+                    </div>
+                    {hasFlaggedHistoryDateSearch && flaggedHistorySubmissions.length === 0 ? (
+                      <p className="flagged-empty-note">Ingen flaggede saker funnet for valgt dato.</p>
+                    ) : null}
+                    {hasFlaggedHistoryDateSearch && flaggedHistorySubmissions.length > 0 ? (
+                      <div className="flagged-submission-list">
+                        {flaggedHistorySubmissions.map((submission) => renderFlaggedSubmissionCard(submission))}
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </div>

@@ -384,7 +384,7 @@ function Forms() {
                     className="ghost"
                     href={`/skjema/${form.slug}/flagget`}
                   >
-                    Flagget ({flaggedCounts[form.slug] || 0})
+                    Flagged ({flaggedCounts[form.slug] || 0})
                   </a>
                   <a
                     className="ghost"

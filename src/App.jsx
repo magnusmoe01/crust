@@ -147,6 +147,15 @@ function App() {
 
         <Route path="/sales" element={withPageLoader(<Sales />)} />
         <Route path="/skjema" element={withPageLoader(<Forms />)} />
+        <Route
+          path="/skjema/:formSlug/kvittering/:receiptToken"
+          element={withPageLoader(<RoutedFormPage />)}
+        />
+        <Route
+          path="/skjema/:formSlug/review/:submissionId"
+          element={withPageLoader(<RoutedFormPage />)}
+        />
+        <Route path="/skjema/:formSlug/*" element={withPageLoader(<RoutedFormPage />)} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
