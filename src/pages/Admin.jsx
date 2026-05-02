@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { getAuth, getIdToken } from "firebase/auth";
 import { httpsCallable } from "firebase/functions";
 import {
+  addDoc,
   collection,
   deleteDoc,
   doc,
@@ -135,10 +136,19 @@ function Admin() {
   // ✅ Employee rates state
   const [employees, setEmployees] = useState([]);
   const [employeesLoading, setEmployeesLoading] = useState(false);
-  const [rateInputs, setRateInputs] = useState({});
-  const [savingRateId, setSavingRateId] = useState("");
-  const [rateMessages, setRateMessages] = useState({});
+  const [employeeEdits, setEmployeeEdits] = useState({});
+  const [savingEmployeeId, setSavingEmployeeId] = useState("");
+  const [employeeMessages, setEmployeeMessages] = useState({});
+  const [newEmployeeInputs, setNewEmployeeInputs] = useState({
+    name: "",
+    location: "",
+    salaryId: "",
+    plandayId: "",
+    rate: "",
+  });
+  const [newEmployeeMessage, setNewEmployeeMessage] = useState(null);
   const [employeeFilter, setEmployeeFilter] = useState("all");
+  const [showEmployeeRates, setShowEmployeeRates] = useState(false);
 
   useEffect(() => {
     async function loadSettings() {
@@ -279,16 +289,30 @@ function Admin() {
       (snapshot) => {
         const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
         setEmployees(data);
-        // ✅ Initialize rate inputs with current values
-        const inputs = {};
+
+        const edits = {};
         data.forEach((emp) => {
-          inputs[emp.id] = emp.rate != null ? String(emp.rate) : "";
+          edits[emp.id] = {
+            rate: emp.rate != null ? String(emp.rate) : "",
+            location: emp.location || "",
+            salaryId: emp.salaryId || "",
+            plandayId: emp.plandayId || "",
+          };
         });
-        setRateInputs((prev) => {
-          const merged = { ...inputs };
-          // Keep any unsaved edits the user has made
+
+        setEmployeeEdits((prev) => {
+          const merged = { ...edits };
           Object.keys(prev).forEach((id) => {
-            if (prev[id] !== inputs[id]) merged[id] = prev[id];
+            if (!merged[id]) {
+              merged[id] = prev[id];
+              return;
+            }
+            merged[id] = {
+              rate: prev[id].rate !== undefined ? prev[id].rate : merged[id].rate,
+              location: prev[id].location !== undefined ? prev[id].location : merged[id].location,
+              salaryId: prev[id].salaryId !== undefined ? prev[id].salaryId : merged[id].salaryId,
+              plandayId: prev[id].plandayId !== undefined ? prev[id].plandayId : merged[id].plandayId,
+            };
           });
           return merged;
         });
@@ -304,42 +328,97 @@ function Admin() {
   }, [isAdmin]);
 
   // ✅ Save a single employee's rate to Firestore
-  async function onSaveRate(empId) {
-    const rawValue = String(rateInputs[empId] || "").trim().replace(",", ".");
-    const rate = parseFloat(rawValue);
+  async function onSaveEmployee(empId) {
+    const edits = employeeEdits[empId] || {};
+    const rawRate = String(edits.rate || "").trim().replace(",", ".");
+    const location = String(edits.location || "").trim();
+    const salaryId = String(edits.salaryId || "").trim();
+    const plandayId = String(edits.plandayId || "").trim();
 
-    if (!rawValue || isNaN(rate) || rate < 0) {
-      setRateMessages((prev) => ({
-        ...prev,
-        [empId]: { type: "error", text: "Enter a valid hourly rate (e.g. 187.66)" },
-      }));
-      return;
+    const updates = {
+      location,
+      salaryId,
+      plandayId,
+      updatedAt: serverTimestamp(),
+      updatedBy: user?.email || "admin",
+    };
+
+    if (rawRate !== "") {
+      const rate = parseFloat(rawRate);
+      if (Number.isNaN(rate) || rate < 0) {
+        setEmployeeMessages((prev) => ({
+          ...prev,
+          [empId]: { type: "error", text: "Enter a valid hourly rate (e.g. 187.66)" },
+        }));
+        return;
+      }
+      updates.rate = rate;
+      updates.rateUpdatedAt = serverTimestamp();
+      updates.rateUpdatedBy = user?.email || "admin";
     }
 
-    setSavingRateId(empId);
-    setRateMessages((prev) => ({ ...prev, [empId]: null }));
+    setSavingEmployeeId(empId);
+    setEmployeeMessages((prev) => ({ ...prev, [empId]: null }));
 
     try {
-      await updateDoc(doc(db, "employees", empId), {
-        rate,
-        rateUpdatedAt: serverTimestamp(),
-        rateUpdatedBy: user?.email || "admin",
-      });
-      setRateMessages((prev) => ({
+      await updateDoc(doc(db, "employees", empId), updates);
+      setEmployeeMessages((prev) => ({
         ...prev,
-        [empId]: { type: "success", text: `✅ Saved ${rate.toFixed(2)} kr/hr` },
+        [empId]: { type: "success", text: "✅ Saved employee details" },
       }));
-      // Clear success message after 3 seconds
       setTimeout(() => {
-        setRateMessages((prev) => ({ ...prev, [empId]: null }));
+        setEmployeeMessages((prev) => ({ ...prev, [empId]: null }));
       }, 3000);
     } catch (err) {
-      setRateMessages((prev) => ({
+      setEmployeeMessages((prev) => ({
         ...prev,
         [empId]: { type: "error", text: "Failed to save. Try again." },
       }));
     } finally {
-      setSavingRateId("");
+      setSavingEmployeeId("");
+    }
+  }
+
+  async function onAddEmployee() {
+    const name = String(newEmployeeInputs.name || "").trim();
+    const location = String(newEmployeeInputs.location || "").trim();
+    const salaryId = String(newEmployeeInputs.salaryId || "").trim();
+    const plandayId = String(newEmployeeInputs.plandayId || "").trim();
+    const rawRate = String(newEmployeeInputs.rate || "").trim().replace(",", ".");
+
+    if (!name) {
+      setNewEmployeeMessage({ type: "error", text: "Employee name is required." });
+      return;
+    }
+
+    const updates = {
+      name,
+      location,
+      salaryId,
+      plandayId,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      updatedBy: user?.email || "admin",
+    };
+
+    if (rawRate !== "") {
+      const rate = parseFloat(rawRate);
+      if (Number.isNaN(rate) || rate < 0) {
+        setNewEmployeeMessage({ type: "error", text: "Enter a valid hourly rate (e.g. 187.66)." });
+        return;
+      }
+      updates.rate = rate;
+      updates.rateUpdatedAt = serverTimestamp();
+      updates.rateUpdatedBy = user?.email || "admin";
+    }
+
+    try {
+      await addDoc(collection(db, "employees"), updates);
+      setNewEmployeeMessage({ type: "success", text: "✅ New employee added." });
+      setNewEmployeeInputs({ name: "", location: "", salaryId: "", plandayId: "", rate: "" });
+      setTimeout(() => setNewEmployeeMessage(null), 3000);
+    } catch (err) {
+      setNewEmployeeMessage({ type: "error", text: "Failed to add employee. Try again." });
     }
   }
 
@@ -615,9 +694,25 @@ function Admin() {
         </section>
       ) : null}
 
-      {/* ✅ Employee Salary Rates Section */}
       {isAdmin ? (
         <section className="admin-panel">
+          <h2>Employee Salary Rates</h2>
+          <p className="admin-muted">Open this section to view and edit employee hourly salary rates.</p>
+          <div className="admin-inline-actions">
+            <button
+              type="button"
+              className="admin-button admin-button-secondary"
+              onClick={() => setShowEmployeeRates((prev) => !prev)}
+            >
+              {showEmployeeRates ? "Hide Salary Rates" : "Open Salary Rates"}
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {/* ✅ Employee Salary Rates Section */}
+      {isAdmin ? (
+        <section className="admin-panel" style={{ display: showEmployeeRates ? "grid" : "none" }}>
           <h2>Employee Hourly Rates</h2>
           <p className="admin-muted">
             Set the hourly wage for each employee. Rates are used to calculate salary
@@ -672,6 +767,63 @@ function Admin() {
             ))}
           </div>
 
+          <div style={{ display: "grid", gap: "12px", marginBottom: "24px", padding: "16px", border: "1px solid var(--color-border-secondary)", borderRadius: "12px", background: "var(--color-background-secondary)" }}>
+            <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+              <input
+                type="text"
+                placeholder="Name"
+                value={newEmployeeInputs.name}
+                onChange={(e) => setNewEmployeeInputs((prev) => ({ ...prev, name: e.target.value }))}
+                style={{ flex: "1 1 180px", minWidth: "180px", padding: "8px", borderRadius: "8px", border: "1px solid var(--color-border-secondary)", fontSize: "13px" }}
+              />
+              <input
+                type="text"
+                placeholder="Location"
+                value={newEmployeeInputs.location}
+                onChange={(e) => setNewEmployeeInputs((prev) => ({ ...prev, location: e.target.value }))}
+                style={{ flex: "1 1 140px", minWidth: "140px", padding: "8px", borderRadius: "8px", border: "1px solid var(--color-border-secondary)", fontSize: "13px" }}
+              />
+              <input
+                type="text"
+                placeholder="Salary ID"
+                value={newEmployeeInputs.salaryId}
+                onChange={(e) => setNewEmployeeInputs((prev) => ({ ...prev, salaryId: e.target.value }))}
+                style={{ flex: "1 1 120px", minWidth: "120px", padding: "8px", borderRadius: "8px", border: "1px solid var(--color-border-secondary)", fontSize: "13px" }}
+              />
+              <input
+                type="text"
+                placeholder="Planday ID"
+                value={newEmployeeInputs.plandayId}
+                onChange={(e) => setNewEmployeeInputs((prev) => ({ ...prev, plandayId: e.target.value }))}
+                style={{ flex: "1 1 120px", minWidth: "120px", padding: "8px", borderRadius: "8px", border: "1px solid var(--color-border-secondary)", fontSize: "13px" }}
+              />
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="Rate"
+                value={newEmployeeInputs.rate}
+                onChange={(e) => setNewEmployeeInputs((prev) => ({ ...prev, rate: e.target.value }))}
+                style={{ flex: "1 1 120px", minWidth: "120px", padding: "8px", borderRadius: "8px", border: "1px solid var(--color-border-secondary)", fontSize: "13px" }}
+              />
+            </div>
+            <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                className="admin-button"
+                onClick={onAddEmployee}
+                style={{ fontSize: "13px", padding: "8px 14px" }}
+              >
+                Add new employee
+              </button>
+              {newEmployeeMessage ? (
+                <span style={{ fontSize: "13px", color: newEmployeeMessage.type === "success" ? "#3B6D11" : "#A32D2D" }}>
+                  {newEmployeeMessage.text}
+                </span>
+              ) : null}
+            </div>
+          </div>
+
           {employeesLoading ? <p>Loading employees...</p> : null}
 
           {!employeesLoading && filteredEmployees.length === 0 ? (
@@ -689,6 +841,8 @@ function Admin() {
                   <tr>
                     <th scope="col">Employee</th>
                     <th scope="col">Location</th>
+                    <th scope="col">Salary ID</th>
+                    <th scope="col">Planday ID</th>
                     <th scope="col">Current Rate (kr/hr)</th>
                     <th scope="col">New Rate</th>
                     <th scope="col">Action</th>
@@ -697,7 +851,7 @@ function Admin() {
                 <tbody>
                   {filteredEmployees.map((emp) => {
                     const isMissing = !emp.rate;
-                    const msg = rateMessages[emp.id];
+                    const msg = employeeMessages[emp.id];
                     return (
                       <tr
                         key={emp.id}
@@ -718,7 +872,75 @@ function Admin() {
                             </span>
                           ) : null}
                         </td>
-                        <td>{emp.location || "—"}</td>
+                        <td>
+                          <input
+                            type="text"
+                            placeholder="Location"
+                            value={employeeEdits[emp.id]?.location ?? ""}
+                            onChange={(e) =>
+                              setEmployeeEdits((prev) => ({
+                                ...prev,
+                                [emp.id]: {
+                                  ...prev[emp.id],
+                                  location: e.target.value,
+                                },
+                              }))
+                            }
+                            style={{
+                              width: "140px",
+                              padding: "6px 8px",
+                              border: "1px solid var(--color-border-secondary)",
+                              borderRadius: "6px",
+                              fontSize: "13px",
+                            }}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            placeholder="Salary ID"
+                            value={employeeEdits[emp.id]?.salaryId ?? ""}
+                            onChange={(e) =>
+                              setEmployeeEdits((prev) => ({
+                                ...prev,
+                                [emp.id]: {
+                                  ...prev[emp.id],
+                                  salaryId: e.target.value,
+                                },
+                              }))
+                            }
+                            style={{
+                              width: "120px",
+                              padding: "6px 8px",
+                              border: "1px solid var(--color-border-secondary)",
+                              borderRadius: "6px",
+                              fontSize: "13px",
+                            }}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            placeholder="Planday ID"
+                            value={employeeEdits[emp.id]?.plandayId ?? ""}
+                            onChange={(e) =>
+                              setEmployeeEdits((prev) => ({
+                                ...prev,
+                                [emp.id]: {
+                                  ...prev[emp.id],
+                                  plandayId: e.target.value,
+                                },
+                              }))
+                            }
+                            style={{
+                              width: "120px",
+                              padding: "6px 8px",
+                              border: "1px solid var(--color-border-secondary)",
+                              borderRadius: "6px",
+                              fontSize: "13px",
+                            }}
+                          />
+                        </td>
                         <td>
                           {emp.rate
                             ? `${Number(emp.rate).toFixed(2)} kr`
@@ -730,15 +952,18 @@ function Admin() {
                             min="0"
                             step="0.01"
                             placeholder="e.g. 187.66"
-                            value={rateInputs[emp.id] ?? ""}
+                            value={employeeEdits[emp.id]?.rate ?? ""}
                             onChange={(e) =>
-                              setRateInputs((prev) => ({
+                              setEmployeeEdits((prev) => ({
                                 ...prev,
-                                [emp.id]: e.target.value,
+                                [emp.id]: {
+                                  ...prev[emp.id],
+                                  rate: e.target.value,
+                                },
                               }))
                             }
                             onKeyDown={(e) => {
-                              if (e.key === "Enter") onSaveRate(emp.id);
+                              if (e.key === "Enter") onSaveEmployee(emp.id);
                             }}
                             style={{
                               width: "120px",
@@ -755,10 +980,10 @@ function Admin() {
                               type="button"
                               className="admin-button"
                               style={{ padding: "4px 12px", fontSize: "13px" }}
-                              onClick={() => onSaveRate(emp.id)}
-                              disabled={savingRateId === emp.id}
+                              onClick={() => onSaveEmployee(emp.id)}
+                              disabled={savingEmployeeId === emp.id}
                             >
-                              {savingRateId === emp.id ? "Saving..." : "Save"}
+                              {savingEmployeeId === emp.id ? "Saving..." : "Save"}
                             </button>
                             {msg ? (
                               <span style={{

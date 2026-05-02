@@ -6,7 +6,7 @@ const PURCHASE_ENDPOINT_CANDIDATES = [
   "/purchase/v2/purchases",
 ];
 
-const REQUEST_TIMEOUT_MS = 20_000;
+const REQUEST_TIMEOUT_MS = 60_000;
 const PAGE_SIZE = 200;
 const ZETTLE_BASE_URL = "https://purchase.izettle.com";
 const ZETTLE_OAUTH_BASE_URL = "https://oauth.zettle.com";
@@ -47,7 +47,7 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-async function getValidZettleToken() {
+async function getValidZettleToken(forceRefresh = false) {
   const snapshot = await db.collection("zettlePrivate").doc("default").get();
 
   if (!snapshot.exists) {
@@ -67,7 +67,7 @@ async function getValidZettleToken() {
     throw new Error("Zettle refresh token is missing. Please reconnect Zettle.");
   }
 
-  if (expiresAt && expiresAt.getTime() > Date.now() + TOKEN_REFRESH_BUFFER_MS) {
+  if (!forceRefresh && expiresAt && expiresAt.getTime() > Date.now() + TOKEN_REFRESH_BUFFER_MS) {
     return accessToken;
   }
 
@@ -122,8 +122,8 @@ async function getValidZettleToken() {
   return newAccessToken;
 }
 
-async function createZettleClient() {
-  const token = await getValidZettleToken();
+async function createZettleClient(forceRefresh = false) {
+  const token = await getValidZettleToken(forceRefresh);
 
   return axios.create({
     baseURL: ZETTLE_BASE_URL,
@@ -209,42 +209,49 @@ async function fetchIncomeRows(startDate, endDate) {
     throw new Error("startDate must be before or equal to endDate.");
   }
 
-  const client = await createZettleClient();
-
   for (const endpoint of PURCHASE_ENDPOINT_CANDIDATES) {
-    let offset = 0;
-    const allItems = [];
+    for (const forceRefresh of [false, true]) {
+      let offset = 0;
+      const allItems = [];
 
-    try {
-      while (true) {
-        const response = await client.get(endpoint, {
-          params: {
-            startDate: fromIso,
-            endDate: toIso,
-            limit: PAGE_SIZE,
-            offset,
-          },
-        });
+      try {
+        const client = await createZettleClient(forceRefresh);
+        while (true) {
+          const response = await client.get(endpoint, {
+            params: {
+              startDate: fromIso,
+              endDate: toIso,
+              limit: PAGE_SIZE,
+              offset,
+            },
+          });
 
-        const items = extractItems(response.data);
-        if (!items || items.length === 0) break;
-        allItems.push(...items);
-        if (items.length < PAGE_SIZE) break;
-        offset += PAGE_SIZE;
+          const items = extractItems(response.data);
+          if (!items || items.length === 0) break;
+          allItems.push(...items);
+          if (items.length < PAGE_SIZE) break;
+          offset += PAGE_SIZE;
+        }
+
+        return allItems.map(normalizePurchase);
+      } catch (error) {
+        const status = error.response?.status;
+        const data = error.response?.data;
+        const code = error.code || "";
+        console.error("🚨 ZETTLE API ERROR");
+        console.error("Endpoint:", endpoint, "forceRefresh:", forceRefresh);
+        console.error("Status:", status);
+        console.error("Code:", code);
+        console.error("Response:", JSON.stringify(data, null, 2));
+
+        const isRetryable = !status || status === 401 || code === "ECONNABORTED";
+        if (forceRefresh || !isRetryable) {
+          if (status && status !== 404) {
+            throw new Error(`Zettle API failed (status ${status}). Check token or permissions.`);
+          }
+          break;
+        }
       }
-
-      return allItems.map(normalizePurchase);
-    } catch (error) {
-      const status = error.response?.status;
-      const data = error.response?.data;
-      console.error("🚨 ZETTLE API ERROR");
-      console.error("Endpoint:", endpoint);
-      console.error("Status:", status);
-      console.error("Response:", JSON.stringify(data, null, 2));
-      if (status && status !== 404) {
-        throw new Error(`Zettle API failed (status ${status}). Check token or permissions.`);
-      }
-      continue;
     }
   }
 

@@ -1,132 +1,80 @@
-const { getIncomeByDateAndLocation } = require("./zettle");
-const { getSalaryByDateAndLocation, syncEmployeesToFirestore } = require("./plandayService");
+const admin = require("firebase-admin");
 
-function round(value) {
-  return Number((value || 0).toFixed(2));
+// ✅ SAFE IMPORT (prevents deployment crash)
+let getIncomeByDateAndLocation;
+
+try {
+  ({ getIncomeByDateAndLocation } = require("./zettle/zettle"));
+} catch (err) {
+  console.error("❌ Failed to load Zettle module:", err.message);
 }
 
-function normalizeLocation(name = "") {
-  return String(name).trim().toLowerCase();
+if (!admin.apps.length) {
+  admin.initializeApp();
 }
 
-function buildBreakdownByLocation(mergedData, zettleRows, startDate, endDate, locations) {
-  const locationFilters = Array.isArray(locations)
-    ? locations.map(normalizeLocation).filter(Boolean)
-    : [normalizeLocation(locations)];
+/**
+ * MAIN FINANCIAL REPORT FUNCTION
+ */
+async function getFinancialReport(
+  startDate,
+  endDate,
+  locations = ["all"]
+) {
+  if (!startDate || !endDate) {
+    throw new Error("startDate and endDate are required.");
+  }
 
-  const includeAll = locationFilters.includes("all") || locationFilters.length === 0;
+  if (!getIncomeByDateAndLocation) {
+    throw new Error(
+      "Zettle income service is not available. Check module path."
+    );
+  }
 
-  const grouped = new Map();
+  const incomeData = await getIncomeByDateAndLocation(startDate, endDate);
 
-  // 1. Merge Zettle + Planday income/cost
-  (mergedData || []).forEach((row) => {
-    const date = row?.date;
-    const location = normalizeLocation(row?.location);
+  let filtered = incomeData;
 
-    if (!date || date < startDate || date > endDate) return;
-    if (!includeAll && !locationFilters.includes(location)) return;
+  // Filter by location
+  if (!locations.includes("all")) {
+    filtered = incomeData.filter((item) =>
+      locations.includes(item.location)
+    );
+  }
 
-    if (!grouped.has(location)) {
-      grouped.set(location, {
-        location,
-        income: 0,
-        salaryCost: 0,
-        profit: 0,
-        subLocations: new Map(),
-      });
+  let totalIncome = 0;
+  const byLocation = {};
+  const byDate = {};
+
+  for (const item of filtered) {
+    const income = Number(item.income || 0);
+
+    totalIncome += income;
+
+    // by location
+    if (!byLocation[item.location]) {
+      byLocation[item.location] = 0;
     }
+    byLocation[item.location] += income;
 
-    const entry = grouped.get(location);
-
-    const income = Number(row?.income || 0);
-    const cost = Number(row?.salaryCost || 0);
-
-    entry.income += income;
-    entry.salaryCost += cost;
-    entry.profit += income - cost;
-  });
-
-  // 2. Sub-location breakdown (Zettle only)
-  (zettleRows || []).forEach((row) => {
-    const location = normalizeLocation(row?.location);
-    if (!grouped.has(location)) return;
-
-    const entry = grouped.get(location);
-
-    (row.subLocations || []).forEach((sub) => {
-      const name = sub?.name;
-      const income = Number(sub?.income || 0);
-
-      if (!entry.subLocations.has(name)) {
-        entry.subLocations.set(name, { name, income: 0 });
-      }
-
-      entry.subLocations.get(name).income += income;
-    });
-  });
-
-  return Array.from(grouped.values())
-    .map((l) => {
-      const profitMargin = l.income > 0 ? (l.profit / l.income) * 100 : 0;
-
-      return {
-        location: l.location,
-        income: round(l.income),
-        salaryCost: round(l.salaryCost),
-        profit: round(l.profit),
-        profitOrLoss: l.profit >= 0 ? "Profit" : "Loss",
-        profitMargin: round(profitMargin),
-        subLocations: Array.from(l.subLocations.values())
-          .map((s) => ({ name: s.name, income: round(s.income) }))
-          .sort((a, b) => b.income - a.income),
-      };
-    })
-    .sort((a, b) => b.profit - a.profit);
-}
-
-async function getFinancialReport(startDate, endDate, locations = ["all"]) {
-  await syncEmployeesToFirestore().catch(() => {});
-
-  const [zettleRows, plandayRows] = await Promise.all([
-    getIncomeByDateAndLocation(startDate, endDate),
-    getSalaryByDateAndLocation(startDate, endDate),
-  ]);
-
-  const merged = mergeByDateAndLocation(zettleRows, plandayRows);
-  const summary = getSummary(merged, startDate, endDate, locations);
-
-  const breakdown = buildBreakdownByLocation(
-    merged,
-    zettleRows,
-    startDate,
-    endDate,
-    locations
-  );
-
-  const best = breakdown[0] || null;
-
-  const profit = summary.totalIncome - summary.totalSalaryCost;
+    // by date
+    if (!byDate[item.date]) {
+      byDate[item.date] = 0;
+    }
+    byDate[item.date] += income;
+  }
 
   return {
-    totalIncome: summary.totalIncome,
-    totalSalaryCost: summary.totalSalaryCost,
-    totalProfit: profit,
-    profit,
-    profitOrLoss: profit >= 0 ? "Profit" : "Loss",
-    profitMargin:
-      summary.totalIncome > 0
-        ? round((profit / summary.totalIncome) * 100)
-        : 0,
-    bestPerformingLocation: best
-      ? {
-          location: best.location,
-          profit: best.profit,
-          profitOrLoss: best.profitOrLoss,
-          profitMargin: best.profitMargin,
-        }
-      : null,
-    breakdown,
+    startDate,
+    endDate,
+    locations,
+    totalIncome: Number(totalIncome.toFixed(2)),
+    byLocation,
+    byDate,
+    rows: filtered,
   };
 }
 
-module.exports = { getFinancialReport };
+module.exports = {
+  getFinancialReport,
+};

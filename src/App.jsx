@@ -26,6 +26,7 @@ import prosess600 from "./assets/optimized/prosess-600.png";
 import prosess1200 from "./assets/optimized/prosess-1200.png";
 import "./App.css";
 import Varsling from "./pages/Varsling";
+import { useAdminSession } from "./hooks/useAdminSession";
 
 // Pages (lazy loaded)
 const Apply = lazy(() => import("./pages/Apply"));
@@ -58,6 +59,20 @@ function withPageLoader(element) {
 function RoutedFormPage() {
   const location = useLocation();
   return <FormPage key={location.pathname} />;
+}
+
+function RequireAdminRoute({ children }) {
+  const { isAdmin, loading } = useAdminSession();
+
+  if (loading) {
+    return <div className="loading-box">Laster admin-tilgang...</div>;
+  }
+
+  if (!isAdmin) {
+    return <Navigate to="/admin" replace />;
+  }
+
+  return children;
 }
 
 function Home() {
@@ -136,13 +151,21 @@ function App() {
         />
         <Route
           path="/admin/leverandører"
-          element={withPageLoader(<AdminLocations />)}
+          element={withPageLoader(
+            <RequireAdminRoute>
+              <AdminLocations />
+            </RequireAdminRoute>
+          )}
         />
 
         {/* Financial report (FIXED IMPORT) */}
         <Route
           path="/admin/financial-report"
-          element={withPageLoader(<FinancialReport />)}
+          element={withPageLoader(
+            <RequireAdminRoute>
+              <FinancialReport />
+            </RequireAdminRoute>
+          )}
         />
 
         <Route path="/sales" element={withPageLoader(<Sales />)} />
