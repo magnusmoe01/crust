@@ -2,8 +2,8 @@ const axios = require("axios");
 const admin = require("firebase-admin");
 
 const PURCHASE_ENDPOINT_CANDIDATES = [
-  "/purchases/v2",
-  "/purchase/v2/purchases",
+  "/purchases/v2/purchases",
+  "/purchase/v2",
 ];
 
 const REQUEST_TIMEOUT_MS = 60_000;
@@ -15,7 +15,7 @@ const TOKEN_REFRESH_BUFFER_MS = 2 * 60 * 1000;
 // ✅ Maps Zettle cash register names to Planday department names
 const ZETTLE_LOCATION_TO_DEPARTMENT = {
   "bergen": "Bergen",
-  "gj\u00f8vik": "Gj\u00f8vik",
+  "gjøvik": "Gjøvik",
   "josefines park": "Oslo",
   "nydalen": "Oslo",
   "katten": "Oslo",
@@ -83,6 +83,7 @@ async function getValidZettleToken(forceRefresh = false) {
 
   const tokenResponse = await fetch(`${ZETTLE_OAUTH_BASE_URL}/token`, {
     method: "POST",
+    signal: AbortSignal.timeout(15_000),
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
       Accept: "application/json",
@@ -176,45 +177,13 @@ function extractItems(payload) {
 
 function normalizeZettleLocation(rawLocation) {
   const value = String(rawLocation || "").trim().toLowerCase();
-  if (!value) return "Oslo";
-
-  if (value.includes("bergen")) return "Bergen";
-  if (
-    value.includes("gj\u00f8vik") ||
-    value.includes("gjovik") ||
-    (value.includes("gj") && value.includes("vik"))
-  ) {
-    return "Gj\u00f8vik";
-  }
-
-  if (ZETTLE_LOCATION_TO_DEPARTMENT[value]) {
-    return ZETTLE_LOCATION_TO_DEPARTMENT[value];
-  }
+  if (value === "bergen") return "Bergen";
+  if (value === "gjøvik" || value === "gjovik") return "Gjøvik";
   return "Oslo";
 }
 
-function extractRegisterName(purchase) {
-  const candidates = [
-    purchase?.cashRegister?.displayName,
-    purchase?.cashRegister?.name,
-    purchase?.cashRegisterName,
-    purchase?.terminalName,
-    purchase?.store?.name,
-    purchase?.organizationUnit?.name,
-    purchase?.organization?.name,
-    purchase?.location?.name,
-    purchase?.site?.name,
-  ];
-
-  for (const candidate of candidates) {
-    const value = String(candidate || "").trim();
-    if (value) return value;
-  }
-  return "";
-}
-
 function normalizePurchase(purchase) {
-  const displayName = extractRegisterName(purchase);
+  const displayName = String(purchase?.cashRegister?.displayName || "").trim();
   const locationRaw = displayName.toLowerCase();
 
   const department = normalizeZettleLocation(locationRaw);
@@ -316,7 +285,7 @@ async function fetchIncomeRows(startDate, endDate) {
         console.error("Code:", code);
         console.error("Response:", JSON.stringify(data, null, 2));
 
-        const isRetryable = !status || status === 401 || code === "ECONNABORTED";
+        const isRetryable = !status || status === 401 || code === "ECONNABORTED" || code === "ECONNRESET";
         if (forceRefresh || !isRetryable) {
           if (status && status !== 404) {
             throw new Error(`Zettle API failed (status ${status}). Check token or permissions.`);
@@ -342,4 +311,3 @@ async function getIncomeByDateAndLocation(startDate, endDate) {
 module.exports = {
   getIncomeByDateAndLocation,
 };
-

@@ -129,7 +129,7 @@ function parseIncomeCsv(text) {
 
   const headers = lines[0].split(";").map((h) => h.trim().toLowerCase());
   const idxLoc = headers.findIndex((h) => h === "location" || h === "lokasjon" || h === "department");
-  const idxAmount = headers.findIndex((h) => h === "income" || h === "amount" || h === "beløp" || h === "belop");
+  const idxAmount = headers.findIndex((h) => h === "income" || h === "amount" || h === "belï¿½p" || h === "belop");
   if (idxLoc < 0 || idxAmount < 0) {
     throw new Error("Income CSV needs Location and Amount columns.");
   }
@@ -532,7 +532,7 @@ export default function FinancialReport() {
       {/* -- Actions -- */}
       <div className="financial-actions-row">
         <button onClick={generateReport} disabled={loading}>
-          {loading ? "Fetching from Planday & Zettle…" : "Generate Report"}
+          {loading ? "Fetching from Planday & Zettleï¿½" : "Generate Report"}
         </button>
 
         {report && (
@@ -573,7 +573,7 @@ export default function FinancialReport() {
           <p>These salary IDs could not be matched to locations automatically.</p>
           <ol>
             <li>Create a CSV file with columns: <code>SalaryId</code> and <code>Location</code></li>
-            <li>Set location to one of: <code>Oslo</code>, <code>Bergen</code>, <code>Gjøvik</code></li>
+            <li>Set location to one of: <code>Oslo</code>, <code>Bergen</code>, <code>Gjï¿½vik</code></li>
             <li>Upload it in the Employee Location Map CSV field above</li>
           </ol>
           <details>
