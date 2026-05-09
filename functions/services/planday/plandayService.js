@@ -23,7 +23,7 @@ const PAGE_SIZE = 200;
 const DEPARTMENT_ID_TO_NAME = {
   19766: "Oslo",
   19767: "Bergen",
-  19768: "Gjøvik",
+  19768: "Gj\u00f8vik",
 };
 
 // -------------------- AUTH --------------------
@@ -135,6 +135,8 @@ async function syncEmployeesToFirestore() {
     if (!snap.exists) {
       await ref.set({
         id: emp.id,
+        plandayId: emp.id, // Store Planday ID for mapping
+        plandayEmployeeId: emp.id,
         name: emp.name,
         location: emp.location,
         rate: null,
@@ -143,6 +145,8 @@ async function syncEmployeesToFirestore() {
       });
     } else {
       await ref.update({
+        plandayId: emp.id,
+        plandayEmployeeId: emp.id,
         location: emp.location,
       });
     }

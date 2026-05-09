@@ -32,7 +32,7 @@ const PLANDAY_SETTINGS_DOC_ID = "plandayIntegration";
 const DEPARTMENT_ID_TO_NAME = {
   19766: "Oslo",
   19767: "Bergen",
-  19768: "Gjøvik",
+  19768: "Gj\u00f8vik",
 };
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
@@ -98,6 +98,23 @@ function normalizeEmployeeKey(value) {
   if (!raw) return "";
   const cleaned = raw.replace(/[^0-9A-Za-z]/g, "");
   return cleaned.replace(/^0+/, "");
+}
+
+function normalizePlandayLocation(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "bergen") return "Bergen";
+  if (raw === "gj\u00f8vik" || raw === "gjovik") return "Gj\u00f8vik";
+  return "Oslo";
+}
+
+function resolveLocationFromPlandayRow(rawRowLocation, rawDepartmentName, departmentLocation, employeeLocation) {
+  const rawValue = String(rawRowLocation || rawDepartmentName || employeeLocation || "").trim();
+  if (!rawValue) return departmentLocation || "Oslo";
+
+  const normalizedValue = rawValue.toLowerCase();
+  if (normalizedValue.includes("bergen")) return "Bergen";
+  if (normalizedValue.includes("gj\u00f8vik") || normalizedValue.includes("gjovik")) return "Gj\u00f8vik";
+  return "Oslo";
 }
 
 // ── Payroll API fetch ─────────────────────────────────────────────────────────
@@ -195,6 +212,7 @@ async function groupPayrollByLocation(rows) {
 
   const snapshot = await db.collection("employees").get();
   const employeeMap = new Map();
+  const plandayIdMap = new Map(); // Primary map by Planday ID
 
   snapshot.forEach((doc) => {
     const data = doc.data() || {};
@@ -213,9 +231,18 @@ async function groupPayrollByLocation(rows) {
       const normalized = normalizeEmployeeKey(key);
       if (normalized) employeeMap.set(normalized, data);
     }
+
+    // Create primary Planday ID map for faster matching
+    const plandayId = String(data.plandayId || data.plandayEmployeeId || "").trim();
+    if (plandayId) {
+      plandayIdMap.set(plandayId, data);
+      const normalized = normalizeEmployeeKey(plandayId);
+      if (normalized) plandayIdMap.set(normalized, data);
+    }
   });
 
   const grouped = new Map();
+  const unmatchedEmployees = [];
 
   for (const row of rows) {
     const deptIdRaw = row.departmentId || row.department?.id;
@@ -225,26 +252,49 @@ async function groupPayrollByLocation(rows) {
     const departmentLocation = isBergen
       ? "Bergen"
       : isGjovik
-      ? "Gjøvik"
+      ? "Gj\u00f8vik"
       : "Oslo";
 
+    // Try multiple ways to match employee
     const empIdRaw = String(row.employeeId || row.employeeNumber || "").trim();
-    const empKey = normalizeEmployeeKey(empIdRaw) || empIdRaw;
-    const emp = employeeMap.get(empKey) || employeeMap.get(empIdRaw);
+    let emp = null;
+    let matchMethod = "none";
+
+    // 1. Try exact Planday ID match first
+    if (plandayIdMap.has(empIdRaw)) {
+      emp = plandayIdMap.get(empIdRaw);
+      matchMethod = "planday_exact";
+    }
+
+    // 2. Try normalized Planday ID
+    const normalized = normalizeEmployeeKey(empIdRaw);
+    if (!emp && normalized && plandayIdMap.has(normalized)) {
+      emp = plandayIdMap.get(normalized);
+      matchMethod = "planday_normalized";
+    }
+
+    // 3. Try general employee map
+    if (!emp) {
+      emp = employeeMap.get(empIdRaw) || employeeMap.get(normalized);
+      matchMethod = emp ? "employee_map" : "none";
+    }
 
     const rawRowLocation = String(row.location || "").trim();
     const rawDepartmentName = String(row.department?.name || row.departmentName || "").trim();
-    const isKnownDepartmentName = rawDepartmentName === "Bergen" || rawDepartmentName === "Gjøvik";
+    const location = resolveLocationFromPlandayRow(
+      rawRowLocation,
+      rawDepartmentName,
+      departmentLocation,
+      emp?.location
+    );
 
-    let location = rawRowLocation || rawDepartmentName;
-    if (!location || ((!isBergen && !isGjovik) && !isKnownDepartmentName)) {
-      location = departmentLocation;
-    }
-    if (!location && emp?.location) {
-      location = emp.location;
-    }
-    if (!location) {
-      location = "Oslo";
+    // Track unmatched employees
+    if (!emp) {
+      unmatchedEmployees.push({
+        plandayId: empIdRaw,
+        department: departmentLocation,
+        matchMethod: matchMethod,
+      });
     }
 
     const hours = Number(row.units || row.hours || 0);
@@ -265,9 +315,17 @@ async function groupPayrollByLocation(rows) {
     totalSalary: round2(g.totalSalary),
   }));
 
+  if (unmatchedEmployees.length > 0) {
+    logger.warn("Planday payroll grouping: unmatched employees", {
+      count: unmatchedEmployees.length,
+      samples: unmatchedEmployees.slice(0, 10),
+    });
+  }
+
   logger.info("Planday payroll grouping: computed totals", {
     inputRows: rows.length,
     groupedCount: groupedRows.length,
+    unmatchedCount: unmatchedEmployees.length,
     groupedRows,
   });
 
@@ -281,4 +339,5 @@ async function getSalaryByLocation(startDate, endDate) {
   return groupPayrollByLocation(rows);
 }
 
-module.exports = { getSalaryByLocation };
+module.exports = { getSalaryByLocation, fetchPayrollRows, groupPayrollByLocation };
+

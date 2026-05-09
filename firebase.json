@@ -2,8 +2,8 @@
   "functions": {
     "source": "functions",
     "runtime": "nodejs22"
-    }
-    
+  },
+
   "hosting": {
     "public": "dist",
     "ignore": [

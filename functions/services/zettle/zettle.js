@@ -15,7 +15,7 @@ const TOKEN_REFRESH_BUFFER_MS = 2 * 60 * 1000;
 // ✅ Maps Zettle cash register names to Planday department names
 const ZETTLE_LOCATION_TO_DEPARTMENT = {
   "bergen": "Bergen",
-  "gjøvik": "Gjøvik",
+  "gj\u00f8vik": "Gj\u00f8vik",
   "josefines park": "Oslo",
   "nydalen": "Oslo",
   "katten": "Oslo",
@@ -174,11 +174,50 @@ function extractItems(payload) {
   return [];
 }
 
+function normalizeZettleLocation(rawLocation) {
+  const value = String(rawLocation || "").trim().toLowerCase();
+  if (!value) return "Oslo";
+
+  if (value.includes("bergen")) return "Bergen";
+  if (
+    value.includes("gj\u00f8vik") ||
+    value.includes("gjovik") ||
+    (value.includes("gj") && value.includes("vik"))
+  ) {
+    return "Gj\u00f8vik";
+  }
+
+  if (ZETTLE_LOCATION_TO_DEPARTMENT[value]) {
+    return ZETTLE_LOCATION_TO_DEPARTMENT[value];
+  }
+  return "Oslo";
+}
+
+function extractRegisterName(purchase) {
+  const candidates = [
+    purchase?.cashRegister?.displayName,
+    purchase?.cashRegister?.name,
+    purchase?.cashRegisterName,
+    purchase?.terminalName,
+    purchase?.store?.name,
+    purchase?.organizationUnit?.name,
+    purchase?.organization?.name,
+    purchase?.location?.name,
+    purchase?.site?.name,
+  ];
+
+  for (const candidate of candidates) {
+    const value = String(candidate || "").trim();
+    if (value) return value;
+  }
+  return "";
+}
+
 function normalizePurchase(purchase) {
-  const displayName = String(purchase?.cashRegister?.displayName || "").trim();
+  const displayName = extractRegisterName(purchase);
   const locationRaw = displayName.toLowerCase();
 
-  const department = ZETTLE_LOCATION_TO_DEPARTMENT[locationRaw] || displayName;
+  const department = normalizeZettleLocation(locationRaw);
   const isSubLocation = locationRaw in SUB_LOCATION_PARENTS;
 
   const date =
@@ -212,7 +251,7 @@ async function fetchIncomeRows(startDate, endDate) {
   for (const endpoint of PURCHASE_ENDPOINT_CANDIDATES) {
     for (const forceRefresh of [false, true]) {
       let offset = 0;
-      const allItems = [];
+      const grouped = new Map();
 
       try {
         const client = await createZettleClient(forceRefresh);
@@ -228,12 +267,45 @@ async function fetchIncomeRows(startDate, endDate) {
 
           const items = extractItems(response.data);
           if (!items || items.length === 0) break;
-          allItems.push(...items);
+
+          for (const item of items) {
+            const row = normalizePurchase(item);
+            if (!row.date || !row.location) continue;
+
+            const key = `${row.date}::${row.location}`;
+            const current = grouped.get(key) || {
+              location: row.location,
+              date: row.date,
+              income: 0,
+              subLocations: new Map(),
+            };
+
+            current.income += parseAmount(row.income);
+            if (row.subLocationName) {
+              const subCurrent = current.subLocations.get(row.subLocationName) || {
+                name: row.subLocationName,
+                income: 0,
+              };
+              subCurrent.income += parseAmount(row.income);
+              current.subLocations.set(row.subLocationName, subCurrent);
+            }
+
+            grouped.set(key, current);
+          }
+
           if (items.length < PAGE_SIZE) break;
           offset += PAGE_SIZE;
         }
 
-        return allItems.map(normalizePurchase);
+        return Array.from(grouped.values()).map((e) => ({
+          location: e.location,
+          date: e.date,
+          income: round(e.income),
+          subLocations: Array.from(e.subLocations.values()).map((s) => ({
+            name: s.name,
+            income: round(s.income),
+          })),
+        }));
       } catch (error) {
         const status = error.response?.status;
         const data = error.response?.data;
@@ -261,46 +333,7 @@ async function fetchIncomeRows(startDate, endDate) {
 async function getIncomeByDateAndLocation(startDate, endDate) {
   const rows = await fetchIncomeRows(startDate, endDate);
 
-  // ✅ Group by date + location, tracking sub-locations separately
-  const grouped = new Map();
-
-  for (const row of rows) {
-    if (!row.date || !row.location) continue;
-
-    const key = `${row.date}::${row.location}`;
-
-    const current = grouped.get(key) || {
-      location: row.location,
-      date: row.date,
-      income: 0,
-      subLocations: new Map(),
-    };
-
-    current.income += parseAmount(row.income);
-
-    // ✅ Track sub-location income separately
-    if (row.subLocationName) {
-      const subCurrent = current.subLocations.get(row.subLocationName) || {
-        name: row.subLocationName,
-        income: 0,
-      };
-      subCurrent.income += parseAmount(row.income);
-      current.subLocations.set(row.subLocationName, subCurrent);
-    }
-
-    grouped.set(key, current);
-  }
-
-  return Array.from(grouped.values()).map((e) => ({
-    location: e.location,
-    date: e.date,
-    income: round(e.income),
-    // ✅ Pass sub-locations as array
-    subLocations: Array.from(e.subLocations.values()).map((s) => ({
-      name: s.name,
-      income: round(s.income),
-    })),
-  })).sort((a, b) => {
+  return rows.sort((a, b) => {
     if (a.date !== b.date) return a.date.localeCompare(b.date);
     return a.location.localeCompare(b.location);
   });
@@ -309,3 +342,4 @@ async function getIncomeByDateAndLocation(startDate, endDate) {
 module.exports = {
   getIncomeByDateAndLocation,
 };
+

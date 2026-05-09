@@ -106,7 +106,7 @@ function toNumber(value) {
 const DEPARTMENT_ID_TO_NAME = {
   19766: "Oslo",
   19767: "Bergen",
-  19768: "Gjøvik",
+  19768: "Gj\u00f8vik",
 };
 
 function normalizeEmployeeKey(value) {
@@ -122,18 +122,48 @@ function addEmployeeKey(map, key, data) {
   map.set(raw, data);
   const normalized = normalizeEmployeeKey(raw);
   if (normalized) map.set(normalized, data);
+  // Also add prefixed keys for specific ID types
+  map.set(`planday_${raw}`, data);
+  map.set(`salary_${raw}`, data);
+  if (normalized) {
+    map.set(`planday_${normalized}`, data);
+    map.set(`salary_${normalized}`, data);
+  }
+}
+
+function getEmployeeFromMap(employeeMap, ...keys) {
+  for (const raw of keys) {
+    const value = String(raw || "").trim();
+    if (!value) continue;
+    const normalized = normalizeEmployeeKey(value) || value;
+    
+    // Try exact match first
+    if (employeeMap.has(value)) return employeeMap.get(value);
+    
+    // Try normalized match
+    if (employeeMap.has(normalized)) return employeeMap.get(normalized);
+    
+    // Try prefixed keys for Planday and Salary IDs
+    if (employeeMap.has(`planday_${value}`)) return employeeMap.get(`planday_${value}`);
+    if (employeeMap.has(`salary_${value}`)) return employeeMap.get(`salary_${value}`);
+    if (employeeMap.has(`planday_${normalized}`)) return employeeMap.get(`planday_${normalized}`);
+    if (employeeMap.has(`salary_${normalized}`)) return employeeMap.get(`salary_${normalized}`);
+  }
+  return null;
+}
+
+function normalizeReportLocation(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "bergen") return "Bergen";
+  if (raw === "gj\u00f8vik" || raw === "gjovik" || (raw.includes("gj") && raw.includes("vik"))) return "Gj\u00f8vik";
+  return "Oslo";
 }
 
 function resolvePayrollLocation(row, employee, override) {
   const departmentId = String(row.departmentId || row.department?.id || "").trim();
   const departmentName = String(row.department || row.departmentName || row.location || "").trim();
-  return (
-    String(override || "").trim() ||
-    departmentName ||
-    DEPARTMENT_ID_TO_NAME[Number(departmentId)] ||
-    employee?.location ||
-    "Unknown"
-  );
+  const preferred = String(override || "").trim() || departmentName || DEPARTMENT_ID_TO_NAME[Number(departmentId)] || employee?.location || "Oslo";
+  return normalizeReportLocation(preferred);
 }
 
 async function groupCsvPayrollRowsByLocation(rows) {
@@ -148,8 +178,15 @@ async function groupCsvPayrollRowsByLocation(rows) {
     addEmployeeKey(employeeMap, data.id, data);
     addEmployeeKey(employeeMap, data.employeeId, data);
     addEmployeeKey(employeeMap, data.employeeNumber, data);
+    addEmployeeKey(employeeMap, data.employee_id, data);
+    addEmployeeKey(employeeMap, data.employee_number, data);
+    addEmployeeKey(employeeMap, data.ansattnummer, data);
+    addEmployeeKey(employeeMap, data.ansatt_nr, data);
+    addEmployeeKey(employeeMap, data.salaryId, data);
+    addEmployeeKey(employeeMap, data.salary_number, data);
     addEmployeeKey(employeeMap, data.plandayId, data);
     addEmployeeKey(employeeMap, data.plandayEmployeeId, data);
+    addEmployeeKey(employeeMap, data.planday_employee_id, data);
   });
 
   const grouped = new Map();
@@ -157,20 +194,21 @@ async function groupCsvPayrollRowsByLocation(rows) {
 
   rows.forEach((row) => {
     const employeeId = String(row.employeeId || "").trim();
-    const employee =
-      employeeMap.get(employeeId) ||
-      employeeMap.get(normalizeEmployeeKey(employeeId));
+    const salaryId = String(row.salaryId || "").trim();
+    const plandayId = String(row.plandayId || "").trim();
+    const employeeKey = employeeId || salaryId || plandayId;
+    const employee = getEmployeeFromMap(employeeMap, employeeId, salaryId, plandayId);
     const location = resolvePayrollLocation(row, employee);
     const hours = toNumber(row.units || row.hours);
     const rate = toNumber(row.rate);
     const amount = toNumber(row.amount || (hours * rate));
 
-    if (location === "Unknown" && employeeId) {
-      unmatchedEmployeeIds.add(employeeId);
-    }
-
     if (!grouped.has(location)) {
       grouped.set(location, { location, totalHours: 0, totalSalary: 0 });
+    }
+
+    if (!employee && employeeKey) {
+      unmatchedEmployeeIds.add(employeeKey);
     }
 
     const target = grouped.get(location);
@@ -209,8 +247,15 @@ async function groupCsvPayrollRowsByLocationWithOverrides(rows, employeeLocation
     addEmployeeKey(employeeMap, data.id, data);
     addEmployeeKey(employeeMap, data.employeeId, data);
     addEmployeeKey(employeeMap, data.employeeNumber, data);
+    addEmployeeKey(employeeMap, data.employee_id, data);
+    addEmployeeKey(employeeMap, data.employee_number, data);
+    addEmployeeKey(employeeMap, data.ansattnummer, data);
+    addEmployeeKey(employeeMap, data.ansatt_nr, data);
+    addEmployeeKey(employeeMap, data.salaryId, data);
+    addEmployeeKey(employeeMap, data.salary_number, data);
     addEmployeeKey(employeeMap, data.plandayId, data);
     addEmployeeKey(employeeMap, data.plandayEmployeeId, data);
+    addEmployeeKey(employeeMap, data.planday_employee_id, data);
   });
 
   const regrouped = new Map();
@@ -218,17 +263,18 @@ async function groupCsvPayrollRowsByLocationWithOverrides(rows, employeeLocation
 
   rows.forEach((row) => {
     const employeeIdRaw = String(row.employeeId || "").trim();
-    const employeeKey = normalizeEmployeeKey(employeeIdRaw) || employeeIdRaw;
-    const employee =
-      employeeMap.get(employeeIdRaw) || employeeMap.get(employeeKey);
+    const salaryId = String(row.salaryId || "").trim();
+    const plandayId = String(row.plandayId || "").trim();
+    const employeeKey = normalizeEmployeeKey(employeeIdRaw || salaryId || plandayId) || (employeeIdRaw || salaryId || plandayId);
+    const employee = getEmployeeFromMap(employeeMap, employeeIdRaw, salaryId, plandayId);
     const hours = toNumber(row.units || row.hours);
     const rate = toNumber(row.rate);
     const amount = toNumber(row.amount || (hours * rate));
     const overrideLocation = overrides.get(employeeKey);
     const location = resolvePayrollLocation(row, employee, overrideLocation);
 
-    if (!overrideLocation && location === "Unknown" && employeeIdRaw) {
-      unmatched.add(employeeIdRaw);
+    if (!overrideLocation && !employee && employeeKey) {
+      unmatched.add(employeeKey);
     }
 
     if (!regrouped.has(location)) {
@@ -252,7 +298,7 @@ async function groupCsvPayrollRowsByLocationWithOverrides(rows, employeeLocation
 function groupIncomeCsvRows(rows) {
   const grouped = new Map();
   (Array.isArray(rows) ? rows : []).forEach((row) => {
-    const location = String(row.location || "").trim();
+    const location = normalizeReportLocation(String(row.location || "").trim());
     if (!location) return;
     const income = toNumber(row.income || row.amount);
     if (!grouped.has(location)) grouped.set(location, { location, income: 0 });
@@ -265,6 +311,20 @@ function groupIncomeCsvRows(rows) {
   }));
 }
 
+function normalizeIncomeRows(rows) {
+  return (Array.isArray(rows) ? rows : []).map((row) => ({
+    ...row,
+    location: normalizeReportLocation(row?.location),
+  }));
+}
+
+function normalizeSalaryRows(rows) {
+  return (Array.isArray(rows) ? rows : []).map((row) => ({
+    ...row,
+    location: normalizeReportLocation(row?.location),
+  }));
+}
+
 // ── Core logic ────────────────────────────────────────────────────────────────
 
 async function getFinancialReport(startDate, endDate, locations, options = {}) {
@@ -273,15 +333,11 @@ async function getFinancialReport(startDate, endDate, locations, options = {}) {
   }
 
   const warnings = [];
-  const spanDays = daySpan(startDate, endDate);
-  const includeIncome = options.includeIncome !== false && spanDays <= 45;
+  const includeIncome = options.includeIncome !== false;
   let incomeSource = "zettle_api";
   let salarySource = "planday_api";
   let unmatchedEmployeeIds = [];
 
-  if (!includeIncome && options.includeIncome !== false) {
-    warnings.push("Income fetch skipped for large date range. Reduce range to 45 days or less to include Zettle income.");
-  }
 
   const SOURCE_TIMEOUT_MS = 50_000;
   const [incomeRows, apiSalaryRows] = await Promise.all([
@@ -307,43 +363,52 @@ async function getFinancialReport(startDate, endDate, locations, options = {}) {
     }),
   ]);
 
-  let salaryRows = apiSalaryRows;
+  let salaryRows = normalizeSalaryRows(apiSalaryRows);
   let usedCsvFallback = false;
   if ((!salaryRows || salaryRows.length === 0) && Array.isArray(options.csvPayrollRows) && options.csvPayrollRows.length) {
     const grouped = await groupCsvPayrollRowsByLocationWithOverrides(
       options.csvPayrollRows,
       options.employeeLocationMap || {}
     );
-    salaryRows = grouped.groupedRows;
+    salaryRows = normalizeSalaryRows(grouped.groupedRows);
     unmatchedEmployeeIds = grouped.unmatchedEmployeeIds || [];
     usedCsvFallback = true;
     salarySource = "payroll_csv_fallback";
     warnings.push("Planday API returned no salary rows. Used uploaded CSV payroll fallback.");
   }
 
-  let resolvedIncomeRows = incomeRows;
+  let resolvedIncomeRows = normalizeIncomeRows(incomeRows);
   if ((!resolvedIncomeRows || resolvedIncomeRows.length === 0) && Array.isArray(options.csvIncomeRows) && options.csvIncomeRows.length) {
-    resolvedIncomeRows = groupIncomeCsvRows(options.csvIncomeRows);
+    resolvedIncomeRows = normalizeIncomeRows(groupIncomeCsvRows(options.csvIncomeRows));
     incomeSource = "income_csv_fallback";
     warnings.push("Zettle API returned no income rows. Used uploaded income CSV fallback.");
   }
 
-  const allLocations = new Set([
-    ...resolvedIncomeRows.map((r) => r.location),
-    ...salaryRows.map((r) => r.location),
-  ]);
+  const canonicalLocations = ["Oslo", "Bergen", "Gj\u00f8vik"];
+  const selectedLocations = locations.includes("all")
+    ? canonicalLocations
+    : locations.map((loc) => normalizeReportLocation(loc)).filter((loc, idx, arr) => arr.indexOf(loc) === idx);
+
+  const incomeByLocation = new Map();
+  resolvedIncomeRows.forEach((r) => {
+    const loc = normalizeReportLocation(r.location);
+    incomeByLocation.set(loc, (incomeByLocation.get(loc) || 0) + (r.income || 0));
+  });
+
+  const salaryByLocation = new Map();
+  salaryRows.forEach((r) => {
+    const loc = normalizeReportLocation(r.location);
+    const current = salaryByLocation.get(loc) || { totalSalary: 0, totalHours: 0 };
+    current.totalSalary += r.totalSalary || 0;
+    current.totalHours += r.totalHours || 0;
+    salaryByLocation.set(loc, current);
+  });
 
   const byLocation = {};
 
-  for (const loc of allLocations) {
-    const includeUnknownCsvLocation = usedCsvFallback && loc === "Unknown";
-    if (!locations.includes("all") && !locations.includes(loc) && !includeUnknownCsvLocation) continue;
-
-    const income = resolvedIncomeRows
-      .filter((r) => r.location === loc)
-      .reduce((sum, r) => sum + (r.income || 0), 0);
-
-    const salaryRow     = salaryRows.find((r) => r.location === loc);
+  for (const loc of selectedLocations) {
+    const income = incomeByLocation.get(loc) || 0;
+    const salaryRow = salaryByLocation.get(loc);
     const salary        = salaryRow?.totalSalary || 0;
     const hours         = salaryRow?.totalHours  || 0;
     const profit        = income - salary;
@@ -447,3 +512,4 @@ exports.financialReport = onRequest(
     }
   }
 );
+

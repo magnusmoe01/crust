@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useState, useRef } from "react";
-import { collection, onSnapshot, query } from "firebase/firestore";
 import { Link } from "react-router-dom";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useAdminSession } from "../hooks/useAdminSession";
 import { loadFinancialReport } from "../services/financialReportApi";
-import { db } from "../firebase";
 import "./Admin.css";
 import "./FinancialReport.css";
 
@@ -68,6 +66,16 @@ function toNumber(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function findHeaderIndex(headers, candidates) {
+  return headers.findIndex((h) => candidates.some((candidate) => h === candidate));
+}
+
+function normalizeReportLocation(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "bergen") return "Bergen";
+  if (raw === "gj\u00f8vik" || raw === "gjovik" || (raw.includes("gj") && raw.includes("vik"))) return "Gj\u00f8vik";
+  return "Oslo";
+}
 function parsePayrollCsv(text) {
   const lines = String(text || "")
     .split(/\r?\n/)
@@ -121,7 +129,7 @@ function parseIncomeCsv(text) {
 
   const headers = lines[0].split(";").map((h) => h.trim().toLowerCase());
   const idxLoc = headers.findIndex((h) => h === "location" || h === "lokasjon" || h === "department");
-  const idxAmount = headers.findIndex((h) => h === "income" || h === "amount" || h === "beløp" || h === "belop");
+  const idxAmount = headers.findIndex((h) => h === "income" || h === "amount" || h === "bel�p" || h === "belop");
   if (idxLoc < 0 || idxAmount < 0) {
     throw new Error("Income CSV needs Location and Amount columns.");
   }
@@ -144,18 +152,44 @@ function parseEmployeeLocationCsv(text) {
     .filter(Boolean);
   if (!lines.length) return {};
   const headers = lines[0].split(";").map((h) => h.trim().toLowerCase());
-  const idxEmp = headers.findIndex((h) => h === "ansattnummer" || h === "employeeid" || h === "employee id");
-  const idxLoc = headers.findIndex((h) => h === "location" || h === "lokasjon");
-  if (idxEmp < 0 || idxLoc < 0) {
-    throw new Error("Employee map CSV needs Ansattnummer and Location columns.");
+  const idxEmp = findHeaderIndex(headers, [
+    "ansattnummer",
+    "ansatt nr",
+    "ansatt number",
+    "employeeid",
+    "employee id",
+    "employee number",
+    "empid",
+    "emp id",
+  ]);
+  const idxSalary = findHeaderIndex(headers, [
+    "salaryid",
+    "salary id",
+    "salary number",
+    "salarynr",
+    "salary nr",
+  ]);
+  const idxPlanday = findHeaderIndex(headers, [
+    "plandayid",
+    "planday id",
+    "planday employee id",
+    "planday employeeid",
+    "planday employee",
+  ]);
+  const idxLoc = findHeaderIndex(headers, ["location", "lokasjon", "site"]);
+  if (idxLoc < 0 || (idxEmp < 0 && idxSalary < 0 && idxPlanday < 0)) {
+    throw new Error("Employee map CSV needs Ansattnummer/EmployeeId/SalaryId/PlandayId and Location columns.");
   }
 
   const map = {};
   for (let i = 1; i < lines.length; i += 1) {
     const cols = lines[i].split(";");
-    const emp = String(cols[idxEmp] || "").trim();
-    const location = String(cols[idxLoc] || "").trim();
-    if (emp && location) map[emp] = location;
+    const employeeId = idxEmp >= 0 ? String(cols[idxEmp] || "").trim() : "";
+    const salaryId = idxSalary >= 0 ? String(cols[idxSalary] || "").trim() : "";
+    const plandayId = idxPlanday >= 0 ? String(cols[idxPlanday] || "").trim() : "";
+    const key = employeeId || salaryId || plandayId;
+    const location = normalizeReportLocation(cols[idxLoc]);
+    if (key && location) map[key] = location;
   }
   return map;
 }
@@ -193,7 +227,7 @@ function LocationDropdown({ options, selected, onChange }) {
         onClick={() => setOpen(!open)}
       >
         {allSelected || selected.length === 0 ? "All locations" : `${selected.length} selected`}
-        <span className={`location-dropdown-arrow ${open ? "open" : ""}`}>▼</span>
+        <span className={`location-dropdown-arrow ${open ? "open" : ""}`}>v</span>
       </button>
 
       {open && (
@@ -235,6 +269,8 @@ export default function FinancialReport() {
   const [report,  setReport]  = useState(null);
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState("");
+  const [progress, setProgress] = useState(0);
+  const [progressLabel, setProgressLabel] = useState("");
   const [csvPayrollRows, setCsvPayrollRows] = useState([]);
   const [csvStatus, setCsvStatus] = useState("");
   const [csvIncomeRows, setCsvIncomeRows] = useState([]);
@@ -262,25 +298,14 @@ export default function FinancialReport() {
   ========================= */
   useEffect(() => {
     if (!isAdmin) return;
-
-    const q     = query(collection(db, "locations"));
-    const unsub = onSnapshot(q, (snap) => {
-      const list = snap.docs
-        .map((d) => d.data()?.name || d.data()?.city)
-        .filter(Boolean);
-
-      const unique = [...new Set(list)];
-
-      setLocationOptions([
-        { value: "all", label: "All" },
-        ...unique.map((l) => ({ value: l, label: l })),
-      ]);
-
-      if (locations.length === 0) setLocations(unique);
-    });
-
-    return () => unsub();
-  }, [isAdmin]);
+    setLocationOptions([
+      { value: "all", label: "All" },
+      { value: "Oslo", label: "Oslo" },
+      { value: "Bergen", label: "Bergen" },
+      { value: "Gj\u00f8vik", label: "Gj\u00f8vik" },
+    ]);
+    if (locations.length === 0) setLocations(["Oslo", "Bergen", "Gj\u00f8vik"]);
+  }, [isAdmin, locations.length]);
 
   /* =========================
      GENERATE REPORT
@@ -288,18 +313,24 @@ export default function FinancialReport() {
   const generateReport = async () => {
     setLoading(true);
     setError("");
+    setProgress(15);
+    setProgressLabel("Preparing request...");
 
     try {
-      const cacheKey = getCacheKey(startDate, endDate, locations);
       const fullSignature = `${csvSignature}_${incomeCsvSignature}_${employeeMapSignature}`;
       const cacheKeyWithCsv = getCacheKey(startDate, endDate, locations, fullSignature);
       const cached   = getCache(cacheKeyWithCsv);
 
       if (cached) {
         setReport(cached);
+        setProgress(100);
+        setProgressLabel("Report loaded from cache");
         setLoading(false);
         return;
       }
+
+      setProgress(35);
+      setProgressLabel("Fetching payroll and income data...");
 
       // Salary + income fetched automatically from Planday & Zettle APIs
       const data = await loadFinancialReport(
@@ -311,11 +342,17 @@ export default function FinancialReport() {
         employeeLocationMap
       );
 
+      setProgress(85);
+      setProgressLabel("Finalizing report...");
       setReport(data);
       setCache(cacheKeyWithCsv, data);
+      setProgress(100);
+      setProgressLabel("Report ready");
     } catch (err) {
       console.error("REPORT ERROR:", err);
       setError(err.message || "Could not generate report");
+      setProgress(100);
+      setProgressLabel("Report failed");
     } finally {
       setLoading(false);
     }
@@ -331,7 +368,7 @@ export default function FinancialReport() {
     doc.setFontSize(16);
     doc.text("Financial Report", 14, 20);
     doc.setFontSize(10);
-    doc.text(`Period: ${report.startDate} → ${report.endDate}`, 14, 28);
+    doc.text(`Period: ${report.startDate} -> ${report.endDate}`, 14, 28);
 
     const rows = Object.entries(report.byLocation || {}).map(([loc, d]) => [
       loc,
@@ -371,14 +408,14 @@ export default function FinancialReport() {
       </div>
       <h1>Financial Report</h1>
 
-      {/* ── Filters ── */}
+      {/* -- Filters -- */}
       <div className="financial-filter-grid">
         <div className="financial-filter-field">
           <span>Start</span>
           <input
             type="date"
             value={startDate}
-            onChange={(e) => { setStartDate(e.target.value); setReport(null); }}
+            onChange={(e) => { setStartDate(e.target.value); setReport(null); setProgress(0); setProgressLabel(""); }}
           />
         </div>
 
@@ -387,7 +424,7 @@ export default function FinancialReport() {
           <input
             type="date"
             value={endDate}
-            onChange={(e) => { setEndDate(e.target.value); setReport(null); }}
+            onChange={(e) => { setEndDate(e.target.value); setReport(null); setProgress(0); setProgressLabel(""); }}
           />
         </div>
 
@@ -396,7 +433,7 @@ export default function FinancialReport() {
           <LocationDropdown
             options={locationOptions}
             selected={locations}
-            onChange={(v) => { setLocations(v); setReport(null); }}
+            onChange={(v) => { setLocations(v); setReport(null); setProgress(0); setProgressLabel(""); }}
           />
         </div>
       </div>
@@ -409,6 +446,10 @@ export default function FinancialReport() {
           onChange={async (e) => {
             setReport(null);
             setCsvStatus("");
+            setProgress(0);
+            setProgressLabel("");
+            setProgress(0);
+            setProgressLabel("");
             const file = e.target.files?.[0];
             if (!file) {
               setCsvPayrollRows([]);
@@ -436,6 +477,10 @@ export default function FinancialReport() {
           onChange={async (e) => {
             setReport(null);
             setIncomeCsvStatus("");
+            setProgress(0);
+            setProgressLabel("");
+            setProgress(0);
+            setProgressLabel("");
             const file = e.target.files?.[0];
             if (!file) {
               setCsvIncomeRows([]);
@@ -463,6 +508,8 @@ export default function FinancialReport() {
           onChange={async (e) => {
             setReport(null);
             setEmployeeMapStatus("");
+            setProgress(0);
+            setProgressLabel("");
             const file = e.target.files?.[0];
             if (!file) {
               setEmployeeLocationMap({});
@@ -482,10 +529,10 @@ export default function FinancialReport() {
         {employeeMapStatus ? <small>{employeeMapStatus}</small> : null}
       </div>
 
-      {/* ── Actions ── */}
+      {/* -- Actions -- */}
       <div className="financial-actions-row">
         <button onClick={generateReport} disabled={loading}>
-          {loading ? "Fetching from Planday & Zettle…" : "Generate Report"}
+          {loading ? "Fetching from Planday & Zettle�" : "Generate Report"}
         </button>
 
         {report && (
@@ -495,6 +542,20 @@ export default function FinancialReport() {
         )}
       </div>
 
+
+      {(loading || progress > 0) && (
+        <div className="financial-progress-container">
+          <div className="financial-progress-bar-wrapper">
+            <div
+              className="financial-progress-bar"
+              style={{ width: `${Math.min(progress, 100)}%` }}
+            />
+          </div>
+          <div className="financial-progress-label">
+            {progressLabel || (loading ? "Generating report..." : "")}
+          </div>
+        </div>
+      )}
       {error && <p className="financial-error">{error}</p>}
       {report?.warnings?.length ? (
         <div className="financial-warning-box">
@@ -506,7 +567,45 @@ export default function FinancialReport() {
         </div>
       ) : null}
 
-      {/* ── Summary cards ── */}
+      {report?.unmatchedEmployeeIds?.length > 0 && (
+        <div className="financial-unmatched-box">
+          <h3>Unmatched Salary IDs ({report.unmatchedEmployeeIds.length})</h3>
+          <p>These salary IDs could not be matched to locations automatically.</p>
+          <ol>
+            <li>Create a CSV file with columns: <code>SalaryId</code> and <code>Location</code></li>
+            <li>Set location to one of: <code>Oslo</code>, <code>Bergen</code>, <code>Gj�vik</code></li>
+            <li>Upload it in the Employee Location Map CSV field above</li>
+          </ol>
+          <details>
+            <summary>Show unmatched IDs</summary>
+            <div className="financial-unmatched-list">
+              {report.unmatchedEmployeeIds.map((id, idx) => (
+                <code key={idx}>{id}</code>
+              ))}
+            </div>
+          </details>
+          <button
+            onClick={() => {
+              const csv = ["SalaryId;Location"];
+              report.unmatchedEmployeeIds.forEach((id) => {
+                csv.push(`${id};Oslo`);
+              });
+              const blob = new Blob([csv.join("\n")], { type: "text/csv" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `employee-mapping-template-${new Date().toISOString().slice(0, 10)}.csv`;
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+            className="admin-button admin-button-secondary"
+          >
+            Download CSV Template
+          </button>
+        </div>
+      )}
+
+      {/* -- Summary cards -- */}
       {report && (
         <>
           <div className="financial-summary-grid">
@@ -540,7 +639,7 @@ export default function FinancialReport() {
             </div>
           </div>
 
-          {/* ── Per-location breakdown ── */}
+          {/* -- Per-location breakdown -- */}
           {report.byLocation && Object.keys(report.byLocation).length > 0 && (
             <div className="financial-table-wrapper">
               <table className="financial-table">
@@ -596,3 +695,17 @@ export default function FinancialReport() {
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
