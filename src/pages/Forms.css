@@ -2099,7 +2099,7 @@
 .email-preview-count.is-sad { color: #dc2626; }
 
 .email-preview-reviewer {
-  margin-left: auto;
+  margin: 4px 0 16px;
   font-size: 0.82rem;
   color: #6b7280;
 }

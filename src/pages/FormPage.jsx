@@ -10880,12 +10880,12 @@ function FormPage() {
                   <span className="email-preview-count is-sad">
                     <FaceSad size={24} /> {reviewEmailPreviewData.reviewScoreSummary.sad}
                   </span>
-                  {reviewEmailPreviewData.reviewedBy ? (
-                    <span className="email-preview-reviewer">
-                      {(() => { const n = reviewEmailPreviewData.reviewedBy.replace(/@.*/, ''); return `Vurdert av: ${n.charAt(0).toUpperCase()}${n.slice(1)}`; })()}
-                    </span>
-                  ) : null}
                 </div>
+                {reviewEmailPreviewData.reviewedBy ? (
+                  <p className="email-preview-reviewer">
+                    {(() => { const n = reviewEmailPreviewData.reviewedBy.replace(/@.*/, ''); return `Vurdert av: ${n.charAt(0).toUpperCase()}${n.slice(1)}`; })()}
+                  </p>
+                ) : null}
 
                 {reviewEmailPreviewData.flaggedAnswers.length > 0 ? (
                   <div className="email-preview-section">

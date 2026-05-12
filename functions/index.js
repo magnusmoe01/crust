@@ -579,12 +579,12 @@ function buildReviewEmailHtml(formTitle, flaggedAnswers, approvedAnswers, review
   const reviewerName = rawName ? rawName.charAt(0).toUpperCase() + rawName.slice(1) : null;
   const reviewerLabel = isTest ? "TEST" : (reviewerName || null);
   const countBar = `
-    <div style="display:flex;align-items:center;padding:14px 18px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:24px;">
+    <div style="display:flex;align-items:center;padding:14px 18px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:8px;">
       <span style="display:inline-flex;align-items:center;gap:8px;color:#166534;font-weight:700;font-size:18px;margin-right:32px;">${svgHappy}&nbsp;${happyCount}</span>
       <span style="display:inline-flex;align-items:center;gap:8px;color:#d97706;font-weight:700;font-size:18px;margin-right:32px;">${svgNeutral}&nbsp;${neutralCount}</span>
       <span style="display:inline-flex;align-items:center;gap:8px;color:#dc2626;font-weight:700;font-size:18px;">${svgSad}&nbsp;${sadCount}</span>
-      ${reviewerLabel ? `<span style="margin-left:auto;font-size:13px;color:#6b7280;">Vurdert av: <strong style="color:#1f2937;">${reviewerLabel}</strong></span>` : ""}
-    </div>`;
+    </div>
+    ${reviewerLabel ? `<p style="margin:0 0 20px;font-size:13px;color:#6b7280;">Vurdert av: <strong style="color:#1f2937;">${reviewerLabel}</strong></p>` : `<p style="margin:0 0 20px;"></p>`}`;
 
   // ── Flagged section ────────────────────────────────────────────────────────
   let flaggedSection = "";
