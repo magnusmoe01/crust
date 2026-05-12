@@ -14,7 +14,8 @@ import {
   where,
 } from 'firebase/firestore'
 import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage'
-import { db, storage } from '../firebase'
+import { httpsCallable } from 'firebase/functions'
+import { db, functions, storage } from '../firebase'
 import { STENGESKJEMA_ID, defaultStengeskjema } from '../forms/defaultForms'
 import { useAdminSession } from '../hooks/useAdminSession'
 import './Forms.css'
@@ -957,6 +958,8 @@ function normalizeQuestion(question, index) {
     imageZoom: normalizeImageZoom(question?.imageZoom),
     includeInAnalysis: type === 'section' ? false : Boolean(question?.includeInAnalysis),
     includeInReview: type === 'section' ? false : Boolean(question?.includeInReview),
+    reviewType: type === 'section' ? '' : (String(question?.reviewType || '').trim() || (question?.includeInReview ? 'rating' : '')),
+    includeRating: type === 'section' ? false : Boolean(question?.includeRating),
     shouldRestock: type === 'section' ? false : Boolean(question?.shouldRestock),
     reviewHelpText: type === 'section' ? '' : String(question?.reviewHelpText || '').trim(),
     analysisLabel: type === 'section' ? '' : String(question?.analysisLabel || '').trim(),
@@ -1867,6 +1870,8 @@ function createEditorQuestion(seed) {
     imageZoom: 1,
     includeInAnalysis: false,
     includeInReview: false,
+    reviewType: '',
+    includeRating: false,
     shouldRestock: false,
     reviewHelpText: '',
     analysisLabel: '',
@@ -2073,6 +2078,39 @@ function getLocationsLoadErrorMessage(error) {
   return code ? `Kunne ikke hente lokasjoner (${code}).` : 'Kunne ikke hente lokasjoner akkurat nå.'
 }
 
+function FaceHappy({ size = 22 }) {
+  return (
+    <svg className="face-icon face-happy" width={size} height={size} viewBox="0 0 22 22" fill="none" aria-hidden="true">
+      <circle cx="11" cy="11" r="10" stroke="currentColor" strokeWidth="1.6" fill="none" />
+      <circle cx="7.5" cy="9" r="1.2" fill="currentColor" />
+      <circle cx="14.5" cy="9" r="1.2" fill="currentColor" />
+      <path d="M7 13.5 Q11 17 15 13.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" fill="none" />
+    </svg>
+  )
+}
+
+function FaceNeutral({ size = 22 }) {
+  return (
+    <svg className="face-icon face-neutral" width={size} height={size} viewBox="0 0 22 22" fill="none" aria-hidden="true">
+      <circle cx="11" cy="11" r="10" stroke="currentColor" strokeWidth="1.6" fill="none" />
+      <circle cx="7.5" cy="9" r="1.2" fill="currentColor" />
+      <circle cx="14.5" cy="9" r="1.2" fill="currentColor" />
+      <line x1="7.5" y1="14.5" x2="14.5" y2="14.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function FaceSad({ size = 22 }) {
+  return (
+    <svg className="face-icon face-sad" width={size} height={size} viewBox="0 0 22 22" fill="none" aria-hidden="true">
+      <circle cx="11" cy="11" r="10" stroke="currentColor" strokeWidth="1.6" fill="none" />
+      <circle cx="7.5" cy="9" r="1.2" fill="currentColor" />
+      <circle cx="14.5" cy="9" r="1.2" fill="currentColor" />
+      <path d="M7 16 Q11 12.5 15 16" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" fill="none" />
+    </svg>
+  )
+}
+
 function FormPage() {
   const { formSlug = STENGESKJEMA_ID, receiptToken = '', submissionId = '' } = useParams()
   const location = useLocation()
@@ -2086,6 +2124,7 @@ function FormPage() {
   const isReviewView = location.pathname.includes('/review/')
   const isFlaggedView = location.pathname.endsWith('/flagget')
   const isRemarksView = location.pathname.endsWith('/remarks')
+  const isRatingView = location.pathname.endsWith('/rating')
   const isDeliverySettingsView = location.pathname.endsWith('/leveringsliste/innstillinger')
   const isDeliveryView = location.pathname.endsWith('/leveringsliste')
   const isHistoryView =
@@ -2098,6 +2137,7 @@ function FormPage() {
     isHistoryView ||
     isFlaggedView ||
     isRemarksView ||
+    isRatingView ||
     isReviewView ||
     isDeliveryView ||
     isDeliverySettingsView
@@ -2107,6 +2147,7 @@ function FormPage() {
     !isHistoryView &&
     !isFlaggedView &&
     !isRemarksView &&
+    !isRatingView &&
     !isReviewView &&
     !isDeliverySettingsView &&
     !isDeliveryView
@@ -2175,7 +2216,12 @@ function FormPage() {
   const [selectedSubmissionDay, setSelectedSubmissionDay] = useState('')
   const [reviewDraftStatuses, setReviewDraftStatuses] = useState({})
   const [reviewDraftComments, setReviewDraftComments] = useState({})
+  const [reviewDraftRatings, setReviewDraftRatings] = useState({})
   const [reviewSubmissionState, setReviewSubmissionState] = useState({ saving: false, error: '' })
+  const [reviewEmailPreviewData, setReviewEmailPreviewData] = useState(null)
+  const [reviewEmailOverride, setReviewEmailOverride] = useState('')
+  const [reviewEmailSaving, setReviewEmailSaving] = useState(false)
+  const [testEmailState, setTestEmailState] = useState({ sending: false, error: '', message: '' })
   const [historySubmissionLimit, setHistorySubmissionLimit] = useState('3')
   const [historyDefaultState, setHistoryDefaultState] = useState({
     saving: false,
@@ -3279,6 +3325,33 @@ function FormPage() {
     }
   }, [isHistoryView])
 
+  useEffect(() => {
+    if (!selectedSubmissionId || !isReviewView) {
+      setReviewEmailOverride('')
+      return
+    }
+    const sub = submissions.find((s) => s.id === selectedSubmissionId)
+    if (!sub) {
+      setReviewEmailOverride('')
+      return
+    }
+    const directEmail =
+      sub.submitterEmail ||
+      getSubmissionEmail(sub.answers, formData.questions)
+    if (directEmail) {
+      setReviewEmailOverride(directEmail)
+      return
+    }
+    const phone = getSubmissionPhone(sub.answers, formData.questions)
+    if (!phone) {
+      setReviewEmailOverride('')
+      return
+    }
+    getDoc(doc(db, 'phoneEmails', phone))
+      .then((snap) => setReviewEmailOverride(snap.exists() ? (snap.data().email || '') : ''))
+      .catch(() => setReviewEmailOverride(''))
+  }, [selectedSubmissionId, isReviewView, submissions])
+
   function onAnswerChange(questionId, value) {
     const question = formData.questions.find((item) => item.id === questionId)
     const nextValue = question?.type === 'phone' ? normalizeNorwegianPhoneNumber(value) : value
@@ -4184,6 +4257,8 @@ function FormPage() {
             type: value,
             required: value === 'section' ? false : question.required,
             includeInReview: value === 'section' ? false : question.includeInReview,
+            reviewType: value === 'section' ? '' : question.reviewType,
+            includeRating: value === 'section' ? false : question.includeRating,
             shouldRestock: value === 'section' ? false : question.shouldRestock,
             deliveryUnlimited: value === 'select' ? question.deliveryUnlimited : true,
             deliveryMaxUnits: value === 'select' ? question.deliveryMaxUnits : '',
@@ -4816,8 +4891,16 @@ function FormPage() {
       [answerKey]: nextStatus,
     }))
 
-    if (nextStatus !== 'flagged') {
+    if (nextStatus !== 'flagged' && nextStatus !== 'flagged_sad') {
       setReviewDraftComments((previous) => {
+        if (typeof previous[answerKey] === 'undefined') {
+          return previous
+        }
+        const next = { ...previous }
+        delete next[answerKey]
+        return next
+      })
+      setReviewDraftRatings((previous) => {
         if (typeof previous[answerKey] === 'undefined') {
           return previous
         }
@@ -4835,6 +4918,75 @@ function FormPage() {
     }))
   }
 
+  function onReviewRatingChange(answerKey, value) {
+    setReviewDraftRatings((previous) => ({
+      ...previous,
+      [answerKey]: value,
+    }))
+  }
+
+  function onOpenReviewPreview() {
+    if (!selectedSubmission) return
+
+    const hasPendingDecisions = selectedSubmissionAnswerEntries.some(
+      ([answerKey]) => !String(reviewDraftStatuses[answerKey] || '').trim(),
+    )
+
+    if (hasPendingDecisions) {
+      alert('Select a rating for each question before marking the submission as reviewed.')
+      return
+    }
+
+    const flaggedAnswers = selectedSubmissionAnswerEntries
+      .filter(([answerKey]) => {
+        const s = reviewDraftStatuses[answerKey]
+        const q = getQuestionForAnswerKey(answerKey, formData.questions)
+        return (q?.reviewType || 'rating') === 'rating' && (s === 'flagged' || s === 'flagged_sad')
+      })
+      .map(([answerKey]) => {
+        const value = selectedSubmission.answers?.[answerKey]
+        if (!String(value || '').trim()) return null
+        return {
+          answerKey,
+          label: getAnswerDisplayLabel(answerKey, selectedSubmission.answers, formData.questions),
+          value: isStorageImagePath(value) ? String(value) : String(value || ''),
+          imageUrl: isStorageImagePath(value) ? String(selectedSubmissionImageUrls[value] || '') : '',
+          comment: String(reviewDraftComments[answerKey] || '').trim(),
+          reviewStatus: reviewDraftStatuses[answerKey],
+        }
+      })
+      .filter(Boolean)
+
+    const approvedAnswers = selectedSubmissionAnswerEntries
+      .filter(([answerKey]) => {
+        const q = getQuestionForAnswerKey(answerKey, formData.questions)
+        return (q?.reviewType || 'rating') === 'rating' && reviewDraftStatuses[answerKey] === 'approved'
+      })
+      .map(([answerKey]) => {
+        const value = selectedSubmission.answers?.[answerKey]
+        if (!String(value || '').trim()) return null
+        return {
+          answerKey,
+          label: getAnswerDisplayLabel(answerKey, selectedSubmission.answers, formData.questions),
+          value: isStorageImagePath(value) ? String(value) : String(value || ''),
+          imageUrl: isStorageImagePath(value) ? String(selectedSubmissionImageUrls[value] || '') : '',
+        }
+      })
+      .filter(Boolean)
+
+    const neutralCount = flaggedAnswers.filter((a) => !a.reviewStatus || a.reviewStatus === 'flagged').length
+    const sadCount = flaggedAnswers.filter((a) => a.reviewStatus === 'flagged_sad').length
+
+    setReviewEmailPreviewData({
+      flaggedAnswers,
+      approvedAnswers,
+      reviewScoreSummary: { happy: approvedAnswers.length, neutral: neutralCount, sad: sadCount },
+      submitterEmail:
+        selectedSubmission.submitterEmail ||
+        getSubmissionEmail(selectedSubmission.answers, formData.questions),
+    })
+  }
+
   async function onSaveSubmissionReview() {
     if (!selectedSubmission) {
       return
@@ -4845,36 +4997,54 @@ function FormPage() {
     )
 
     if (hasPendingDecisions) {
-      setReviewSubmissionState({
-        saving: false,
-        error: 'Approve or flag every question before setting the submission as reviewed.',
-      })
       return
     }
 
     setReviewSubmissionState({ saving: true, error: '' })
 
+    const reviewAnswers = Object.fromEntries(
+      selectedSubmissionAnswerEntries.map(([answerKey]) => [answerKey, reviewDraftStatuses[answerKey] || 'approved']),
+    )
+
     const flaggedAnswers = selectedSubmissionAnswerEntries
-      .filter(([answerKey]) => reviewDraftStatuses[answerKey] === 'flagged')
+      .filter(([answerKey]) => {
+        const s = reviewDraftStatuses[answerKey]
+        return s === 'flagged' || s === 'flagged_sad'
+      })
       .map(([answerKey]) => {
         const value = selectedSubmission.answers?.[answerKey]
         if (!String(value || '').trim()) {
           return null
         }
-
+        const reviewStatus = reviewDraftStatuses[answerKey]
+        const q = getQuestionForAnswerKey(answerKey, formData.questions)
+        const ratingValue = reviewDraftRatings[answerKey]
         return {
           answerKey,
           label: getAnswerDisplayLabel(answerKey, selectedSubmission.answers, formData.questions),
           value: isStorageImagePath(value) ? String(value) : String(value || ''),
           imageUrl: isStorageImagePath(value) ? String(selectedSubmissionImageUrls[value] || '') : '',
           comment: String(reviewDraftComments[answerKey] || '').trim(),
+          reviewStatus,
+          rating: q?.includeRating && ratingValue ? Number(ratingValue) : null,
         }
       })
       .filter(Boolean)
 
+    const ratingEntries = selectedSubmissionAnswerEntries.filter(([answerKey]) => {
+      const q = getQuestionForAnswerKey(answerKey, formData.questions)
+      return (q?.reviewType || 'rating') === 'rating'
+    })
+    const happyCount = ratingEntries.filter(([answerKey]) => reviewDraftStatuses[answerKey] === 'approved').length
+    const neutralCount = ratingEntries.filter(([answerKey]) => reviewDraftStatuses[answerKey] === 'flagged').length
+    const sadCount = ratingEntries.filter(([answerKey]) => reviewDraftStatuses[answerKey] === 'flagged_sad').length
+    const reviewScoreSummary = { happy: happyCount, neutral: neutralCount, sad: sadCount }
+
     try {
       await updateDoc(doc(db, 'formSubmissions', selectedSubmission.id), {
         flaggedAnswers,
+        reviewAnswers,
+        reviewScoreSummary,
         status: 'reviewed',
         statusUpdatedBy: user?.email || 'admin',
         statusUpdatedAt: serverTimestamp(),
@@ -4887,6 +5057,8 @@ function FormPage() {
             ? {
                 ...submission,
                 flaggedAnswers,
+                reviewAnswers,
+                reviewScoreSummary,
                 status: 'reviewed',
                 statusUpdatedBy: user?.email || 'admin',
                 statusUpdatedAt: new Date(),
@@ -4896,7 +5068,57 @@ function FormPage() {
         ),
       )
 
+      const submitterEmail = reviewEmailOverride ||
+        selectedSubmission.submitterEmail ||
+        getSubmissionEmail(selectedSubmission.answers, formData.questions)
+
+      // Persist phone→email mapping if reviewer entered one
+      const phone = getSubmissionPhone(selectedSubmission.answers, formData.questions)
+      if (phone && reviewEmailOverride) {
+        setDoc(doc(db, 'phoneEmails', phone), { email: reviewEmailOverride, updatedAt: serverTimestamp() })
+          .catch(() => {})
+      }
+
+      if (submitterEmail) {
+        const emailFlaggedAnswers = flaggedAnswers.filter(({ answerKey }) => {
+          const q = getQuestionForAnswerKey(answerKey, formData.questions)
+          return (q?.reviewType || 'rating') === 'rating'
+        })
+        const emailApprovedAnswers = selectedSubmissionAnswerEntries
+          .filter(([answerKey]) => {
+            const q = getQuestionForAnswerKey(answerKey, formData.questions)
+            return (q?.reviewType || 'rating') === 'rating' && reviewDraftStatuses[answerKey] === 'approved'
+          })
+          .map(([answerKey]) => {
+            const value = selectedSubmission.answers?.[answerKey]
+            if (!String(value || '').trim()) return null
+            return {
+              answerKey,
+              label: getAnswerDisplayLabel(answerKey, selectedSubmission.answers, formData.questions),
+              value: isStorageImagePath(value) ? String(value) : String(value || ''),
+              imageUrl: isStorageImagePath(value) ? String(selectedSubmissionImageUrls[value] || '') : '',
+            }
+          })
+          .filter(Boolean)
+
+        httpsCallable(functions, 'sendReviewEmail')({
+          submitterEmail,
+          formTitle: formData.title || activeFormSlug,
+          flaggedAnswers: emailFlaggedAnswers,
+          approvedAnswers: emailApprovedAnswers,
+          reviewScoreSummary,
+          submittedAtSeconds: selectedSubmission.submittedAt?.seconds || null,
+          reviewUrl: selectedSubmission.receiptToken
+            ? `https://crust.no/skjema/${activeFormSlug}/kvittering/${selectedSubmission.receiptToken}`
+            : null,
+          reviewedBy: user?.email || null,
+        }).catch((emailError) => {
+          console.error('Review email failed to send', emailError)
+        })
+      }
+
       setReviewSubmissionState({ saving: false, error: '' })
+      setReviewEmailPreviewData(null)
     } catch (error) {
       const code = error?.code ? ` (${error.code})` : ''
       setReviewSubmissionState({
@@ -4906,6 +5128,87 @@ function FormPage() {
             ? `Could not save the review${code}. Firestore rules do not allow this action.`
             : `Could not save the review${code}.`,
       })
+    }
+  }
+
+  async function onSendTestReviewEmail() {
+    const reviewQuestions = formData.questions.filter(
+      (q) => !isSectionQuestion(q) && Boolean(q.includeInReview),
+    )
+
+    const latestFlagged = [...submissions]
+      .filter((s) => Array.isArray(s.flaggedAnswers) && s.flaggedAnswers.length > 0)
+      .sort((a, b) => {
+        const aT = a.reviewedAt?.seconds ?? (a.reviewedAt instanceof Date ? a.reviewedAt.getTime() / 1000 : 0)
+        const bT = b.reviewedAt?.seconds ?? (b.reviewedAt instanceof Date ? b.reviewedAt.getTime() / 1000 : 0)
+        return bT - aT
+      })[0]
+
+    if (!latestFlagged) {
+      setTestEmailState({ sending: false, error: 'No reviewed submission with flagged answers found.', message: '' })
+      return
+    }
+
+    setTestEmailState({ sending: true, error: '', message: '' })
+
+    try {
+      const flaggedKeys = new Set((latestFlagged.flaggedAnswers || []).map((a) => a.answerKey))
+
+      const flaggedAnswers = await Promise.all(
+        (latestFlagged.flaggedAnswers || []).map(async (item) => {
+          if (item.imageUrl) return item
+          if (isStorageImagePath(item.value)) {
+            try {
+              const imageUrl = await getDownloadURL(ref(storage, item.value))
+              return { ...item, imageUrl }
+            } catch {
+              return item
+            }
+          }
+          return item
+        }),
+      )
+
+      const approvedEntries = getOrderedAnswerEntries(
+        latestFlagged.answers || {},
+        reviewQuestions,
+        { includeRemainingAnswers: false },
+      ).filter(([answerKey]) => !flaggedKeys.has(answerKey))
+
+      const approvedAnswers = await Promise.all(
+        approvedEntries.map(async ([answerKey, value]) => {
+          if (!String(value || '').trim()) return null
+          let imageUrl = ''
+          if (isStorageImagePath(value)) {
+            try {
+              imageUrl = await getDownloadURL(ref(storage, value))
+            } catch {
+              imageUrl = ''
+            }
+          }
+          return {
+            answerKey,
+            label: getAnswerDisplayLabel(answerKey, latestFlagged.answers, formData.questions),
+            value: isStorageImagePath(value) ? String(value) : String(value || ''),
+            imageUrl,
+          }
+        }),
+      ).then((results) => results.filter(Boolean))
+
+      await httpsCallable(functions, 'sendReviewEmail')({
+        submitterEmail: latestFlagged.submitterEmail || 'test@crust.no',
+        formTitle: formData.title || activeFormSlug,
+        flaggedAnswers,
+        approvedAnswers,
+        reviewScoreSummary: latestFlagged.reviewScoreSummary || { happy: 0, neutral: 0, sad: 0 },
+        submittedAtSeconds: latestFlagged.submittedAt?.seconds || null,
+        reviewUrl: `https://crust.no/skjema/${activeFormSlug}/review/${latestFlagged.id}`,
+        testRecipient: 'magnus@crust.no',
+      })
+
+      setTestEmailState({ sending: false, error: '', message: 'Test email sent to magnus@crust.no' })
+    } catch (error) {
+      setTestEmailState({ sending: false, error: `Failed to send: ${error.message}`, message: '' })
     }
   }
 
@@ -6459,11 +6762,62 @@ function FormPage() {
 
     return Array.from(statsByMonth.values()).sort((a, b) => b.monthKey.localeCompare(a.monthKey))
   }, [submissions])
+
+  const userScoreboard = useMemo(() => {
+    const reviewQuestionCount = formData.questions.filter(
+      (q) => !isSectionQuestion(q) && Boolean(q.includeInReview) && (q.reviewType || 'rating') === 'rating',
+    ).length
+    const byUser = new Map()
+    submissions.forEach((submission) => {
+      const userName =
+        getSubmissionName(submission.answers, formData.questions) ||
+        getSubmissionPhone(submission.answers, formData.questions) ||
+        ''
+      if (!userName) {
+        return
+      }
+      const entry = byUser.get(userName) || {
+        name: userName,
+        totalSubmissions: 0,
+        totalReviewed: 0,
+        happy: 0,
+        neutral: 0,
+        sad: 0,
+      }
+      entry.totalSubmissions += 1
+      if (String(submission.status || '').trim().toLowerCase() === 'reviewed') {
+        entry.totalReviewed += 1
+        if (submission.reviewScoreSummary) {
+          entry.happy += submission.reviewScoreSummary.happy || 0
+          entry.neutral += submission.reviewScoreSummary.neutral || 0
+          entry.sad += submission.reviewScoreSummary.sad || 0
+        }
+      }
+      byUser.set(userName, entry)
+    })
+    return Array.from(byUser.values())
+      .map((row) => {
+        const facesTotal = row.happy + row.neutral + row.sad
+        const score = facesTotal > 0 ? Math.round((row.happy / facesTotal) * 100) : null
+        return { ...row, score }
+      })
+      .sort((a, b) => {
+        const aScore = a.score ?? 101
+        const bScore = b.score ?? 101
+        if (aScore !== bScore) return aScore - bScore
+        if (a.sad !== b.sad) return b.sad - a.sad
+        return b.totalSubmissions - a.totalSubmissions
+      })
+  }, [submissions, formData.questions])
+
   const flaggedSubmissions = useMemo(
     () =>
-      submissions.filter(
-        (submission) => Array.isArray(submission.flaggedAnswers) && submission.flaggedAnswers.length > 0,
-      ),
+      submissions.filter((submission) => {
+        const hasFlagged = Array.isArray(submission.flaggedAnswers) && submission.flaggedAnswers.length > 0
+        const hasRatingIssues =
+          (submission.reviewScoreSummary?.neutral || 0) + (submission.reviewScoreSummary?.sad || 0) > 0
+        return hasFlagged || hasRatingIssues
+      }),
     [submissions],
   )
   const flaggedImagePaths = useMemo(
@@ -6738,30 +7092,20 @@ function FormPage() {
       return accumulator
     }, new Map())
   const historyRows = Array.from(historyByLocation.entries())
-    .map(([location, items]) => ({
-      location,
-      items: items
-        .sort((a, b) => {
-          const aSeconds = a.submittedAt?.seconds || 0
-          const bSeconds = b.submittedAt?.seconds || 0
-          return bSeconds - aSeconds
-        })
-        .slice(0, parsedHistorySubmissionLimit),
-    }))
-    .sort((a, b) => {
-      const aIndex = locationOrder.indexOf(a.location)
-      const bIndex = locationOrder.indexOf(b.location)
-      if (aIndex !== -1 || bIndex !== -1) {
-        if (aIndex === -1) {
-          return 1
-        }
-        if (bIndex === -1) {
-          return -1
-        }
-        return aIndex - bIndex
+    .map(([location, items]) => {
+      const sortedItems = [...items].sort((a, b) => {
+        const aSeconds = a.submittedAt?.seconds || 0
+        const bSeconds = b.submittedAt?.seconds || 0
+        return bSeconds - aSeconds
+      })
+      return {
+        location,
+        latestSubmittedAtSeconds: sortedItems[0]?.submittedAt?.seconds || 0,
+        items: sortedItems.slice(0, parsedHistorySubmissionLimit),
       }
-      return a.location.localeCompare(b.location, 'nb')
     })
+    .filter((row) => locationOrder.includes(row.location))
+    .sort((a, b) => b.latestSubmittedAtSeconds - a.latestSubmittedAtSeconds)
   const deliveryLocationNames = (() => {
     const namesFromLocations = availableLocations
       .map((location) => String(location.name || '').trim())
@@ -7364,14 +7708,22 @@ function FormPage() {
             </section>
 
             <section className="flagged-panel flagged-content-panel">
-              <h4>Flagget spørsmål</h4>
-              <div className="flagged-answer-list">
-                {(submission.flaggedAnswers || []).map((item) => {
+              {(() => {
+                const allItems = submission.flaggedAnswers || []
+                const flaggingItems = allItems.filter((item) => {
+                  const q = formData.questions?.find((question) => question.id === item.answerKey)
+                  return (q?.reviewType || 'rating') === 'flagging'
+                })
+                const ratingItems = allItems.filter((item) => {
+                  const q = formData.questions?.find((question) => question.id === item.answerKey)
+                  return (q?.reviewType || 'rating') === 'rating'
+                })
+
+                function renderFlaggedAnswerItem(item) {
                   const hasImagePath = isStorageImagePath(item.value)
                   const imageUrl = hasImagePath
                     ? String(item.imageUrl || flaggedImageUrls[item.value] || '')
                     : undefined
-
                   return (
                     <article key={`${submission.id}-${item.answerKey}`} className="flagged-answer-row">
                       <p className="review-answer-label">{item.label}</p>
@@ -7382,14 +7734,8 @@ function FormPage() {
                       ) : null}
                       {hasImagePath ? (
                         imageUrl ? (
-                          <img
-                            className="flagged-answer-image"
-                            src={imageUrl}
-                            alt={item.label}
-                            loading="lazy"
-                          />
-                        ) : typeof item.imageUrl === 'string' ||
-                          typeof flaggedImageUrls[item.value] !== 'undefined' ? (
+                          <img className="flagged-answer-image" src={imageUrl} alt={item.label} loading="lazy" />
+                        ) : typeof item.imageUrl === 'string' || typeof flaggedImageUrls[item.value] !== 'undefined' ? (
                           <p className="review-answer-value">Kunne ikke laste bilde.</p>
                         ) : (
                           <p className="review-answer-value">Laster bilde...</p>
@@ -7399,8 +7745,67 @@ function FormPage() {
                       )}
                     </article>
                   )
-                })}
-              </div>
+                }
+
+                return (
+                  <>
+                    {flaggingItems.length > 0 ? (
+                      <div className="flagged-content-section">
+                        <h4>Flagget spørsmål</h4>
+                        <div className="flagged-answer-list">
+                          {flaggingItems.map(renderFlaggedAnswerItem)}
+                        </div>
+                      </div>
+                    ) : null}
+                    {ratingItems.length > 0 ? (
+                      <div className="flagged-content-section">
+                        <h4>Vurdert med <FaceNeutral size={16} /> / <FaceSad size={16} /></h4>
+                        <div className="flagged-answer-list">
+                          {ratingItems.map((item) => (
+                            <article key={`${submission.id}-${item.answerKey}-rating`} className={`flagged-answer-row flagged-answer-row--rated ${item.reviewStatus === 'flagged_sad' ? 'is-sad' : 'is-neutral'}`}>
+                              <p className="review-answer-label">
+                                {item.reviewStatus === 'flagged_sad' ? <FaceSad size={16} /> : <FaceNeutral size={16} />}
+                                {' '}{item.label}
+                              </p>
+                              {item.comment ? (
+                                <p className="flagged-answer-comment">
+                                  <strong>Kommentar:</strong> {item.comment}
+                                </p>
+                              ) : null}
+                              {(() => {
+                                const hasImagePath = isStorageImagePath(item.value)
+                                const imageUrl = hasImagePath
+                                  ? String(item.imageUrl || flaggedImageUrls[item.value] || '')
+                                  : undefined
+                                return hasImagePath ? (
+                                  imageUrl ? (
+                                    <img className="flagged-answer-image" src={imageUrl} alt={item.label} loading="lazy" />
+                                  ) : typeof item.imageUrl === 'string' || typeof flaggedImageUrls[item.value] !== 'undefined' ? (
+                                    <p className="review-answer-value">Kunne ikke laste bilde.</p>
+                                  ) : (
+                                    <p className="review-answer-value">Laster bilde...</p>
+                                  )
+                                ) : (
+                                  <p className="review-answer-value">{String(item.value || '-')}</p>
+                                )
+                              })()}
+                            </article>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                    {flaggingItems.length === 0 && ratingItems.length === 0 && (submission.reviewScoreSummary?.neutral || 0) + (submission.reviewScoreSummary?.sad || 0) > 0 ? (
+                      <div className="flagged-content-section">
+                        <h4>Vurdert</h4>
+                        <p className="review-answer-value">
+                          {submission.reviewScoreSummary?.neutral > 0 ? <><FaceNeutral size={15} /> {submission.reviewScoreSummary.neutral} nøytral </> : null}
+                          {submission.reviewScoreSummary?.sad > 0 ? <><FaceSad size={15} /> {submission.reviewScoreSummary.sad} surmunn</> : null}
+                        </p>
+                      </div>
+                    ) : null}
+                  </>
+                )
+              })()}
             </section>
           </div>
         ) : null}
@@ -8083,7 +8488,7 @@ function FormPage() {
   return (
     <div
       className={`forms-page stengeskjema-page ${isStandalonePublicForm ? 'public-form-page' : ''} ${
-        isHistoryView || isDeliveryView || isDeliverySettingsView || isRemarksView ? 'history-page' : ''
+        isHistoryView || isDeliveryView || isDeliverySettingsView || isRemarksView || isRatingView ? 'history-page' : ''
       }`}
     >
       {isAdminShellView ? (
@@ -8788,6 +9193,46 @@ function FormPage() {
                                   />
                                   Skal vurderes
                                 </label>
+                                {question.includeInReview ? (
+                                  <div className="review-type-toggle editor-settings-toggle-cell">
+                                    <label className="radio-inline">
+                                      <input
+                                        type="radio"
+                                        name={`q-review-type-${index}`}
+                                        value="rating"
+                                        checked={(question.reviewType || 'rating') === 'rating'}
+                                        onChange={() => onEditorQuestionChange(index, 'reviewType', 'rating')}
+                                      />
+                                      Rating
+                                    </label>
+                                    <label className="radio-inline">
+                                      <input
+                                        type="radio"
+                                        name={`q-review-type-${index}`}
+                                        value="flagging"
+                                        checked={question.reviewType === 'flagging'}
+                                        onChange={() => onEditorQuestionChange(index, 'reviewType', 'flagging')}
+                                      />
+                                      Flagging
+                                    </label>
+                                  </div>
+                                ) : null}
+                                {question.includeInReview && (question.reviewType || 'rating') === 'rating' ? (
+                                  <label
+                                    className="checkbox-inline editor-settings-toggle-cell"
+                                    htmlFor={`q-rating-${index}`}
+                                  >
+                                    <input
+                                      id={`q-rating-${index}`}
+                                      type="checkbox"
+                                      checked={Boolean(question.includeRating)}
+                                      onChange={(event) =>
+                                        onEditorQuestionChange(index, 'includeRating', event.target.checked)
+                                      }
+                                    />
+                                    Skal rates
+                                  </label>
+                                ) : null}
                                 <label
                                   className="checkbox-inline editor-settings-toggle-cell"
                                   htmlFor={`q-restock-${index}`}
@@ -9056,7 +9501,25 @@ function FormPage() {
 
             {isSubmissionsView ? (
               <div className="responses-box submissions-overview" id="submissions-section">
-                <h3>Submissions</h3>
+                <div className="submissions-section-header">
+                  <h3>Submissions</h3>
+                  <div className="submissions-section-actions">
+                    <button
+                      type="button"
+                      className="submissions-action-button"
+                      onClick={onSendTestReviewEmail}
+                      disabled={testEmailState.sending}
+                    >
+                      {testEmailState.sending ? 'Sending…' : 'Send test email'}
+                    </button>
+                    {testEmailState.message ? (
+                      <span className="test-email-feedback test-email-feedback--ok">{testEmailState.message}</span>
+                    ) : null}
+                    {testEmailState.error ? (
+                      <span className="test-email-feedback test-email-feedback--error">{testEmailState.error}</span>
+                    ) : null}
+                  </div>
+                </div>
                 {loadingSubmissions ? <p>Loading submissions...</p> : null}
                 {!loadingSubmissions && reviewedSubmissionMonthlyStats.length > 0 ? (
                   <div className="reviewed-monthly-summary" aria-label="Reviewed submissions per month">
@@ -9206,13 +9669,13 @@ function FormPage() {
 
             {isFlaggedView ? (
               <div className="responses-box submissions-overview" id="flagged-section">
-                <h3>Flagget</h3>
-                {loadingSubmissions ? <p>Laster flaggede svar...</p> : null}
+                <h3>Flagget &amp; vurdert</h3>
+                {loadingSubmissions ? <p>Laster...</p> : null}
                 {!loadingSubmissions && flaggedSubmissions.length === 0 ? (
-                  <p>Ingen flaggede svar ennå.</p>
+                  <p>Ingen flaggede eller vurderte svar ennå.</p>
                 ) : null}
                 {!loadingSubmissions && flaggedSubmissions.length > 0 && openFlaggedSubmissions.length === 0 ? (
-                  <p className="flagged-empty-note">Ingen venter oppfølging. Alle flaggede saker er ferdig vurdert.</p>
+                  <p className="flagged-empty-note">Ingen venter oppfølging. Alle saker er ferdig vurdert.</p>
                 ) : null}
                 {!loadingSubmissions && flaggedSubmissions.length > 0 ? (
                   <div className="flagged-submission-list">
@@ -9264,6 +9727,59 @@ function FormPage() {
                         {flaggedHistorySubmissions.map((submission) => renderFlaggedSubmissionCard(submission))}
                       </div>
                     ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {isRatingView ? (
+              <div className="responses-box rating-overview" id="rating-section">
+                <h3>Rating</h3>
+                {loadingSubmissions ? <p>Laster...</p> : null}
+                {!loadingSubmissions && userScoreboard.length === 0 ? (
+                  <p>Ingen vurderte innsendinger ennå.</p>
+                ) : null}
+                {!loadingSubmissions && userScoreboard.length > 0 ? (
+                  <div className="user-scoreboard-table-wrap">
+                    <table className="user-scoreboard-table">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Navn</th>
+                          <th>Innsendinger</th>
+                          <th>Vurdert</th>
+                          <th title="Godkjent"><FaceHappy size={18} /></th>
+                          <th title="Kan bli bedre"><FaceNeutral size={18} /></th>
+                          <th title="Ikke bra"><FaceSad size={18} /></th>
+                          <th>Score</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {userScoreboard.map((row, index) => (
+                          <tr key={row.name} className={index === 0 && row.score !== null ? 'user-scoreboard-top' : ''}>
+                            <td className="user-scoreboard-rank">{index + 1}</td>
+                            <td className="user-scoreboard-name">{row.name}</td>
+                            <td className="user-scoreboard-total">{row.totalSubmissions}</td>
+                            <td className="user-scoreboard-reviewed">{row.totalReviewed}</td>
+                            <td className="user-scoreboard-happy">{row.happy}</td>
+                            <td className="user-scoreboard-neutral">{row.neutral}</td>
+                            <td className="user-scoreboard-sad">{row.sad}</td>
+                            <td className="user-scoreboard-score">
+                              {row.score !== null ? (
+                                <span className={`score-badge ${
+                                  row.score >= 80 ? 'score-high' :
+                                  row.score >= 50 ? 'score-mid' : 'score-low'
+                                }`}>
+                                  {row.score}%
+                                </span>
+                              ) : (
+                                <span className="score-badge score-none">–</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 ) : null}
               </div>
@@ -9990,14 +10506,14 @@ function FormPage() {
                       <button
                         type="button"
                         className="cta"
-                        onClick={onSaveSubmissionReview}
+                        onClick={onOpenReviewPreview}
                         disabled={
                           reviewSubmissionState.saving ||
                           selectedSubmissionAnswerEntries.length === 0 ||
                           hasPendingReviewDecisions
                         }
                       >
-                        {reviewSubmissionState.saving ? 'Saving...' : 'Set as reviewed'}
+                        Set as reviewed
                       </button>
                     ) : null}
                   </div>
@@ -10021,10 +10537,6 @@ function FormPage() {
                       </p>
                     </div>
 
-                    {reviewSubmissionState.error ? (
-                      <p className="forms-error">{reviewSubmissionState.error}</p>
-                    ) : null}
-
                     {reviewQuestions.length === 0 ? (
                       <p>No questions are marked with "Should be reviewed" in this form.</p>
                     ) : null}
@@ -10035,13 +10547,44 @@ function FormPage() {
 
                     {selectedSubmissionAnswerEntries.length > 0 && hasPendingReviewDecisions ? (
                       <p className="review-pending-note">
-                        Choose Approve or Flag for every question before setting the submission as reviewed.
+                        Select <FaceHappy size={16} />, <FaceNeutral size={16} /> or <FaceSad size={16} /> for each question before marking the submission as reviewed.
                       </p>
                     ) : null}
 
                     <div className="review-comparison-list">
-                      {selectedSubmissionAnswerEntries.map(([answerKey, value]) => {
+                      {(() => {
+                        const currentUserName =
+                          getSubmissionName(selectedSubmission.answers, formData.questions) ||
+                          getSubmissionPhone(selectedSubmission.answers, formData.questions) ||
+                          null
+                        const userPastReviews = currentUserName
+                          ? submissions
+                              .filter((s) => {
+                                if (s.id === selectedSubmission.id) return false
+                                if (String(s.status || '').trim().toLowerCase() !== 'reviewed') return false
+                                const n =
+                                  getSubmissionName(s.answers, formData.questions) ||
+                                  getSubmissionPhone(s.answers, formData.questions) ||
+                                  null
+                                return n === currentUserName
+                              })
+                              .sort((a, b) => (b.submittedAt?.seconds || 0) - (a.submittedAt?.seconds || 0))
+                              .slice(0, 10)
+                          : []
+                        return selectedSubmissionAnswerEntries.map(([answerKey, value]) => {
                         const question = getQuestionForAnswerKey(answerKey, formData.questions)
+                        const isFlaggingQuestion = question?.reviewType === 'flagging'
+                        const questionHistory = isFlaggingQuestion
+                          ? userPastReviews.map((s) => {
+                              if (s.reviewAnswers && answerKey in s.reviewAnswers) {
+                                return s.reviewAnswers[answerKey]
+                              }
+                              const wasFlagged =
+                                Array.isArray(s.flaggedAnswers) &&
+                                s.flaggedAnswers.some((a) => a.answerKey === answerKey)
+                              return wasFlagged ? 'flagged' : 'approved'
+                            })
+                          : []
                         const reviewImage = getAnswerImageDetails(
                           answerKey,
                           value,
@@ -10051,7 +10594,9 @@ function FormPage() {
                         )
                         const reviewStatus = reviewDraftStatuses[answerKey] || ''
                         const isApproved = reviewStatus === 'approved'
-                        const isFlagged = reviewStatus === 'flagged'
+                        const isNeutral = reviewStatus === 'flagged'
+                        const isSad = reviewStatus === 'flagged_sad'
+                        const isFlagged = isNeutral || isSad
 
                         return (
                           <article key={`${selectedSubmission.id}-${answerKey}`} className="review-comparison-row">
@@ -10130,52 +10675,242 @@ function FormPage() {
                                 <p className="review-help-text">{translateText(question.reviewHelpText)}</p>
                               ) : null}
                               <p className="review-panel-title">Review</p>
-                              <div className="review-action-row">
-                                <button
-                                  type="button"
-                                  className={`review-status-button is-approve ${
-                                    isApproved ? 'is-active' : ''
-                                  }`}
-                                  onClick={() => onSetReviewStatus(answerKey, 'approved')}
-                                >
-                                  Approve
-                                </button>
-                                <button
-                                  type="button"
-                                  className={`review-status-button is-flag ${
-                                    isFlagged ? 'is-active' : ''
-                                  }`}
-                                  onClick={() => onSetReviewStatus(answerKey, 'flagged')}
-                                >
-                                  Flag
-                                </button>
-                              </div>
-                              {isFlagged ? (
-                                <label
-                                  className="field-block review-comment-field"
-                                  htmlFor={`review-comment-${answerKey}`}
-                                >
-                                  <span>Comment</span>
-                                  <textarea
-                                    id={`review-comment-${answerKey}`}
-                                    rows={4}
-                                    value={reviewDraftComments[answerKey] || ''}
-                                    onChange={(event) =>
-                                      onReviewCommentChange(answerKey, event.target.value)
-                                    }
-                                  />
-                                </label>
-                              ) : null}
+                              {isFlaggingQuestion ? (
+                                <>
+                                  <div className="review-action-row">
+                                    <button
+                                      type="button"
+                                      className={`review-status-button is-approve is-text ${isApproved ? 'is-active' : ''}`}
+                                      onClick={() => onSetReviewStatus(answerKey, 'approved')}
+                                    >
+                                      Approve
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className={`review-status-button is-flag is-text ${isNeutral ? 'is-active' : ''}`}
+                                      onClick={() => onSetReviewStatus(answerKey, 'flagged')}
+                                    >
+                                      Flag
+                                    </button>
+                                  </div>
+                                  {isFlagged ? (
+                                    <label
+                                      className="field-block review-comment-field"
+                                      htmlFor={`review-comment-${answerKey}`}
+                                    >
+                                      <span>Kommentar</span>
+                                      <textarea
+                                        id={`review-comment-${answerKey}`}
+                                        rows={4}
+                                        value={reviewDraftComments[answerKey] || ''}
+                                        onChange={(event) =>
+                                          onReviewCommentChange(answerKey, event.target.value)
+                                        }
+                                      />
+                                    </label>
+                                  ) : null}
+                                </>
+                              ) : (
+                                <>
+                                  <div className="review-action-row">
+                                    <button
+                                      type="button"
+                                      className={`review-status-button is-approve ${isApproved ? 'is-active' : ''}`}
+                                      onClick={() => onSetReviewStatus(answerKey, 'approved')}
+                                      title="Godkjent"
+                                    >
+                                      <FaceHappy />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className={`review-status-button is-flag ${isNeutral ? 'is-active' : ''}`}
+                                      onClick={() => onSetReviewStatus(answerKey, 'flagged')}
+                                      title="Kan bli bedre"
+                                    >
+                                      <FaceNeutral />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className={`review-status-button is-sad ${isSad ? 'is-active' : ''}`}
+                                      onClick={() => onSetReviewStatus(answerKey, 'flagged_sad')}
+                                      title="Ikke bra"
+                                    >
+                                      <FaceSad />
+                                    </button>
+                                  </div>
+                                  {isFlagged ? (
+                                    <>
+                                      {question?.includeRating ? (
+                                        <div className="review-rating-row">
+                                          <p className="review-rating-label">Rating</p>
+                                          <div className="review-rating-stars">
+                                            {[1, 2, 3, 4, 5].map((star) => (
+                                              <button
+                                                key={star}
+                                                type="button"
+                                                className={`review-star-button ${
+                                                  Number(reviewDraftRatings[answerKey] || 0) >= star
+                                                    ? 'is-active'
+                                                    : ''
+                                                }`}
+                                                onClick={() => onReviewRatingChange(answerKey, star)}
+                                                title={`${star} stjerne${star !== 1 ? 'r' : ''}`}
+                                              >
+                                                ★
+                                              </button>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      ) : null}
+                                      <label
+                                        className="field-block review-comment-field"
+                                        htmlFor={`review-comment-${answerKey}`}
+                                      >
+                                        <span>Kommentar</span>
+                                        <textarea
+                                          id={`review-comment-${answerKey}`}
+                                          rows={4}
+                                          value={reviewDraftComments[answerKey] || ''}
+                                          onChange={(event) =>
+                                            onReviewCommentChange(answerKey, event.target.value)
+                                          }
+                                        />
+                                      </label>
+                                    </>
+                                  ) : null}
+                                </>
+                              )}
                             </div>
                           </article>
                         )
-                      })}
+                      })
+                      })()}
                     </div>
                   </>
                 ) : null}
               </div>
             ) : null}
         </section>
+      ) : null}
+
+      {reviewEmailPreviewData ? (
+        <div
+          className="submission-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Email preview"
+          onClick={() => setReviewEmailPreviewData(null)}
+        >
+          <div
+            className="submission-modal email-preview-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="submission-modal-header">
+              <h4>Email preview</h4>
+              <div className="submission-modal-actions">
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => setReviewEmailPreviewData(null)}
+                  disabled={reviewSubmissionState.saving}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="cta"
+                  onClick={onSaveSubmissionReview}
+                  disabled={reviewSubmissionState.saving}
+                >
+                  {reviewSubmissionState.saving ? 'Saving…' : 'Send email & mark as reviewed'}
+                </button>
+              </div>
+            </div>
+
+            <div className="submission-modal-content">
+              <div className="email-preview-envelope">
+                <div className="email-preview-recipients">
+                  <label className="review-email-override-label">
+                    <strong>To:</strong>
+                    <input
+                      className="review-email-override-input"
+                      type="email"
+                      placeholder="Ingen e-post — legg til her"
+                      value={reviewEmailOverride}
+                      onChange={(e) => setReviewEmailOverride(e.target.value)}
+                    />
+                  </label>
+                  <span><strong>CC:</strong> brandon@crust.no, magnus@crust.no</span>
+                  {!reviewEmailOverride ? (
+                    <p className="email-preview-no-email">Ingen e-post — e-post sendes ikke til innsender.</p>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="email-preview-body">
+                <h2 className="email-preview-title">Stengeskjemaet ditt har blitt gjennomgått</h2>
+
+                <div className="email-preview-count-bar">
+                  <span className="email-preview-count is-happy">
+                    <FaceHappy size={24} /> {reviewEmailPreviewData.reviewScoreSummary.happy}
+                  </span>
+                  <span className="email-preview-count is-neutral">
+                    <FaceNeutral size={24} /> {reviewEmailPreviewData.reviewScoreSummary.neutral}
+                  </span>
+                  <span className="email-preview-count is-sad">
+                    <FaceSad size={24} /> {reviewEmailPreviewData.reviewScoreSummary.sad}
+                  </span>
+                </div>
+
+                {reviewEmailPreviewData.flaggedAnswers.length > 0 ? (
+                  <div className="email-preview-section">
+                    <h3 className="email-preview-section-title email-preview-section-title--flagged">Se på dette:</h3>
+                    {reviewEmailPreviewData.flaggedAnswers.map((item) => (
+                      <div
+                        key={item.answerKey}
+                        className={`email-preview-answer ${item.reviewStatus === 'flagged_sad' ? 'is-sad' : 'is-neutral'}`}
+                      >
+                        <p className="email-preview-answer-label">
+                          {item.reviewStatus === 'flagged_sad' ? <FaceSad size={18} /> : <FaceNeutral size={18} />} {item.label}
+                        </p>
+                        {item.comment ? (
+                          <div className="email-preview-comment">
+                            <strong>Tilbakemelding:</strong> {item.comment}
+                          </div>
+                        ) : null}
+                        {item.imageUrl ? (
+                          <img src={item.imageUrl} alt={item.label} className="email-preview-image" />
+                        ) : (
+                          <p className="email-preview-answer-value"><em>{item.value}</em></p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
+                {reviewEmailPreviewData.approvedAnswers.length > 0 ? (
+                  <div className="email-preview-section">
+                    <h3 className="email-preview-section-title email-preview-section-title--approved">Dette så bra ut:</h3>
+                    {reviewEmailPreviewData.approvedAnswers.map((item) => (
+                      <div key={item.answerKey} className="email-preview-answer is-approved">
+                        <p className="email-preview-answer-label"><FaceHappy size={18} /> {item.label}</p>
+                        {item.imageUrl ? (
+                          <img src={item.imageUrl} alt={item.label} className="email-preview-image" />
+                        ) : (
+                          <p className="email-preview-answer-value"><em>{item.value}</em></p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              {reviewSubmissionState.error ? (
+                <p className="forms-error">{reviewSubmissionState.error}</p>
+              ) : null}
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   )

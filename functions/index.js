@@ -1,11 +1,11 @@
 /**
  * functions/index.js
  *
- * Cloud Function: financialReport
+ * Cloud Functions: financialReport, sendReviewEmail
  */
 
 const admin = require("firebase-admin");
-const { onRequest } = require("firebase-functions/v2/https");
+const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
 const logger = require("firebase-functions/logger");
 
 const { getIncomeByDateAndLocation } = require("./services/zettle/zettle");
@@ -511,5 +511,212 @@ exports.financialReport = onRequest(
       });
     }
   }
+);
+
+// ── Review email ──────────────────────────────────────────────────────────────
+
+// The mailbox used as sender — must exist in the Microsoft 365 tenant.
+const REVIEW_EMAIL_FROM = "noreply@crust.no";
+
+// Always CC'd regardless of who submitted.
+const REVIEW_EMAIL_CC = ["brandon@crust.no", "magnus@crust.no"];
+
+async function getAzureAccessToken() {
+  const axios = require("axios");
+  const params = new URLSearchParams({
+    grant_type:    "client_credentials",
+    client_id:     process.env.AZURE_CLIENT_ID,
+    client_secret: process.env.AZURE_CLIENT_SECRET,
+    scope:         "https://graph.microsoft.com/.default",
+  });
+
+  const res = await axios.post(
+    `https://login.microsoftonline.com/${process.env.AZURE_TENANT_ID}/oauth2/v2.0/token`,
+    params.toString(),
+    { headers: { "Content-Type": "application/x-www-form-urlencoded" } },
+  );
+  return res.data.access_token;
+}
+
+function formatNorwegianDate(seconds) {
+  if (!seconds) return null;
+  const days   = ["søndag", "mandag", "tirsdag", "onsdag", "torsdag", "fredag", "lørdag"];
+  const months = ["januar", "februar", "mars", "april", "mai", "juni", "juli", "august", "september", "oktober", "november", "desember"];
+  const d = new Date(seconds * 1000);
+  return `${days[d.getDay()]} ${d.getDate()}. ${months[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+const EMAIL_ITEM_LIMIT = 20;
+
+function buildReviewEmailHtml(formTitle, flaggedAnswers, approvedAnswers, reviewScoreSummary, submittedAtSeconds, reviewUrl, reviewedBy) {
+  const allFlags = Array.isArray(flaggedAnswers)  ? flaggedAnswers  : [];
+  const approved = Array.isArray(approvedAnswers) ? approvedAnswers : [];
+
+  // Sad first, then neutral
+  const sadFlags     = allFlags.filter((f) => f.reviewStatus === "flagged_sad");
+  const neutralFlags = allFlags.filter((f) => f.reviewStatus !== "flagged_sad");
+  const flags        = [...sadFlags, ...neutralFlags];
+
+  // Counts for the summary bar
+  const happyCount   = approved.length;
+  const neutralCount = neutralFlags.length;
+  const sadCount     = sadFlags.length;
+
+  // Cap total items shown at EMAIL_ITEM_LIMIT (flagged items take priority)
+  const flagsCapped    = flags.slice(0, EMAIL_ITEM_LIMIT);
+  const approvedBudget = Math.max(0, EMAIL_ITEM_LIMIT - flagsCapped.length);
+  const approvedCapped = approved.slice(0, approvedBudget);
+  const totalItems     = flags.length + approved.length;
+  const hiddenCount    = Math.max(0, totalItems - EMAIL_ITEM_LIMIT);
+
+  // ── Face icons (emoji — renders in all email clients including Outlook) ──────
+  const svgHappy   = `<span style="display:inline-block;font-size:22px;line-height:1;vertical-align:middle;">&#128522;</span>`;
+  const svgNeutral = `<span style="display:inline-block;font-size:22px;line-height:1;vertical-align:middle;">&#128528;</span>`;
+  const svgSad     = `<span style="display:inline-block;font-size:22px;line-height:1;vertical-align:middle;">&#128577;</span>`;
+
+  // ── Count bar ──────────────────────────────────────────────────────────────
+  const countBar = `
+    <div style="display:flex;gap:28px;padding:14px 18px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:24px;align-items:center;">
+      <span style="display:inline-flex;align-items:center;gap:8px;color:#166534;font-weight:700;font-size:18px;">${svgHappy} ${happyCount}</span>
+      <span style="display:inline-flex;align-items:center;gap:8px;color:#d97706;font-weight:700;font-size:18px;">${svgNeutral} ${neutralCount}</span>
+      <span style="display:inline-flex;align-items:center;gap:8px;color:#dc2626;font-weight:700;font-size:18px;">${svgSad} ${sadCount}</span>
+    </div>`;
+
+  // ── Flagged section ────────────────────────────────────────────────────────
+  let flaggedSection = "";
+  if (flagsCapped.length > 0) {
+    flaggedSection += `<p style="margin:24px 0 14px;font-weight:700;font-size:16px;color:#1f2937">Se på dette:</p>`;
+    for (const item of flagsCapped) {
+      const isSad       = item.reviewStatus === "flagged_sad";
+      const borderColor = isSad ? "#dc2626" : "#d97706";
+      const bgColor     = isSad ? "#fef2f2" : "#fffbeb";
+      const faceSvg     = isSad ? svgSad : svgNeutral;
+
+      flaggedSection += `
+        <div style="margin:14px 0;border-left:4px solid ${borderColor};background:${bgColor};border-radius:0 8px 8px 0;overflow:hidden;">
+          <div style="padding:12px 16px 10px;">
+            <p style="font-weight:700;margin:0 0 8px;font-size:14px;color:#1f2937;display:flex;align-items:center;gap:6px;">${faceSvg} ${item.label}</p>`;
+
+      if (item.comment) {
+        flaggedSection += `
+            <div style="margin:0 0 10px;padding:10px 14px;background:#1e293b;border-radius:6px;">
+              <p style="margin:0;font-size:14px;color:#f1f5f9;"><strong style="color:#e2e8f0;">Tilbakemelding:</strong> ${item.comment}</p>
+            </div>`;
+      }
+
+      if (item.imageUrl) {
+        flaggedSection += `<img src="${item.imageUrl}" alt="${item.label}" style="max-width:420px;width:100%;display:block;margin:8px 0;border-radius:4px;" />`;
+      } else {
+        flaggedSection += `<p style="margin:0 0 8px;color:#374151;font-size:14px;">Svar: <em>${item.value}</em></p>`;
+      }
+
+      flaggedSection += `</div></div>`;
+    }
+  }
+
+  // ── Approved section ───────────────────────────────────────────────────────
+  let approvedSection = "";
+  if (approvedCapped.length > 0) {
+    approvedSection += `<p style="margin:28px 0 10px;font-weight:700;font-size:16px;color:#166534;display:flex;align-items:center;gap:6px;">${svgHappy} Dette så bra ut:</p>`;
+    for (const item of approvedCapped) {
+      approvedSection += `
+        <div style="margin:8px 0;padding:10px 14px;border-left:4px solid #86efac;background:#f0fdf4;border-radius:0 6px 6px 0;">
+          <p style="font-weight:600;margin:0 0 4px;font-size:13px;color:#166534;">${item.label}</p>`;
+
+      if (item.imageUrl) {
+        approvedSection += `<img src="${item.imageUrl}" alt="${item.label}" style="max-width:420px;width:100%;display:block;margin:6px 0;border-radius:4px;" />`;
+      } else {
+        approvedSection += `<p style="margin:0;color:#374151;font-size:13px;"><em>${item.value}</em></p>`;
+      }
+
+      approvedSection += `</div>`;
+    }
+  }
+
+  const dateStr = formatNorwegianDate(submittedAtSeconds);
+  const reviewerName = reviewedBy ? reviewedBy.replace(/@.*/, "") : null;
+  const intro = `
+    <p style="color:#6b7280;font-size:14px;margin:0 0 4px;">Skjema innsendt: <strong style="color:#1f2937;">${dateStr || formTitle}</strong></p>
+    ${reviewerName ? `<p style="color:#6b7280;font-size:14px;margin:0 0 16px;">Vurdert av: <strong style="color:#1f2937;">${reviewerName}</strong></p>` : `<p style="margin:0 0 16px;"></p>`}`;
+
+  const moreButton = hiddenCount > 0 && reviewUrl ? `
+    <div style="margin:28px 0 0;padding:20px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;text-align:center;">
+      <p style="margin:0 0 14px;color:#374151;font-size:14px;">+ ${hiddenCount} flere svar ikke vist her.</p>
+      <a href="${reviewUrl}" style="display:inline-block;padding:12px 24px;background:#1f2937;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700;font-size:14px;">Se full gjennomgang</a>
+    </div>` : "";
+
+  return `
+    <html>
+      <body style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#1f2937">
+        <h2 style="margin:0 0 10px">Stengeskjemaet ditt har blitt gjennomgått</h2>
+        ${intro}
+        ${countBar}
+        ${flaggedSection}
+        ${approvedSection}
+        ${moreButton}
+        <p style="margin-top:36px;color:#6b7280;font-size:13px">— Crust</p>
+      </body>
+    </html>`;
+}
+
+exports.sendReviewEmail = onCall(
+  {
+    region:   "europe-west1",
+    secrets:  ["AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_TENANT_ID"],
+    invoker:  "public",
+  },
+  async ({ data, auth }) => {
+    if (!String(auth?.token?.email || "").endsWith("@crust.no")) {
+      throw new HttpsError("permission-denied", "Admin access required");
+    }
+
+    const { submitterEmail, formTitle, flaggedAnswers, approvedAnswers, reviewScoreSummary, submittedAtSeconds, reviewUrl, testRecipient } = data || {};
+    if (!submitterEmail) {
+      throw new HttpsError("invalid-argument", "submitterEmail is required");
+    }
+
+    const axios = require("axios");
+    const accessToken = await getAzureAccessToken();
+
+    const hasFlags = Array.isArray(flaggedAnswers) && flaggedAnswers.length > 0;
+    const isTest   = Boolean(testRecipient);
+    const subject  = isTest
+      ? `[TEST] Ditt stengeskjema har blitt vurdert`
+      : `Ditt stengeskjema har blitt vurdert`;
+
+    const toRecipients = isTest
+      ? [{ emailAddress: { address: testRecipient } }]
+      : [{ emailAddress: { address: submitterEmail } }];
+
+    const ccRecipients = isTest
+      ? []
+      : REVIEW_EMAIL_CC
+          .filter((e) => e.toLowerCase() !== submitterEmail.toLowerCase())
+          .map((e) => ({ emailAddress: { address: e } }));
+
+    const message = {
+      subject,
+      body: {
+        contentType: "HTML",
+        content:     buildReviewEmailHtml(formTitle, flaggedAnswers, approvedAnswers, reviewScoreSummary, submittedAtSeconds, reviewUrl, data.reviewedBy),
+      },
+      toRecipients,
+      ...(ccRecipients.length ? { ccRecipients } : {}),
+    };
+
+    await axios.post(
+      `https://graph.microsoft.com/v1.0/users/${REVIEW_EMAIL_FROM}/sendMail`,
+      { message, saveToSentItems: false },
+      {
+        headers: {
+          Authorization:  `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    logger.info("Review email sent", { submitterEmail, formTitle, isTest });
+    return { success: true };
+  },
 );
 

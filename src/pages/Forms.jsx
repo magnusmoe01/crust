@@ -124,9 +124,10 @@ function Forms() {
           const isCompletedFlaggedSubmission =
             String(data?.flaggedStatus || "").trim().toLowerCase() === "complete";
 
+          const hasRatingIssues =
+            (data?.reviewScoreSummary?.neutral || 0) + (data?.reviewScoreSummary?.sad || 0) > 0;
           if (
-            Array.isArray(data?.flaggedAnswers) &&
-            data.flaggedAnswers.length > 0 &&
+            ((Array.isArray(data?.flaggedAnswers) && data.flaggedAnswers.length > 0) || hasRatingIssues) &&
             !isCompletedFlaggedSubmission
           ) {
             nextFlaggedCounts[formSlug] = (nextFlaggedCounts[formSlug] || 0) + 1;
@@ -144,11 +145,9 @@ function Forms() {
             nextRemarkCounts[formSlug] = (nextRemarkCounts[formSlug] || 0) + warningCount;
           }
 
-          if (String(data?.status || "").trim().toLowerCase() === "reviewed") {
-            return;
+          if (String(data?.status || "").trim().toLowerCase() === "awaiting review") {
+            nextCounts[formSlug] = (nextCounts[formSlug] || 0) + 1;
           }
-
-          nextCounts[formSlug] = (nextCounts[formSlug] || 0) + 1;
         });
 
         if (remarkResult.status === "fulfilled") {
@@ -385,6 +384,12 @@ function Forms() {
                     href={`/skjema/${form.slug}/flagget`}
                   >
                     Flagged ({flaggedCounts[form.slug] || 0})
+                  </a>
+                  <a
+                    className="ghost"
+                    href={`/skjema/${form.slug}/rating`}
+                  >
+                    Rating
                   </a>
                   <a
                     className="ghost"
