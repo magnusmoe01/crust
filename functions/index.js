@@ -548,7 +548,7 @@ function formatNorwegianDate(seconds) {
 
 const EMAIL_ITEM_LIMIT = 20;
 
-function buildReviewEmailHtml(formTitle, flaggedAnswers, approvedAnswers, reviewScoreSummary, submittedAtSeconds, reviewUrl, reviewedBy) {
+function buildReviewEmailHtml(formTitle, flaggedAnswers, approvedAnswers, reviewScoreSummary, submittedAtSeconds, reviewUrl, reviewedBy, isTest) {
   const allFlags = Array.isArray(flaggedAnswers)  ? flaggedAnswers  : [];
   const approved = Array.isArray(approvedAnswers) ? approvedAnswers : [];
 
@@ -575,11 +575,15 @@ function buildReviewEmailHtml(formTitle, flaggedAnswers, approvedAnswers, review
   const svgSad     = `<span style="display:inline-block;font-size:22px;line-height:1;vertical-align:middle;">&#128577;</span>`;
 
   // ── Count bar ──────────────────────────────────────────────────────────────
+  const rawName = reviewedBy ? reviewedBy.replace(/@.*/, "") : null;
+  const reviewerName = rawName ? rawName.charAt(0).toUpperCase() + rawName.slice(1) : null;
+  const reviewerLabel = isTest ? "TEST" : (reviewerName || null);
   const countBar = `
-    <div style="display:flex;gap:28px;padding:14px 18px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:24px;align-items:center;">
-      <span style="display:inline-flex;align-items:center;gap:8px;color:#166534;font-weight:700;font-size:18px;">${svgHappy} ${happyCount}</span>
-      <span style="display:inline-flex;align-items:center;gap:8px;color:#d97706;font-weight:700;font-size:18px;">${svgNeutral} ${neutralCount}</span>
-      <span style="display:inline-flex;align-items:center;gap:8px;color:#dc2626;font-weight:700;font-size:18px;">${svgSad} ${sadCount}</span>
+    <div style="display:flex;align-items:center;padding:14px 18px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:24px;">
+      <span style="display:inline-flex;align-items:center;gap:8px;color:#166534;font-weight:700;font-size:18px;margin-right:32px;">${svgHappy}&nbsp;${happyCount}</span>
+      <span style="display:inline-flex;align-items:center;gap:8px;color:#d97706;font-weight:700;font-size:18px;margin-right:32px;">${svgNeutral}&nbsp;${neutralCount}</span>
+      <span style="display:inline-flex;align-items:center;gap:8px;color:#dc2626;font-weight:700;font-size:18px;">${svgSad}&nbsp;${sadCount}</span>
+      ${reviewerLabel ? `<span style="margin-left:auto;font-size:13px;color:#6b7280;">Vurdert av: <strong style="color:#1f2937;">${reviewerLabel}</strong></span>` : ""}
     </div>`;
 
   // ── Flagged section ────────────────────────────────────────────────────────
@@ -587,10 +591,12 @@ function buildReviewEmailHtml(formTitle, flaggedAnswers, approvedAnswers, review
   if (flagsCapped.length > 0) {
     flaggedSection += `<p style="margin:24px 0 14px;font-weight:700;font-size:16px;color:#1f2937">Se på dette:</p>`;
     for (const item of flagsCapped) {
-      const isSad       = item.reviewStatus === "flagged_sad";
-      const borderColor = isSad ? "#dc2626" : "#d97706";
-      const bgColor     = isSad ? "#fef2f2" : "#fffbeb";
-      const faceSvg     = isSad ? svgSad : svgNeutral;
+      const isSad        = item.reviewStatus === "flagged_sad";
+      const borderColor  = isSad ? "#dc2626" : "#d97706";
+      const bgColor      = isSad ? "#fef2f2" : "#fffbeb";
+      const commentBg    = isSad ? "#fca5a5" : "#fde68a";
+      const commentColor = isSad ? "#7f1d1d" : "#78350f";
+      const faceSvg      = isSad ? svgSad : svgNeutral;
 
       flaggedSection += `
         <div style="margin:14px 0;border-left:4px solid ${borderColor};background:${bgColor};border-radius:0 8px 8px 0;overflow:hidden;">
@@ -599,8 +605,8 @@ function buildReviewEmailHtml(formTitle, flaggedAnswers, approvedAnswers, review
 
       if (item.comment) {
         flaggedSection += `
-            <div style="margin:0 0 10px;padding:10px 14px;background:#1e293b;border-radius:6px;">
-              <p style="margin:0;font-size:14px;color:#f1f5f9;"><strong style="color:#e2e8f0;">Tilbakemelding:</strong> ${item.comment}</p>
+            <div style="margin:0 0 10px;padding:10px 14px;background:${commentBg};border-radius:6px;">
+              <p style="margin:0;font-size:14px;color:${commentColor};"><strong>Tilbakemelding:</strong> ${item.comment}</p>
             </div>`;
       }
 
@@ -634,10 +640,7 @@ function buildReviewEmailHtml(formTitle, flaggedAnswers, approvedAnswers, review
   }
 
   const dateStr = formatNorwegianDate(submittedAtSeconds);
-  const reviewerName = reviewedBy ? reviewedBy.replace(/@.*/, "") : null;
-  const intro = `
-    <p style="color:#6b7280;font-size:14px;margin:0 0 4px;">Skjema innsendt: <strong style="color:#1f2937;">${dateStr || formTitle}</strong></p>
-    ${reviewerName ? `<p style="color:#6b7280;font-size:14px;margin:0 0 16px;">Vurdert av: <strong style="color:#1f2937;">${reviewerName}</strong></p>` : `<p style="margin:0 0 16px;"></p>`}`;
+  const intro = `<p style="color:#6b7280;font-size:14px;margin:0 0 16px;">Skjema innsendt: <strong style="color:#1f2937;">${dateStr || formTitle}</strong></p>`;
 
   const moreButton = hiddenCount > 0 && reviewUrl ? `
     <div style="margin:28px 0 0;padding:20px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;text-align:center;">
@@ -698,7 +701,7 @@ exports.sendReviewEmail = onCall(
       subject,
       body: {
         contentType: "HTML",
-        content:     buildReviewEmailHtml(formTitle, flaggedAnswers, approvedAnswers, reviewScoreSummary, submittedAtSeconds, reviewUrl, data.reviewedBy),
+        content:     buildReviewEmailHtml(formTitle, flaggedAnswers, approvedAnswers, reviewScoreSummary, submittedAtSeconds, reviewUrl, data.reviewedBy, isTest),
       },
       toRecipients,
       ...(ccRecipients.length ? { ccRecipients } : {}),

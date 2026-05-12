@@ -2094,9 +2094,15 @@
   font-size: 1.05rem;
 }
 
-.email-preview-count.is-happy { color: #166534; }
-.email-preview-count.is-neutral { color: #d97706; }
+.email-preview-count.is-happy { color: #166534; margin-right: 20px; }
+.email-preview-count.is-neutral { color: #d97706; margin-right: 20px; }
 .email-preview-count.is-sad { color: #dc2626; }
+
+.email-preview-reviewer {
+  margin-left: auto;
+  font-size: 0.82rem;
+  color: #6b7280;
+}
 
 .email-preview-section {
   margin-bottom: 20px;
@@ -2155,9 +2161,17 @@
   margin: 6px 0 8px;
   padding: 8px 12px;
   font-size: 0.88rem;
-  color: #f1f5f9;
-  background: #1e293b;
   border-radius: 6px;
+}
+
+.email-preview-answer.is-neutral .email-preview-comment {
+  background: #fde68a;
+  color: #78350f;
+}
+
+.email-preview-answer.is-sad .email-preview-comment {
+  background: #fca5a5;
+  color: #7f1d1d;
 }
 
 .email-preview-image {
@@ -2414,6 +2428,15 @@
 
 .review-comment-field {
   margin-top: 10px;
+}
+
+.review-comment-required textarea {
+  border-color: #dc2626;
+}
+
+.review-comment-asterisk {
+  color: #dc2626;
+  font-weight: 700;
 }
 
 .user-scoreboard {

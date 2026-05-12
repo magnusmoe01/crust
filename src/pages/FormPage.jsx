@@ -4981,6 +4981,7 @@ function FormPage() {
       flaggedAnswers,
       approvedAnswers,
       reviewScoreSummary: { happy: approvedAnswers.length, neutral: neutralCount, sad: sadCount },
+      reviewedBy: user?.email || null,
       submitterEmail:
         selectedSubmission.submitterEmail ||
         getSubmissionEmail(selectedSubmission.answers, formData.questions),
@@ -4997,6 +4998,19 @@ function FormPage() {
     )
 
     if (hasPendingDecisions) {
+      return
+    }
+
+    const hasMissingComments = selectedSubmissionAnswerEntries.some(([answerKey]) => {
+      const s = reviewDraftStatuses[answerKey]
+      if (s !== 'flagged' && s !== 'flagged_sad') return false
+      const q = formData.questions?.find((question) => question.id === answerKey)
+      if ((q?.reviewType || 'rating') !== 'rating') return false
+      return !String(reviewDraftComments[answerKey] || '').trim()
+    })
+
+    if (hasMissingComments) {
+      setReviewSubmissionState({ saving: false, error: 'Comment is required for neutral and sad ratings.' })
       return
     }
 
@@ -10698,7 +10712,7 @@ function FormPage() {
                                       className="field-block review-comment-field"
                                       htmlFor={`review-comment-${answerKey}`}
                                     >
-                                      <span>Kommentar</span>
+                                      <span>Comment</span>
                                       <textarea
                                         id={`review-comment-${answerKey}`}
                                         rows={4}
@@ -10762,20 +10776,26 @@ function FormPage() {
                                           </div>
                                         </div>
                                       ) : null}
-                                      <label
-                                        className="field-block review-comment-field"
-                                        htmlFor={`review-comment-${answerKey}`}
-                                      >
-                                        <span>Kommentar</span>
-                                        <textarea
-                                          id={`review-comment-${answerKey}`}
-                                          rows={4}
-                                          value={reviewDraftComments[answerKey] || ''}
-                                          onChange={(event) =>
-                                            onReviewCommentChange(answerKey, event.target.value)
-                                          }
-                                        />
-                                      </label>
+                                      {(() => {
+                                        const commentMissing = !String(reviewDraftComments[answerKey] || '').trim()
+                                        return (
+                                          <label
+                                            className={`field-block review-comment-field${commentMissing ? ' review-comment-required' : ''}`}
+                                            htmlFor={`review-comment-${answerKey}`}
+                                          >
+                                            <span>Comment <span className="review-comment-asterisk">*</span></span>
+                                            <textarea
+                                              id={`review-comment-${answerKey}`}
+                                              rows={4}
+                                              required
+                                              value={reviewDraftComments[answerKey] || ''}
+                                              onChange={(event) =>
+                                                onReviewCommentChange(answerKey, event.target.value)
+                                              }
+                                            />
+                                          </label>
+                                        )
+                                      })()}
                                     </>
                                   ) : null}
                                 </>
@@ -10860,6 +10880,11 @@ function FormPage() {
                   <span className="email-preview-count is-sad">
                     <FaceSad size={24} /> {reviewEmailPreviewData.reviewScoreSummary.sad}
                   </span>
+                  {reviewEmailPreviewData.reviewedBy ? (
+                    <span className="email-preview-reviewer">
+                      {(() => { const n = reviewEmailPreviewData.reviewedBy.replace(/@.*/, ''); return `Vurdert av: ${n.charAt(0).toUpperCase()}${n.slice(1)}`; })()}
+                    </span>
+                  ) : null}
                 </div>
 
                 {reviewEmailPreviewData.flaggedAnswers.length > 0 ? (
