@@ -723,3 +723,364 @@ exports.sendReviewEmail = onCall(
   },
 );
 
+
+// ── Order / Vipps / SMS ───────────────────────────────────────────────────────
+
+const crypto = require("crypto");
+
+const VIPPS_API      = "https://api.vipps.no";
+const WORKER_ALERT_PHONE = "+4795885852";
+const ORDER_ALERT_MINUTES = 2;
+
+function formatPhoneForSms(raw) {
+  const digits = String(raw || "").replace(/\D/g, "");
+  if (digits.startsWith("47") && digits.length === 10) return `+${digits}`;
+  if (digits.length === 8) return `+47${digits}`;
+  return `+${digits}`;
+}
+
+function formatPhoneForVipps(raw) {
+  const digits = String(raw || "").replace(/\D/g, "");
+  if (digits.startsWith("47") && digits.length === 10) return digits.slice(2);
+  if (digits.length === 8) return digits;
+  return digits;
+}
+
+function capitalizeFirst(str) {
+  const s = String(str || "");
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+async function getVippsToken() {
+  const axios = require("axios");
+  const res = await axios.post(
+    `${VIPPS_API}/accesstoken/get`,
+    {},
+    {
+      headers: {
+        "client_id":                    process.env.VIPPS_CLIENT_ID,
+        "client_secret":                process.env.VIPPS_CLIENT_SECRET,
+        "Ocp-Apim-Subscription-Key":    process.env.VIPPS_SUBSCRIPTION_KEY,
+        "Merchant-Serial-Number":       process.env.VIPPS_MSN,
+      },
+    },
+  );
+  return res.data.access_token;
+}
+
+function vippsHeaders(token, requestId) {
+  return {
+    Authorization:                `Bearer ${token}`,
+    "Ocp-Apim-Subscription-Key":  process.env.VIPPS_SUBSCRIPTION_KEY,
+    "Merchant-Serial-Number":     process.env.VIPPS_MSN,
+    "X-Request-Id":               requestId || crypto.randomBytes(8).toString("hex"),
+    "X-Timestamp":                new Date().toISOString(),
+    "Content-Type":               "application/json",
+  };
+}
+
+async function sendAcsSms(to, message) {
+  const axios = require("axios");
+  const connStr = process.env.ACS_CONNECTION_STRING || "";
+  const endpointMatch = connStr.match(/endpoint=([^;]+)/i);
+  const keyMatch      = connStr.match(/accesskey=([^;]+)/i);
+  if (!endpointMatch || !keyMatch) throw new Error("ACS_CONNECTION_STRING not configured");
+
+  const endpoint    = endpointMatch[1].replace(/\/$/, "");
+  const keyBase64   = keyMatch[1];
+  const fromNumber  = process.env.ACS_PHONE_NUMBER;
+
+  const body = JSON.stringify({
+    from: fromNumber,
+    smsRecipients: [{ to }],
+    message,
+  });
+
+  const url       = `${endpoint}/sms?api-version=2021-03-07`;
+  const urlObj    = new URL(url);
+  const contentHash = crypto.createHash("sha256").update(body).digest("base64");
+  const utcDate   = new Date().toUTCString();
+  const stringToSign = `POST\n${urlObj.pathname}${urlObj.search}\n${utcDate};${urlObj.host};${contentHash}`;
+  const signature = crypto.createHmac("sha256", Buffer.from(keyBase64, "base64"))
+    .update(stringToSign).digest("base64");
+
+  await axios.post(url, JSON.parse(body), {
+    headers: {
+      "Content-Type":          "application/json",
+      "x-ms-date":             utcDate,
+      "x-ms-content-sha256":   contentHash,
+      "Authorization": `HMAC-SHA256 SignedHeaders=x-ms-date;host;x-ms-content-sha256&Signature=${signature}`,
+    },
+  });
+}
+
+async function getOrderConfig() {
+  const snap = await admin.firestore().doc("orderConfig/default").get();
+  return snap.exists ? snap.data() : {};
+}
+
+// Initiate Vipps payment and create order doc
+exports.initiateVippsOrder = onCall(
+  {
+    region:  "europe-west1",
+    invoker: "public",
+    secrets: ["VIPPS_CLIENT_ID", "VIPPS_CLIENT_SECRET", "VIPPS_SUBSCRIPTION_KEY", "VIPPS_MSN"],
+  },
+  async ({ data }) => {
+    const { locationId, locationName, items, total, customerPhone, customerName } = data || {};
+    if (!locationId || !Array.isArray(items) || items.length === 0 || !customerPhone || !customerName) {
+      throw new HttpsError("invalid-argument", "Missing required order fields");
+    }
+
+    const smsPhone = formatPhoneForSms(customerPhone);
+
+    const orderRef = await admin.firestore().collection("orders").add({
+      locationId,
+      locationName,
+      items,
+      total: Number(total) || 0,
+      customerPhone: smsPhone,
+      customerName,
+      status:     "pending_payment",
+      alertSent:  false,
+      createdAt:  admin.firestore.FieldValue.serverTimestamp(),
+    });
+    const orderId = orderRef.id;
+
+    const token     = await getVippsToken();
+    const authToken = crypto.randomBytes(32).toString("hex");
+    await orderRef.update({ vippsAuthToken: authToken });
+
+    const axios = require("axios");
+    const res = await axios.post(
+      `${VIPPS_API}/ecomm/v2/payments`,
+      {
+        merchantInfo: {
+          merchantSerialNumber: process.env.VIPPS_MSN,
+          callbackPrefix: "https://europe-west1-crust-11575.cloudfunctions.net/vippsCallback",
+          fallBack: `https://crust.no/order?orderId=${orderId}&vipps=return`,
+          authToken,
+          isApp: false,
+          paymentType: "eComm Regular Payment",
+        },
+        customerInfo: { mobileNumber: formatPhoneForVipps(customerPhone) },
+        transaction: {
+          orderId,
+          amount: Math.round((Number(total) || 0) * 100),
+          transactionText: "Crust n' Trust pizza bestilling",
+          skipLandingPage: false,
+        },
+      },
+      { headers: vippsHeaders(token, orderId) },
+    );
+
+    return { orderId, redirectUrl: res.data.url };
+  },
+);
+
+// Vipps payment callback — called by Vipps after user pays
+exports.vippsCallback = onRequest(
+  {
+    region:  "europe-west1",
+    secrets: ["VIPPS_CLIENT_ID", "VIPPS_CLIENT_SECRET", "VIPPS_SUBSCRIPTION_KEY", "VIPPS_MSN", "ACS_CONNECTION_STRING", "ACS_PHONE_NUMBER"],
+  },
+  async (req, res) => {
+    if (req.method !== "POST") { res.status(405).send("Method Not Allowed"); return; }
+
+    // Extract orderId from path: /v2/payments/{orderId}
+    const parts   = req.path.split("/").filter(Boolean);
+    const orderId = parts[parts.length - 1];
+    if (!orderId) { res.status(400).send("Missing orderId"); return; }
+
+    const orderRef = admin.firestore().doc(`orders/${orderId}`);
+    const orderSnap = await orderRef.get();
+    if (!orderSnap.exists) { res.status(404).send("Order not found"); return; }
+
+    const order = orderSnap.data();
+
+    // Verify Vipps auth token
+    const incomingToken = req.headers["authorization"] || "";
+    if (order.vippsAuthToken && incomingToken !== order.vippsAuthToken) {
+      res.status(401).send("Unauthorized"); return;
+    }
+
+    const body = req.body || {};
+    const transactionInfo = body.transactionInfo || {};
+    const status          = String(transactionInfo.status || "").toUpperCase();
+
+    if (status === "RESERVE" || status === "SALE") {
+      // Capture immediately if RESERVE
+      if (status === "RESERVE") {
+        try {
+          const axios  = require("axios");
+          const token  = await getVippsToken();
+          await axios.post(
+            `${VIPPS_API}/ecomm/v2/payments/${orderId}/capture`,
+            {
+              merchantInfo: { merchantSerialNumber: process.env.VIPPS_MSN },
+              transaction: {
+                amount: Math.round((order.total || 0) * 100),
+                transactionText: "Crust pizza bestilling",
+              },
+            },
+            { headers: vippsHeaders(token, `capture-${orderId}`) },
+          );
+        } catch (err) {
+          logger.error("Vipps capture failed", { orderId, error: err?.message });
+        }
+      }
+
+      await orderRef.update({
+        status:     "paid",
+        paidAt:     admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // Send confirmation SMS to customer
+      try {
+        const name = capitalizeFirst(order.customerName || "");
+        await sendAcsSms(
+          order.customerPhone,
+          `Hei ${name}! Vi har mottatt bestillingen din på ${order.total} kr fra Crust n' Trust. Du får ny SMS når den er klar for henting. 🍕`,
+        );
+      } catch (err) {
+        logger.error("Confirmation SMS failed", { orderId, error: err?.message });
+      }
+
+    } else if (status === "CANCELLED" || status === "FAILED") {
+      await orderRef.update({ status: "cancelled" });
+    }
+
+    res.status(200).json({ ok: true });
+  },
+);
+
+// Check Vipps order status (called by frontend after return from Vipps)
+exports.checkVippsOrder = onCall(
+  {
+    region:  "europe-west1",
+    invoker: "public",
+    secrets: ["VIPPS_CLIENT_ID", "VIPPS_CLIENT_SECRET", "VIPPS_SUBSCRIPTION_KEY", "VIPPS_MSN", "ACS_CONNECTION_STRING", "ACS_PHONE_NUMBER"],
+  },
+  async ({ data }) => {
+    const { orderId } = data || {};
+    if (!orderId) throw new HttpsError("invalid-argument", "orderId required");
+
+    const snap = await admin.firestore().doc(`orders/${orderId}`).get();
+    if (!snap.exists) throw new HttpsError("not-found", "Order not found");
+
+    const order = snap.data();
+
+    // Already paid — return early
+    if (order.status === "paid" || order.status === "confirmed" || order.status === "ready") {
+      return { status: order.status, customerName: order.customerName, customerPhone: order.customerPhone, total: order.total };
+    }
+
+    // Fallback: check Vipps API directly
+    try {
+      const axios = require("axios");
+      const token = await getVippsToken();
+      const res   = await axios.get(
+        `${VIPPS_API}/ecomm/v2/payments/${orderId}/details`,
+        { headers: vippsHeaders(token, `check-${orderId}`) },
+      );
+      const history = Array.isArray(res.data?.transactionLogHistory) ? res.data.transactionLogHistory : [];
+      const captured = history.find((h) => (h.operation === "CAPTURE" || h.operation === "SALE") && h.operationSuccess);
+
+      if (captured) {
+        await admin.firestore().doc(`orders/${orderId}`).update({
+          status: "paid",
+          paidAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        // Send SMS if not already sent
+        if (!order.smsSent) {
+          try {
+            const name = capitalizeFirst(order.customerName || "");
+            await sendAcsSms(
+              order.customerPhone,
+              `Hei ${name}! Vi har mottatt bestillingen din på ${order.total} kr fra Crust n' Trust. Du får ny SMS når den er klar for henting. 🍕`,
+            );
+            await admin.firestore().doc(`orders/${orderId}`).update({ smsSent: true });
+          } catch (err) {
+            logger.error("Fallback SMS failed", { orderId, error: err?.message });
+          }
+        }
+        return { status: "paid", customerName: order.customerName, customerPhone: order.customerPhone, total: order.total };
+      }
+    } catch (err) {
+      logger.error("Vipps status check failed", { orderId, error: err?.message });
+    }
+
+    return { status: order.status || "pending_payment" };
+  },
+);
+
+// Send unconfirmed order alert SMS to store workers
+exports.sendUnconfirmedOrderAlert = onCall(
+  {
+    region:  "europe-west1",
+    invoker: "public",
+    secrets: ["ACS_CONNECTION_STRING", "ACS_PHONE_NUMBER"],
+  },
+  async ({ data }) => {
+    const { orderId, workerPin } = data || {};
+    if (!orderId) throw new HttpsError("invalid-argument", "orderId required");
+
+    const config = await getOrderConfig();
+    if (String(config.workerPin || "") !== String(workerPin || "")) {
+      throw new HttpsError("permission-denied", "Invalid PIN");
+    }
+
+    const snap = await admin.firestore().doc(`orders/${orderId}`).get();
+    if (!snap.exists) throw new HttpsError("not-found", "Order not found");
+
+    const order = snap.data();
+    if (order.alertSent) return { skipped: true };
+    if (order.status !== "paid") return { skipped: true };
+
+    await admin.firestore().doc(`orders/${orderId}`).update({ alertSent: true });
+
+    await sendAcsSms(
+      WORKER_ALERT_PHONE,
+      `⚠️ Ubehandlet bestilling fra Crust n' Trust: ${order.customerName} — ${order.locationName} — ${order.total} kr. Ikke bekreftet på ${ORDER_ALERT_MINUTES} minutter. Sjekk dashbordet!`,
+    );
+
+    return { sent: true };
+  },
+);
+
+// Notify customer that order is ready for pickup
+exports.sendOrderReadySms = onCall(
+  {
+    region:  "europe-west1",
+    invoker: "public",
+    secrets: ["ACS_CONNECTION_STRING", "ACS_PHONE_NUMBER"],
+  },
+  async ({ data }) => {
+    const { orderId, workerPin } = data || {};
+    if (!orderId) throw new HttpsError("invalid-argument", "orderId required");
+
+    const config = await getOrderConfig();
+    if (String(config.workerPin || "") !== String(workerPin || "")) {
+      throw new HttpsError("permission-denied", "Invalid PIN");
+    }
+
+    const orderRef = admin.firestore().doc(`orders/${orderId}`);
+    const snap = await orderRef.get();
+    if (!snap.exists) throw new HttpsError("not-found", "Order not found");
+
+    const order = snap.data();
+    const name = capitalizeFirst(order.customerName || "");
+
+    await sendAcsSms(
+      order.customerPhone,
+      `Hei ${name}! 🍕 Bestillingen din er klar for henting hos Crust n' Trust — ${order.locationName}. God appetitt!`,
+    );
+
+    await orderRef.update({
+      status:  "ready",
+      readyAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    return { sent: true };
+  },
+);

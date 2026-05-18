@@ -46,6 +46,10 @@ const Sales = lazy(() => import("./pages/Sales"));
 // ✅ FIX ADDED: Missing import that caused crash
 const FinancialReport = lazy(() => import("./pages/FinancialReport"));
 
+const Order = lazy(() => import("./pages/Order"));
+const OrderDashboard = lazy(() => import("./pages/OrderDashboard"));
+const OrderAdmin = lazy(() => import("./pages/OrderAdmin"));
+
 function withPageLoader(element) {
   return (
     <Suspense fallback={<div className="loading-box">Laster...</div>}>
@@ -347,6 +351,17 @@ function App() {
           element={withPageLoader(
             <RequireAdminRoute>
               <FinancialReport />
+            </RequireAdminRoute>
+          )}
+        />
+
+        <Route path="/order" element={withPageLoader(<Order />)} />
+        <Route path="/worker" element={withPageLoader(<OrderDashboard />)} />
+        <Route
+          path="/admin/ordre"
+          element={withPageLoader(
+            <RequireAdminRoute>
+              <OrderAdmin />
             </RequireAdminRoute>
           )}
         />

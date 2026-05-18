@@ -69,6 +69,19 @@
   margin: 0;
 }
 
+.location-order-enabled-row {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.location-order-enabled-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
 .location-edit-icon {
   border: 1px solid rgba(15, 14, 10, 0.12);
   background: #fff;

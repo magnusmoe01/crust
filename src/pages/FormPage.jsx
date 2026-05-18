@@ -2429,6 +2429,7 @@ function FormPage() {
 
     if (submitState.error) {
       setSubmitOverlay({ open: false, status: 'idle' })
+      window.alert(submitState.error)
     }
   }, [submitState.error, submitState.message, submitState.submitting])
 

@@ -610,6 +610,9 @@ function Admin() {
               <div className="admin-actions">
                 <Link className="admin-button" to="/skjema">Gå til /skjema</Link>
                 <Link className="admin-button admin-button-secondary" to="/admin/leverandører">Leverandører</Link>
+                <Link className="admin-button admin-button-secondary" to="/admin/ordre">Ordreinnstillinger</Link>
+                <Link className="admin-button admin-button-secondary" to="/order">Bestillingsside</Link>
+                <Link className="admin-button admin-button-secondary" to="/worker">Worker-dashboard</Link>
                 <Link className="admin-button admin-button-secondary" to="/sales">Open sales</Link>
                 <Link className="admin-button admin-button-secondary" to="/admin/financial-report">Financial report</Link>
                 <button type="button" className="admin-button admin-button-secondary" onClick={signOutAdmin}>Logg ut</button>

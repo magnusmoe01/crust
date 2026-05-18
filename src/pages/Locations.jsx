@@ -31,6 +31,7 @@ const emptyLocationForm = {
   mapUrl: "",
   imageUrl: "",
   order: "",
+  orderEnabled: false,
 };
 
 function normalizeUrl(value) {
@@ -253,6 +254,7 @@ function Locations() {
       mapUrl: location.mapUrl || "",
       imageUrl: location.imageUrl || "",
       order: location.order == null ? "" : String(location.order),
+      orderEnabled: location.orderEnabled || false,
     });
     setEditImageFile(null);
     setEditState({ saving: false, error: "" });
@@ -292,6 +294,7 @@ function Locations() {
         mapUrl: normalizeUrl(editLocation.mapUrl),
         imageUrl,
         order: editLocation.order.trim() ? Number(editLocation.order) : null,
+        orderEnabled: editLocation.orderEnabled,
         updatedAt: serverTimestamp(),
         updatedBy: user?.email || "admin",
       });
@@ -878,6 +881,21 @@ function Locations() {
                         }
                         placeholder="1"
                       />
+                    </label>
+
+                    <label className="field-block location-order-enabled-row">
+                      <input
+                        id="edit-location-order-enabled"
+                        type="checkbox"
+                        checked={editLocation.orderEnabled}
+                        onChange={(event) =>
+                          setEditLocation((previous) => ({
+                            ...previous,
+                            orderEnabled: event.target.checked,
+                          }))
+                        }
+                      />
+                      <span>Tillat bestillinger fra denne lokasjonen</span>
                     </label>
 
                     {editState.error ? (
