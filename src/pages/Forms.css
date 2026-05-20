@@ -1213,6 +1213,18 @@
   flex-wrap: wrap;
 }
 
+.history-alert-email {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.history-alert-msg {
+  font-size: 0.85rem;
+  color: #166534;
+  font-weight: 600;
+}
+
 .history-days-field {
   width: 150px;
 }

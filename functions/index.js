@@ -6,6 +6,7 @@
 
 const admin = require("firebase-admin");
 const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 const logger = require("firebase-functions/logger");
 
 const { getIncomeByDateAndLocation } = require("./services/zettle/zettle");
@@ -1082,5 +1083,186 @@ exports.sendOrderReadySms = onCall(
     });
 
     return { sent: true };
+  },
+);
+
+// ── Inventory alert ───────────────────────────────────────────────────────────
+
+const AZURE_SECRETS_INVENTORY = ["AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_TENANT_ID"];
+const SELECT_OPTION_HISTORY_CATEGORIES = ["normal", "orange", "red"];
+const INVENTORY_EMAIL_RECIPIENTS = ["brandon@crust.no", "magnus@crust.no"];
+
+function getSelectOptionHistoryCategory(question, selectedOption) {
+  if (!selectedOption || question?.type !== "select") return "normal";
+  const detail = question?.selectOptionDetails?.[selectedOption];
+  return SELECT_OPTION_HISTORY_CATEGORIES.includes(detail?.historyCategory)
+    ? detail.historyCategory
+    : "normal";
+}
+
+async function buildInventoryAlertData() {
+  const db = admin.firestore();
+
+  // Load stengeskjema form definition
+  const formsSnap = await db.collection("forms")
+    .where("slug", "==", "stengeskjema")
+    .limit(1)
+    .get();
+  if (formsSnap.empty) throw new Error("stengeskjema form not found");
+
+  const formDoc = formsSnap.docs[0].data();
+  const allQuestions = Array.isArray(formDoc.questions) ? formDoc.questions : [];
+
+  const locationQuestion = allQuestions.find((q) => q.type === "location");
+  const analysisQuestions = allQuestions.filter(
+    (q) => q.type === "select" && Boolean(q.includeInAnalysis),
+  );
+
+  if (analysisQuestions.length === 0 || !locationQuestion) return [];
+
+  // Query recent submissions (last 60 days to ensure at least one per location)
+  const since = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+  const submissionsSnap = await db.collection("formSubmissions")
+    .where("formSlug", "==", "stengeskjema")
+    .where("submittedAt", ">=", admin.firestore.Timestamp.fromDate(since))
+    .orderBy("submittedAt", "desc")
+    .get();
+
+  // Group by location, keep only the most recent per location
+  const latestByLocation = new Map();
+  for (const doc of submissionsSnap.docs) {
+    const data = doc.data();
+    const loc = String(data.answers?.[locationQuestion.id] || "").trim() || "Ukjent lokasjon";
+    if (!latestByLocation.has(loc)) {
+      latestByLocation.set(loc, data);
+    }
+  }
+
+  // Build alert data per location
+  const result = [];
+  for (const [location, submission] of Array.from(latestByLocation.entries()).sort((a, b) => a[0].localeCompare(b[0], "nb"))) {
+    const redItems = [];
+    const orangeItems = [];
+
+    for (const question of analysisQuestions) {
+      // Skip if a refill/ordered action already exists
+      const action = submission.analysisActions?.[question.id];
+      const actionType = String(action?.type || "").toLowerCase();
+      if (actionType === "refill" || actionType === "ordered") continue;
+
+      const value = String(submission.answers?.[question.id] || "").trim();
+      if (!value) continue;
+
+      const category = getSelectOptionHistoryCategory(question, value);
+      const label = (question.analysisLabel || question.label || question.id).trim();
+      const item = { label, value, category };
+
+      if (category === "red") redItems.push(item);
+      else if (category === "orange") orangeItems.push(item);
+    }
+
+    if (redItems.length > 0 || orangeItems.length > 0) {
+      result.push({ location, items: [...redItems, ...orangeItems] });
+    }
+  }
+
+  return result;
+}
+
+function buildInventoryAlertEmailHtml(alertData, dateStr) {
+  if (alertData.length === 0) {
+    return `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#1f2937;">
+        <h2 style="margin:0 0 8px;">Varebeholdning – ${dateStr}</h2>
+        <p style="color:#6b7280;">Ingen røde eller oransje varer i dag. Alt ser bra ut! ✅</p>
+      </div>`;
+  }
+
+  const sections = alertData.map(({ location, items }) => {
+    const rows = items.map(({ label, value, category }) => {
+      const isRed = category === "red";
+      const borderColor = isRed ? "#dc2626" : "#d97706";
+      const bgColor     = isRed ? "#fef2f2"  : "#fffbeb";
+      const textColor   = isRed ? "#7f1d1d"  : "#78350f";
+      return `
+        <div style="border-left:4px solid ${borderColor};background:${bgColor};color:${textColor};padding:10px 14px;margin-bottom:8px;border-radius:0 6px 6px 0;">
+          <strong>${label}</strong>: ${value}
+        </div>`;
+    }).join("");
+
+    return `
+      <div style="margin-bottom:28px;">
+        <h3 style="margin:0 0 10px;font-size:1rem;color:#374151;border-bottom:1px solid #e5e7eb;padding-bottom:6px;">📍 ${location}</h3>
+        ${rows}
+      </div>`;
+  }).join("");
+
+  return `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#1f2937;">
+      <h2 style="margin:0 0 4px;">🔴 Varebeholdning – ${dateStr}</h2>
+      <p style="color:#6b7280;margin:0 0 24px;font-size:0.9rem;">
+        Rød og oransje status per lokasjon, basert på siste stengeskjema.
+        Rød er øverst per lokasjon.
+      </p>
+      ${sections}
+      <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0 16px;" />
+      <p style="font-size:0.8rem;color:#9ca3af;margin:0;">
+        Se full analyse på
+        <a href="https://crust.no/skjema/stengeskjema/analyse" style="color:#1f2937;">crust.no/skjema/stengeskjema/analyse</a>
+      </p>
+    </div>`;
+}
+
+async function doSendInventoryAlert(testRecipient) {
+  const days    = ["søndag","mandag","tirsdag","onsdag","torsdag","fredag","lørdag"];
+  const months  = ["januar","februar","mars","april","mai","juni","juli","august","september","oktober","november","desember"];
+  const now     = new Date();
+  const dateStr = `${days[now.getDay()]} ${now.getDate()}. ${months[now.getMonth()]} ${now.getFullYear()}`;
+
+  const alertData = await buildInventoryAlertData();
+  const html      = buildInventoryAlertEmailHtml(alertData, dateStr);
+  const subject   = alertData.length > 0
+    ? `Varebeholdning ${now.getDate()}. ${months[now.getMonth()]}: ${alertData.reduce((s, l) => s + l.items.filter(i => i.category === "red").length, 0)} røde, ${alertData.reduce((s, l) => s + l.items.filter(i => i.category === "orange").length, 0)} oransje`
+    : `Varebeholdning ${now.getDate()}. ${months[now.getMonth()]}: Alt OK`;
+
+  const toRecipients = testRecipient
+    ? [{ emailAddress: { address: testRecipient } }]
+    : INVENTORY_EMAIL_RECIPIENTS.map((a) => ({ emailAddress: { address: a } }));
+
+  const token = await getAzureAccessToken();
+  const res = await require("axios").post(
+    `https://graph.microsoft.com/v1.0/users/${REVIEW_EMAIL_FROM}/sendMail`,
+    {
+      message: {
+        subject,
+        body: { contentType: "HTML", content: html },
+        toRecipients,
+      },
+      saveToSentItems: false,
+    },
+    { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } },
+  );
+
+  if (res.status !== 202) throw new Error(`Graph API returned ${res.status}`);
+  logger.info("Inventory alert email sent", { recipients: toRecipients.map(r => r.emailAddress.address), itemCount: alertData.length });
+  return { sent: true, locationCount: alertData.length };
+}
+
+exports.sendInventoryAlertEmail = onCall(
+  { invoker: "public", secrets: AZURE_SECRETS_INVENTORY },
+  async (req) => {
+    const testRecipient = typeof req.data?.testRecipient === "string" ? req.data.testRecipient.trim() : null;
+    return doSendInventoryAlert(testRecipient || null);
+  },
+);
+
+exports.scheduledInventoryAlert = onSchedule(
+  {
+    schedule: "0 7 * * *",
+    timeZone: "Europe/Oslo",
+    secrets: AZURE_SECRETS_INVENTORY,
+  },
+  async () => {
+    await doSendInventoryAlert(null);
   },
 );

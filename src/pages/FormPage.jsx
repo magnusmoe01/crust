@@ -2222,6 +2222,7 @@ function FormPage() {
   const [reviewEmailOverride, setReviewEmailOverride] = useState('')
   const [reviewEmailSaving, setReviewEmailSaving] = useState(false)
   const [testEmailState, setTestEmailState] = useState({ sending: false, error: '', message: '' })
+  const [inventoryAlertState, setInventoryAlertState] = useState({ sending: false, error: '', message: '' })
   const [historySubmissionLimit, setHistorySubmissionLimit] = useState('3')
   const [historyDefaultState, setHistoryDefaultState] = useState({
     saving: false,
@@ -5143,6 +5144,17 @@ function FormPage() {
             ? `Could not save the review${code}. Firestore rules do not allow this action.`
             : `Could not save the review${code}.`,
       })
+    }
+  }
+
+  async function onSendInventoryAlert() {
+    setInventoryAlertState({ sending: true, error: '', message: '' })
+    try {
+      await httpsCallable(functions, 'sendInventoryAlertEmail')({})
+      setInventoryAlertState({ sending: false, error: '', message: 'E-post sendt!' })
+      setTimeout(() => setInventoryAlertState((s) => ({ ...s, message: '' })), 3000)
+    } catch (error) {
+      setInventoryAlertState({ sending: false, error: `Feil: ${error.message}`, message: '' })
     }
   }
 
@@ -9811,6 +9823,23 @@ function FormPage() {
                     </p>
                   </div>
                   <div className="history-controls">
+                    <div className="history-alert-email">
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={onSendInventoryAlert}
+                        disabled={inventoryAlertState.sending}
+                        title="Send oransje og røde varer på e-post"
+                      >
+                        {inventoryAlertState.sending ? 'Sender...' : '✉ Send rapport'}
+                      </button>
+                      {inventoryAlertState.message ? (
+                        <span className="history-alert-msg">{inventoryAlertState.message}</span>
+                      ) : null}
+                      {inventoryAlertState.error ? (
+                        <span className="forms-error">{inventoryAlertState.error}</span>
+                      ) : null}
+                    </div>
                     <label className="field-block history-days-field history-days-inline" htmlFor="history-submission-limit">
                       <span>Vis siste innsendinger</span>
                       <input
