@@ -9,6 +9,7 @@ import './Order.css'
 
 const ALERT_MINUTES = 2
 const STORAGE_KEY = 'worker_session'
+const DAY_KEY = 'worker_day'
 
 function loadSession() {
   try {
@@ -19,12 +20,87 @@ function loadSession() {
   }
 }
 
+function todayStr() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 function saveSession(pin, locationId, locationName) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify({ pin, locationId, locationName }))
 }
 
+function loadDayStarted() {
+  try {
+    return localStorage.getItem(DAY_KEY) === todayStr()
+  } catch {
+    return false
+  }
+}
+
+function saveDayStarted() {
+  try { localStorage.setItem(DAY_KEY, todayStr()) } catch {}
+}
+
+function msTillMidnight() {
+  const now = new Date()
+  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
+  return midnight - now
+}
+
 function clearSession() {
   localStorage.removeItem(STORAGE_KEY)
+}
+
+function ageLabel(createdAt, now) {
+  const ms = now - (createdAt?.toMillis?.() || now)
+  const min = Math.floor(ms / 60000)
+  if (min < 1) return 'akkurat nå'
+  if (min === 1) return '1 min siden'
+  return `${min} min siden`
+}
+
+function timeHM(ts) {
+  if (!ts) return '—'
+  const d = ts.toDate ? ts.toDate() : new Date(ts)
+  return d.toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' })
+}
+
+function minutesBetween(from, to) {
+  if (!from || !to) return null
+  const a = from.toMillis ? from.toMillis() : Number(from)
+  const b = to.toMillis ? to.toMillis() : Number(to)
+  return Math.round((b - a) / 60000)
+}
+
+function isToday(createdAt) {
+  if (!createdAt) return false
+  const d = createdAt.toDate ? createdAt.toDate() : new Date(createdAt)
+  const now = new Date()
+  return d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+}
+
+function playNotification() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)()
+    const t = ctx.currentTime
+    // Two-tone ding: high then lower
+    const tones = [{ freq: 880, start: t, dur: 0.18 }, { freq: 660, start: t + 0.22, dur: 0.28 }]
+    for (const { freq, start, dur } of tones) {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = 'sine'
+      osc.frequency.value = freq
+      gain.gain.setValueAtTime(0.55, start)
+      gain.gain.exponentialRampToValueAtTime(0.001, start + dur)
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.start(start)
+      osc.stop(start + dur)
+    }
+    setTimeout(() => ctx.close(), 1000)
+  } catch {}
 }
 
 export default function OrderDashboard() {
@@ -35,14 +111,30 @@ export default function OrderDashboard() {
   const [pinInput, setPinInput] = useState('')
   const [pinError, setPinError] = useState('')
   const [pinLoading, setPinLoading] = useState(false)
+  const [dayStarted, setDayStarted] = useState(loadDayStarted)
+  const [paused, setPaused] = useState(false)
+  const [pauseLoading, setPauseLoading] = useState(false)
+  const [activeTab, setActiveTab] = useState('active')
   const [orders, setOrders] = useState([])
+  const [ordersLoading, setOrdersLoading] = useState(true)
   const [now, setNow] = useState(Date.now())
   const [actionState, setActionState] = useState({})
   const alertedRef = useRef(new Set())
+  const seenIdsRef = useRef(null)
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(t)
+  }, [])
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDayStarted(false)
+      seenIdsRef.current = null
+      setOrders([])
+      setOrdersLoading(true)
+    }, msTillMidnight())
+    return () => clearTimeout(t)
   }, [])
 
   async function onPinSubmit(e) {
@@ -74,21 +166,55 @@ export default function OrderDashboard() {
   }
 
   useEffect(() => {
-    if (!pin || !locationId) return
+    if (!locationId) return
+    return onSnapshot(doc(db, 'orderConfig', 'default'), (snap) => {
+      const locSettings = snap.data()?.locationSettings || {}
+      setPaused(Boolean(locSettings[locationId]?.paused))
+    })
+  }, [locationId])
+
+  async function onTogglePause() {
+    setPauseLoading(true)
+    try {
+      await httpsCallable(functions, 'toggleLocationPause')({ workerPin: pin, paused: !paused })
+    } catch (err) {
+      console.error('toggleLocationPause failed', err)
+    } finally {
+      setPauseLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!pin || !locationId || !dayStarted) return
     const q = query(
       collection(db, 'orders'),
       where('locationId', '==', locationId),
-      where('status', 'in', ['paid', 'confirmed']),
-      orderBy('createdAt', 'desc'),
+      where('status', 'in', ['paid', 'confirmed', 'ready']),
+      orderBy('createdAt', 'asc'),
     )
     return onSnapshot(q, (snap) => {
-      setOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+
+      if (seenIdsRef.current === null) {
+        // First snapshot — mark all existing orders as seen, no sound
+        seenIdsRef.current = new Set(docs.map((d) => d.id))
+      } else {
+        // Subsequent snapshots — play sound for new paid orders
+        const hasNew = docs.some(
+          (d) => d.status === 'paid' && !seenIdsRef.current.has(d.id)
+        )
+        if (hasNew) playNotification()
+        for (const d of docs) seenIdsRef.current.add(d.id)
+      }
+
+      setOrders(docs)
+      setOrdersLoading(false)
     }, (err) => {
+      setOrdersLoading(false)
       console.error('Orders query failed:', err)
     })
-  }, [pin, locationId])
+  }, [pin, locationId, dayStarted])
 
-  // Fire alert for unconfirmed orders older than ALERT_MINUTES
   useEffect(() => {
     if (!pin) return
     for (const order of orders) {
@@ -116,7 +242,7 @@ export default function OrderDashboard() {
         confirmedAt: serverTimestamp(),
       })
       setOrderAction(order.id, { confirming: false })
-    } catch (err) {
+    } catch {
       setOrderAction(order.id, { confirming: false, error: 'Kunne ikke bekrefte.' })
     }
   }
@@ -126,7 +252,7 @@ export default function OrderDashboard() {
     try {
       await httpsCallable(functions, 'sendOrderReadySms')({ orderId: order.id, workerPin: pin })
       setOrderAction(order.id, { readying: false, readySent: true })
-    } catch (err) {
+    } catch {
       setOrderAction(order.id, { readying: false, error: 'Kunne ikke varsle kunde.' })
     }
   }
@@ -137,6 +263,7 @@ export default function OrderDashboard() {
         <div className="worker-pin-box">
           <h1 className="worker-pin-title">Arbeidsdashboard</h1>
           <p className="worker-pin-sub">Logg inn med PIN-koden din.</p>
+
           <form onSubmit={onPinSubmit} className="worker-pin-form">
             <label className="order-field">
               <span>PIN-kode</span>
@@ -159,148 +286,210 @@ export default function OrderDashboard() {
     )
   }
 
+  if (!dayStarted) {
+    const now = new Date()
+    const dateLabel = now.toLocaleDateString('nb-NO', { weekday: 'long', day: 'numeric', month: 'long' })
+    return (
+      <div className="worker-page">
+        <div className="worker-pin-box">
+          <h1 className="worker-pin-title">God dag!</h1>
+          <p className="worker-pin-sub">📍 {locationName}</p>
+          <p className="worker-day-date">{dateLabel}</p>
+          <button
+            type="button"
+            className="order-btn worker-start-day-btn"
+            onClick={() => { saveDayStarted(); setDayStarted(true) }}
+          >
+            Start ny dag
+          </button>
+          <button
+            type="button"
+            className="worker-logout"
+            style={{ marginTop: 16 }}
+            onClick={() => { clearSession(); setPin(''); setLocationId(null); setLocationName('') }}
+          >
+            Logg ut
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   const pendingOrders = orders.filter((o) => o.status === 'paid')
   const confirmedOrders = orders.filter((o) => o.status === 'confirmed')
+  const readyOrders = orders.filter((o) => o.status === 'ready' && isToday(o.createdAt))
+  const activeCount = pendingOrders.length + confirmedOrders.length
 
   return (
     <div className="worker-page">
       <div className="worker-header">
         <div>
-          <h1 className="worker-title">Bestillinger</h1>
-          <p className="worker-subtitle">
-            📍 {locationName}
-            {pendingOrders.length > 0
-              ? ` · ${pendingOrders.length} venter bekreftelse`
-              : ''}
-          </p>
+          <h1 className="worker-title">
+            Bestillinger
+            <span className="worker-clock">{new Date(now).toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' })}</span>
+          </h1>
+          <p className="worker-subtitle">📍 {locationName}</p>
         </div>
-        <button type="button" className="worker-logout" onClick={() => { clearSession(); setPin(''); setPinInput(''); setLocationId(null); setLocationName('') }}>
-          Logg ut
+        <div className="worker-header-actions">
+          <button
+            type="button"
+            className={`worker-pause-btn${paused ? ' is-paused' : ''}`}
+            onClick={onTogglePause}
+            disabled={pauseLoading}
+          >
+            {paused ? '▶ Gjenoppta' : '⏸ Pause'}
+          </button>
+          <button
+            type="button"
+            className="worker-logout"
+            onClick={() => { clearSession(); setPin(''); setPinInput(''); setLocationId(null); setLocationName('') }}
+          >
+            Logg ut
+          </button>
+        </div>
+      </div>
+
+      {paused ? (
+        <div className="worker-pause-banner">
+          ⏸ Bestillinger er satt på pause — kunder kan ikke bestille akkurat nå
+        </div>
+      ) : null}
+
+      <div className="worker-tabs">
+        <button
+          type="button"
+          className={`worker-tab${activeTab === 'active' ? ' is-active' : ''}`}
+          onClick={() => setActiveTab('active')}
+        >
+          Aktive bestillinger
+          {activeCount > 0 ? <span className="worker-tab-badge">{activeCount}</span> : null}
+        </button>
+        <button
+          type="button"
+          className={`worker-tab${activeTab === 'done' ? ' is-active' : ''}`}
+          onClick={() => setActiveTab('done')}
+        >
+          Fullført i dag
+          {readyOrders.length > 0 ? <span className="worker-tab-badge worker-tab-badge--done">{readyOrders.length}</span> : null}
         </button>
       </div>
 
-      {orders.length === 0 ? (
-        <div className="worker-empty">
-          <p>🍕 Ingen aktive bestillinger akkurat nå.</p>
-        </div>
-      ) : null}
+      {activeTab === 'active' ? (
+        <>
+          {ordersLoading ? (
+            <p className="worker-tab-empty">Laster...</p>
+          ) : activeCount === 0 ? (
+            <p className="worker-tab-empty">Ingen aktive bestillinger akkurat nå.</p>
+          ) : null}
 
-      {pendingOrders.length > 0 ? (
-        <div className="worker-section">
-          <h2 className="worker-section-title worker-section--pending">
-            Venter bekreftelse
-            <span className="worker-section-badge">{pendingOrders.length}</span>
-          </h2>
-          <div className="worker-order-grid">
-            {pendingOrders.map((order) => {
-              const ageMs = now - (order.createdAt?.toMillis?.() || now)
-              const limitMs = ALERT_MINUTES * 60 * 1000
-              const remainMs = Math.max(0, limitMs - ageMs)
-              const remainSec = Math.ceil(remainMs / 1000)
-              const remainMin = Math.floor(remainSec / 60)
-              const remainSecPart = remainSec % 60
-              const isUrgent = ageMs >= limitMs
-              const state = actionState[order.id] || {}
-
-              return (
-                <article key={order.id} className={`worker-order-card${isUrgent ? ' is-urgent' : ''}`}>
-                  <div className="worker-order-header">
-                    <div>
-                      <p className="worker-order-name">{order.customerName}</p>
-                      <p className="worker-order-location">📍 {order.locationName}</p>
+          {pendingOrders.length > 0 ? (
+            <div className="worker-section">
+              <h2 className="worker-section-title worker-section--pending">
+                Venter bekreftelse
+                <span className="worker-section-badge">{pendingOrders.length}</span>
+              </h2>
+              <div className="worker-order-list">
+                {pendingOrders.map((order) => {
+                  const ageMs = now - (order.createdAt?.toMillis?.() || now)
+                  const isUrgent = ageMs >= ALERT_MINUTES * 60 * 1000
+                  const state = actionState[order.id] || {}
+                  return (
+                    <div key={order.id} className={`worker-order-row${isUrgent ? ' is-urgent' : ''}`}>
+                      <span className="worker-row-age">{ageLabel(order.createdAt, now)}</span>
+                      <span className="worker-row-name">{order.customerName}</span>
+                      <span className="worker-row-items">
+                        {(order.items || []).map((item, i) => (
+                          <span key={i}>{item.quantity}× {item.name}</span>
+                        ))}
+                      </span>
+                      <span className="worker-row-actions">
+                        {state.error ? <span className="worker-row-error">{state.error}</span> : null}
+                        <button
+                          type="button"
+                          className="worker-confirm-btn"
+                          onClick={() => onConfirm(order)}
+                          disabled={state.confirming}
+                        >
+                          {state.confirming ? '...' : '✓ Bekreft'}
+                        </button>
+                      </span>
                     </div>
-                    <div className="worker-order-timer-wrap">
-                      {isUrgent ? (
-                        <span className="worker-order-timer is-urgent">SMS sendt</span>
-                      ) : (
-                        <span className="worker-order-timer">
-                          {remainMin}:{String(remainSecPart).padStart(2, '0')}
-                        </span>
-                      )}
+                  )
+                })}
+              </div>
+            </div>
+          ) : null}
+
+          {confirmedOrders.length > 0 ? (
+            <div className="worker-section">
+              <h2 className="worker-section-title worker-section--confirmed">
+                Under tilberedning
+                <span className="worker-section-badge">{confirmedOrders.length}</span>
+              </h2>
+              <div className="worker-order-list">
+                {confirmedOrders.map((order) => {
+                  const state = actionState[order.id] || {}
+                  return (
+                    <div key={order.id} className="worker-order-row is-confirmed">
+                      <span className="worker-row-age">{ageLabel(order.createdAt, now)}</span>
+                      <span className="worker-row-name">{order.customerName}</span>
+                      <span className="worker-row-items">
+                        {(order.items || []).map((item, i) => (
+                          <span key={i}>{item.quantity}× {item.name}</span>
+                        ))}
+                      </span>
+                      <span className="worker-row-actions">
+                        {state.error ? <span className="worker-row-error">{state.error}</span> : null}
+                        {state.readySent ? (
+                          <span className="worker-ready-sent">✓ Varslet</span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="worker-ready-btn"
+                            onClick={() => onReady(order)}
+                            disabled={state.readying}
+                          >
+                            {state.readying ? '...' : '🍕 Klar'}
+                          </button>
+                        )}
+                      </span>
                     </div>
+                  )
+                })}
+              </div>
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <>
+          {readyOrders.length === 0 ? (
+            <p className="worker-tab-empty">Ingen fullførte bestillinger i dag ennå.</p>
+          ) : (
+            <div className="worker-order-list">
+              {readyOrders.map((order) => {
+                const mins = minutesBetween(order.createdAt, order.readyAt)
+                return (
+                  <div key={order.id} className="worker-order-row is-ready">
+                    <span className="worker-row-name">{order.customerName}</span>
+                    <span className="worker-row-items">
+                      {(order.items || []).map((item, i) => (
+                        <span key={i}>{item.quantity}× {item.name}</span>
+                      ))}
+                    </span>
+                    <span className="worker-row-times">
+                      <span className="worker-row-phone-sm">{order.customerPhone}</span>
+                      <span title="Bestilt">{timeHM(order.createdAt)}</span>
+                      <span className="worker-row-times-sep">→</span>
+                      <span title="Levert">{timeHM(order.readyAt)}</span>
+                      {mins !== null ? <span className="worker-row-duration">{mins} min</span> : null}
+                    </span>
                   </div>
-
-                  <ul className="worker-order-items">
-                    {(order.items || []).map((item, i) => (
-                      <li key={i}>{item.quantity}× {item.name}</li>
-                    ))}
-                  </ul>
-
-                  <div className="worker-order-footer">
-                    <p className="worker-order-total">{order.total} kr</p>
-                    <p className="worker-order-phone">{order.customerPhone}</p>
-                  </div>
-
-                  {isUrgent ? (
-                    <p className="worker-urgent-note">⚠️ SMS-varsling sendt til Magnus</p>
-                  ) : null}
-
-                  {state.error ? <p className="order-error">{state.error}</p> : null}
-
-                  <button
-                    type="button"
-                    className="worker-confirm-btn"
-                    onClick={() => onConfirm(order)}
-                    disabled={state.confirming}
-                  >
-                    {state.confirming ? 'Bekrefter...' : '✓ Bekreft bestilling'}
-                  </button>
-                </article>
-              )
-            })}
-          </div>
-        </div>
-      ) : null}
-
-      {confirmedOrders.length > 0 ? (
-        <div className="worker-section">
-          <h2 className="worker-section-title worker-section--confirmed">
-            Under tilberedning
-            <span className="worker-section-badge">{confirmedOrders.length}</span>
-          </h2>
-          <div className="worker-order-grid">
-            {confirmedOrders.map((order) => {
-              const state = actionState[order.id] || {}
-              return (
-                <article key={order.id} className="worker-order-card is-confirmed">
-                  <div className="worker-order-header">
-                    <div>
-                      <p className="worker-order-name">{order.customerName}</p>
-                      <p className="worker-order-location">📍 {order.locationName}</p>
-                    </div>
-                    <span className="worker-confirmed-badge">Bekreftet</span>
-                  </div>
-
-                  <ul className="worker-order-items">
-                    {(order.items || []).map((item, i) => (
-                      <li key={i}>{item.quantity}× {item.name}</li>
-                    ))}
-                  </ul>
-
-                  <div className="worker-order-footer">
-                    <p className="worker-order-total">{order.total} kr</p>
-                    <p className="worker-order-phone">{order.customerPhone}</p>
-                  </div>
-
-                  {state.error ? <p className="order-error">{state.error}</p> : null}
-                  {state.readySent ? <p className="worker-ready-sent">✓ Kunde varslet!</p> : null}
-
-                  {!state.readySent ? (
-                    <button
-                      type="button"
-                      className="worker-ready-btn"
-                      onClick={() => onReady(order)}
-                      disabled={state.readying}
-                    >
-                      {state.readying ? 'Sender varsel...' : '🍕 Klar — varsle kunde'}
-                    </button>
-                  ) : null}
-                </article>
-              )
-            })}
-          </div>
-        </div>
-      ) : null}
+                )
+              })}
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }

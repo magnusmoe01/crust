@@ -957,6 +957,7 @@ function normalizeQuestion(question, index) {
     imageUrl: String(question?.imageUrl || '').trim(),
     imageZoom: normalizeImageZoom(question?.imageZoom),
     includeInAnalysis: type === 'section' ? false : Boolean(question?.includeInAnalysis),
+    excludeFromLocationStatus: type === 'section' ? false : Boolean(question?.excludeFromLocationStatus),
     includeInReview: type === 'section' ? false : Boolean(question?.includeInReview),
     reviewType: type === 'section' ? '' : (String(question?.reviewType || '').trim() || (question?.includeInReview ? 'rating' : '')),
     includeRating: type === 'section' ? false : Boolean(question?.includeRating),
@@ -1467,100 +1468,6 @@ function getSelectOptionBehavior(question, selectedOption) {
   }
 }
 
-function getHistoryCellCategory(question, submission) {
-  if (question?.type !== 'select') {
-    return ''
-  }
-
-  if (hasAnalysisRefillAction(submission, question?.id)) {
-    return ''
-  }
-
-  const selectedValue = String(submission?.answers?.[question.id] || '').trim()
-  if (!selectedValue) {
-    return ''
-  }
-
-  const historyCategory = getSelectOptionBehavior(question, selectedValue).historyCategory
-  return historyCategory === 'orange' || historyCategory === 'red' ? historyCategory : ''
-}
-
-function getDeliveryMaxUnits(question) {
-  const parsed = Number.parseInt(question?.deliveryMaxUnits, 10)
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
-}
-
-function getFirstNormalOption(question) {
-  if (question?.type !== 'select') {
-    return null
-  }
-
-  const options = Array.isArray(question.options) ? question.options : []
-  const firstNormalIndex = options.findIndex(
-    (option) => getSelectOptionBehavior(question, option).historyCategory === 'normal',
-  )
-
-  if (firstNormalIndex === -1) {
-    return null
-  }
-
-  return {
-    index: firstNormalIndex,
-    value: options[firstNormalIndex],
-  }
-}
-
-function getLocationQuestionDeliverySetting(location, formSlug, question) {
-  const options = Array.isArray(question?.options) ? question.options : []
-  const locationSettings =
-    location?.formSettings &&
-    typeof location.formSettings === 'object' &&
-    location.formSettings[formSlug] &&
-    typeof location.formSettings[formSlug] === 'object'
-      ? location.formSettings[formSlug]
-      : null
-  const savedSetting =
-    locationSettings &&
-    question?.id &&
-    locationSettings[question.id] &&
-    typeof locationSettings[question.id] === 'object'
-      ? locationSettings[question.id]
-      : null
-  const fallbackTarget = getFirstNormalOption(question)?.value || ''
-  const savedTargetValue =
-    savedSetting && typeof savedSetting.targetValue === 'string' && savedSetting.targetValue.trim()
-      ? savedSetting.targetValue
-      : ''
-  const fallbackMaxUnits = getDeliveryMaxUnits(question)
-
-  return {
-    targetValue: options.includes(savedTargetValue) ? savedTargetValue : fallbackTarget,
-    deliveryUnlimited:
-      savedSetting && typeof savedSetting.deliveryUnlimited === 'boolean'
-        ? savedSetting.deliveryUnlimited
-        : Boolean(question?.deliveryUnlimited) || !fallbackMaxUnits,
-    deliveryMaxUnits:
-      savedSetting && Number.isFinite(Number(savedSetting.deliveryMaxUnits)) && Number(savedSetting.deliveryMaxUnits) > 0
-        ? String(savedSetting.deliveryMaxUnits)
-        : fallbackMaxUnits
-          ? String(fallbackMaxUnits)
-          : '',
-  }
-}
-
-function getLocationDeliverySetting(locationName, locations = [], formSlug, question) {
-  const normalizedName = String(locationName || '').trim()
-  if (!normalizedName || !question?.id) {
-    return getLocationQuestionDeliverySetting(null, formSlug, question)
-  }
-
-  const matchingLocation = locations.find(
-    (location) => String(location.name || '').trim() === normalizedName,
-  )
-
-  return getLocationQuestionDeliverySetting(matchingLocation, formSlug, question)
-}
-
 function getAnalysisAction(submission, questionId) {
   if (!submission || !questionId) {
     return null
@@ -1587,136 +1494,22 @@ function hasAnalysisRefillAction(submission, questionId) {
   return Boolean(getAnalysisAction(submission, questionId))
 }
 
-function getDeliveryRecommendation(question, submission, locationSetting = null) {
-  if (question?.type !== 'select' || !submission || hasAnalysisRefillAction(submission, question.id)) {
-    return null
+function getHistoryCellCategory(question, submission) {
+  if (question?.type !== 'select') {
+    return ''
   }
 
-  const currentValue = String(submission.answers?.[question.id] || '').trim()
-  if (!currentValue) {
-    return null
+  if (hasAnalysisRefillAction(submission, question?.id)) {
+    return ''
   }
 
-  const currentCategory = getSelectOptionBehavior(question, currentValue).historyCategory
-  if (currentCategory !== 'orange' && currentCategory !== 'red') {
-    return null
+  const selectedValue = String(submission?.answers?.[question.id] || '').trim()
+  if (!selectedValue) {
+    return ''
   }
 
-  const options = Array.isArray(question.options) ? question.options : []
-  const currentIndex = options.findIndex((option) => option === currentValue)
-  const fallbackTarget = getFirstNormalOption(question)
-  const targetValue = String(locationSetting?.targetValue || fallbackTarget?.value || '').trim()
-  const targetIndex = options.findIndex((option) => option === targetValue)
-
-  if (currentIndex === -1 || targetIndex === -1 || currentIndex >= targetIndex) {
-    return null
-  }
-
-  const maxUnits = getDeliveryMaxUnits(locationSetting || question)
-  const unlimited =
-    typeof locationSetting?.deliveryUnlimited === 'boolean'
-      ? locationSetting.deliveryUnlimited || !maxUnits
-      : Boolean(question?.deliveryUnlimited) || !maxUnits
-  let recommendedUnits = null
-
-  if (!unlimited && options.length > 1) {
-    const currentUnits = Math.floor((currentIndex * maxUnits) / (options.length - 1))
-    const targetUnits = Math.ceil((targetIndex * maxUnits) / (options.length - 1))
-    recommendedUnits = Math.max(0, targetUnits - currentUnits)
-  }
-
-  return {
-    questionId: question.id,
-    label: question.analysisLabel || question.label,
-    currentValue,
-    currentCategory,
-    targetValue,
-    maxUnits,
-    unlimited,
-    recommendedUnits,
-    isOrdered: hasAnalysisRefillAction(submission, question.id),
-    sourceEntries: [{ submissionId: submission.id, questionId: question.id }],
-  }
-}
-
-function getLocationCity(locationName, locations = []) {
-  const normalizedName = String(locationName || '').trim()
-  if (!normalizedName) {
-    return 'Ukjent by'
-  }
-
-  const matchingLocation = locations.find(
-    (location) => String(location.name || '').trim() === normalizedName,
-  )
-  const city = String(matchingLocation?.city || matchingLocation?.address || '').trim()
-
-  return city || 'Ukjent by'
-}
-
-function sortDeliveryCards(cards = []) {
-  return [...cards].sort((a, b) => {
-    const aCriticalUnits = a.products.reduce(
-      (sum, product) =>
-        sum +
-        (product.currentCategory === 'red' && typeof product.recommendedUnits === 'number'
-          ? product.recommendedUnits
-          : 0),
-      0,
-    )
-    const bCriticalUnits = b.products.reduce(
-      (sum, product) =>
-        sum +
-        (product.currentCategory === 'red' && typeof product.recommendedUnits === 'number'
-          ? product.recommendedUnits
-          : 0),
-      0,
-    )
-
-    if (bCriticalUnits !== aCriticalUnits) {
-      return bCriticalUnits - aCriticalUnits
-    }
-
-    if (b.knownTotalUnits !== a.knownTotalUnits) {
-      return b.knownTotalUnits - a.knownTotalUnits
-    }
-
-    const aCriticalCount = a.products.filter((product) => product.currentCategory === 'red').length
-    const bCriticalCount = b.products.filter((product) => product.currentCategory === 'red').length
-    if (bCriticalCount !== aCriticalCount) {
-      return bCriticalCount - aCriticalCount
-    }
-
-    return String(a.location || '').localeCompare(String(b.location || ''), 'nb')
-  })
-}
-
-function sortDeliveryLocationEntries(entries = []) {
-  return [...entries].sort((a, b) => {
-    if (a.currentCategory !== b.currentCategory) {
-      return a.currentCategory === 'red' ? -1 : 1
-    }
-
-    const aUnits = typeof a.recommendedUnits === 'number' ? a.recommendedUnits : -1
-    const bUnits = typeof b.recommendedUnits === 'number' ? b.recommendedUnits : -1
-    if (bUnits !== aUnits) {
-      return bUnits - aUnits
-    }
-
-    return String(a.location || '').localeCompare(String(b.location || ''), 'nb')
-  })
-}
-
-function formatDeliveryPurchaseLabel(item) {
-  const hasKnownUnits = typeof item?.recommendedUnits === 'number'
-
-  if (item?.unlimited) {
-    if (hasKnownUnits && item.recommendedUnits > 0) {
-      return `Minst ${item.recommendedUnits} stk`
-    }
-    return 'Sett maks antall for å få beregning'
-  }
-
-  return `${hasKnownUnits ? item.recommendedUnits : 0} stk`
+  const historyCategory = getSelectOptionBehavior(question, selectedValue).historyCategory
+  return historyCategory === 'orange' || historyCategory === 'red' ? historyCategory : ''
 }
 
 function getSubmissionStatusLabel(status) {
@@ -2125,8 +1918,6 @@ function FormPage() {
   const isFlaggedView = location.pathname.endsWith('/flagget')
   const isRemarksView = location.pathname.endsWith('/remarks')
   const isRatingView = location.pathname.endsWith('/rating')
-  const isDeliverySettingsView = location.pathname.endsWith('/leveringsliste/innstillinger')
-  const isDeliveryView = location.pathname.endsWith('/leveringsliste')
   const isHistoryView =
     location.pathname.endsWith('/analyse') || location.pathname.endsWith('/historikk')
   const isEditPage = location.pathname.endsWith('/edit')
@@ -2138,9 +1929,7 @@ function FormPage() {
     isFlaggedView ||
     isRemarksView ||
     isRatingView ||
-    isReviewView ||
-    isDeliveryView ||
-    isDeliverySettingsView
+    isReviewView
   const isStandalonePublicForm =
     !isSubmissionsView &&
     !isEditPage &&
@@ -2148,9 +1937,7 @@ function FormPage() {
     !isFlaggedView &&
     !isRemarksView &&
     !isRatingView &&
-    !isReviewView &&
-    !isDeliverySettingsView &&
-    !isDeliveryView
+    !isReviewView
   const isSubmissionEditMode = !isReceiptPage && Boolean(editReceiptToken) && isStandalonePublicForm
   const activeReceiptLookupToken = isReceiptPage ? receiptToken : editReceiptToken
 
@@ -2198,11 +1985,6 @@ function FormPage() {
     defaultStengeskjema.questions.map((item, index) => toEditorQuestion(item, index)),
   )
   const [saveState, setSaveState] = useState({ saving: false, message: '', error: '' })
-  const [deliverySettingsState, setDeliverySettingsState] = useState({
-    saving: false,
-    message: '',
-    error: '',
-  })
 
   const [submissions, setSubmissions] = useState([])
   const [manualRemarks, setManualRemarks] = useState([])
@@ -2223,6 +2005,7 @@ function FormPage() {
   const [reviewEmailSaving, setReviewEmailSaving] = useState(false)
   const [testEmailState, setTestEmailState] = useState({ sending: false, error: '', message: '' })
   const [inventoryAlertState, setInventoryAlertState] = useState({ sending: false, error: '', message: '' })
+  const [inventoryTestState, setInventoryTestState] = useState({ sending: false, error: '', message: '' })
   const [historySubmissionLimit, setHistorySubmissionLimit] = useState('3')
   const [historyDefaultState, setHistoryDefaultState] = useState({
     saving: false,
@@ -2272,9 +2055,6 @@ function FormPage() {
   const [remarkDeleteState, setRemarkDeleteState] = useState({})
   const [expandedRemarkPhones, setExpandedRemarkPhones] = useState({})
   const [analysisActionState, setAnalysisActionState] = useState({})
-  const [deliveryGroupByNeighborhood, setDeliveryGroupByNeighborhood] = useState(false)
-  const [deliveryGroupByProductPerCity, setDeliveryGroupByProductPerCity] = useState(false)
-  const [editorLocationSettings, setEditorLocationSettings] = useState({})
   const [hydratedEditReceiptToken, setHydratedEditReceiptToken] = useState('')
   const cameraUploadRequestIdsRef = useRef({})
   const selectDetailUploadRequestIdsRef = useRef({})
@@ -2336,6 +2116,16 @@ function FormPage() {
 
     return () => {
       viewportMeta.setAttribute('content', originalContent || 'width=device-width, initial-scale=1.0')
+    }
+  }, [isStandalonePublicForm])
+
+  useEffect(() => {
+    if (!isStandalonePublicForm) return
+    document.body.classList.add('order-bg')
+    document.documentElement.style.overflowX = 'hidden'
+    return () => {
+      document.body.classList.remove('order-bg')
+      document.documentElement.style.overflowX = ''
     }
   }, [isStandalonePublicForm])
 
@@ -2951,36 +2741,6 @@ function FormPage() {
 
     return unsubscribe
   }, [])
-
-  useEffect(() => {
-    if (availableLocations.length === 0 || editorQuestions.length === 0) {
-      return
-    }
-
-    setEditorLocationSettings((previous) => {
-      const next = {}
-
-      availableLocations.forEach((location) => {
-        next[location.id] = {}
-
-        editorQuestions.forEach((question) => {
-          if (question.type !== 'select') {
-            return
-          }
-
-          const existingSetting =
-            previous[location.id] && previous[location.id][question.id]
-              ? previous[location.id][question.id]
-              : null
-
-          next[location.id][question.id] =
-            existingSetting || getLocationQuestionDeliverySetting(location, activeFormSlug, question)
-        })
-      })
-
-      return next
-    })
-  }, [activeFormSlug, availableLocations, editorQuestions])
 
   useEffect(() => {
     if (!isAdmin) {
@@ -4397,30 +4157,6 @@ function FormPage() {
     )
   }
 
-  function getEditorLocationSetting(locationId, question) {
-    const existingSetting =
-      editorLocationSettings[locationId] && editorLocationSettings[locationId][question.id]
-        ? editorLocationSettings[locationId][question.id]
-        : null
-    const matchingLocation = availableLocations.find((location) => location.id === locationId) || null
-
-    return existingSetting || getLocationQuestionDeliverySetting(matchingLocation, activeFormSlug, question)
-  }
-
-  function onEditorLocationSettingChange(locationId, question, key, value) {
-    setEditorLocationSettings((previous) => ({
-      ...previous,
-      [locationId]: {
-        ...(previous[locationId] || {}),
-        [question.id]: {
-          ...getEditorLocationSetting(locationId, question),
-          ...(previous[locationId]?.[question.id] || {}),
-          [key]: value,
-        },
-      },
-    }))
-  }
-
   function addQuestion() {
     setEditorQuestions((previous) => [
       ...previous,
@@ -4667,78 +4403,6 @@ function FormPage() {
         saving: false,
         message: '',
         error: getFormSaveErrorMessage(error),
-      })
-    }
-  }
-
-  async function onSaveDeliverySettings() {
-    if (availableLocations.length === 0) {
-      setDeliverySettingsState({
-        saving: false,
-        message: '',
-        error: 'Ingen lokasjoner tilgjengelig å lagre innstillinger for.',
-      })
-      return
-    }
-
-    setDeliverySettingsState({
-      saving: true,
-      message: '',
-      error: '',
-    })
-
-    try {
-      const nextLocations = await Promise.all(
-        availableLocations.map(async (location) => {
-          const nextFormSettings = deliveryConfigQuestions.reduce((accumulator, question) => {
-            const currentSetting = getEditorLocationSetting(location.id, question)
-
-            accumulator[question.id] = {
-              targetValue: String(currentSetting.targetValue || '').trim(),
-              deliveryUnlimited: Boolean(currentSetting.deliveryUnlimited),
-              deliveryMaxUnits:
-                Number.parseInt(currentSetting.deliveryMaxUnits, 10) > 0
-                  ? Number.parseInt(currentSetting.deliveryMaxUnits, 10)
-                  : null,
-            }
-
-            return accumulator
-          }, {})
-
-          const mergedFormSettings = {
-            ...(location.formSettings && typeof location.formSettings === 'object' ? location.formSettings : {}),
-            [activeFormSlug]: nextFormSettings,
-          }
-
-          await setDoc(
-            doc(db, 'locations', location.id),
-            {
-              formSettings: mergedFormSettings,
-              updatedAt: serverTimestamp(),
-              updatedBy: user?.email || 'admin',
-            },
-            { merge: true },
-          )
-
-          return {
-            ...location,
-            formSettings: mergedFormSettings,
-          }
-        }),
-      )
-
-      setAvailableLocations(nextLocations)
-      setAvailableLocationsError('')
-      setDeliverySettingsState({
-        saving: false,
-        message: 'Lokasjonsinnstillinger lagret.',
-        error: '',
-      })
-    } catch (error) {
-      setDeliverySettingsState({
-        saving: false,
-        message: '',
-        error: getLocationsLoadErrorMessage(error),
       })
     }
   }
@@ -5155,6 +4819,17 @@ function FormPage() {
       setTimeout(() => setInventoryAlertState((s) => ({ ...s, message: '' })), 3000)
     } catch (error) {
       setInventoryAlertState({ sending: false, error: `Feil: ${error.message}`, message: '' })
+    }
+  }
+
+  async function onSendTestInventoryAlert() {
+    setInventoryTestState({ sending: true, error: '', message: '' })
+    try {
+      await httpsCallable(functions, 'sendInventoryAlertEmail')({ testRecipient: 'magnus@crust.no' })
+      setInventoryTestState({ sending: false, error: '', message: 'Test sendt til magnus@crust.no!' })
+      setTimeout(() => setInventoryTestState((s) => ({ ...s, message: '' })), 4000)
+    } catch (error) {
+      setInventoryTestState({ sending: false, error: `Feil: ${error.message}`, message: '' })
     }
   }
 
@@ -6315,20 +5990,6 @@ function FormPage() {
     )
   }
 
-  async function onMarkDeliveryOrdered(product) {
-    return onSetAnalysisActionEntries(product?.sourceEntries, 'ordered', {
-      permission: 'Kunne ikke markere som bestilt. Mangler tilgang i Firestore-regler',
-      generic: 'Kunne ikke markere som bestilt',
-    })
-  }
-
-  async function onResetDeliveryOrdered(product) {
-    return onSetAnalysisActionEntries(product?.sourceEntries, '', {
-      permission: 'Kunne ikke nullstille bestilling. Mangler tilgang i Firestore-regler',
-      generic: 'Kunne ikke nullstille bestilling',
-    })
-  }
-
   async function onSaveHistoryDefault() {
     const nextDefault = Math.max(1, Number.parseInt(historySubmissionLimit, 10) || 3)
 
@@ -7103,7 +6764,6 @@ function FormPage() {
   const analysisQuestions = formData.questions.filter(
     (question) => !isSectionQuestion(question) && Boolean(question.includeInAnalysis),
   )
-  const deliveryConfigQuestions = analysisQuestions.filter((question) => question.type === 'select')
   const visibleHistoryQuestions =
     historyShowAllQuestions
       ? analysisQuestions
@@ -7133,172 +6793,6 @@ function FormPage() {
     })
     .filter((row) => locationOrder.includes(row.location))
     .sort((a, b) => b.latestSubmittedAtSeconds - a.latestSubmittedAtSeconds)
-  const deliveryLocationNames = (() => {
-    const namesFromLocations = availableLocations
-      .map((location) => String(location.name || '').trim())
-      .filter(Boolean)
-    const namesFromHistory = historyRows.map((row) => row.location)
-    const seen = new Set()
-
-    return [...namesFromLocations, ...namesFromHistory].filter((name) => {
-      if (seen.has(name)) {
-        return false
-      }
-      seen.add(name)
-      return true
-    })
-  })()
-  const deliveryCards = deliveryLocationNames.map((locationName) => {
-    const matchingHistoryRow = historyRows.find((row) => row.location === locationName)
-    const latestSubmission = matchingHistoryRow?.items?.[0] || null
-    const products = latestSubmission
-      ? analysisQuestions
-          .map((question) =>
-            getDeliveryRecommendation(
-              question,
-              latestSubmission,
-              getLocationDeliverySetting(locationName, availableLocations, activeFormSlug, question),
-            ),
-          )
-          .filter(Boolean)
-      : []
-
-    return {
-      location: locationName,
-      city: getLocationCity(locationName, availableLocations),
-      submission: latestSubmission,
-      products,
-      knownTotalUnits: products.reduce(
-        (sum, product) =>
-          sum + (typeof product.recommendedUnits === 'number' ? product.recommendedUnits : 0),
-        0,
-      ),
-      hasUnlimitedProducts: products.some((product) => product.unlimited),
-    }
-  })
-  const groupedDeliveryCards = Array.from(
-    deliveryCards.reduce((accumulator, card) => {
-      const key = card.city
-      const existingGroup = accumulator.get(key) || {
-        location: key,
-        city: key,
-        locations: [],
-        submission: null,
-        productsMap: new Map(),
-        knownTotalUnits: 0,
-        hasUnlimitedProducts: false,
-      }
-
-      existingGroup.locations.push(card.location)
-      existingGroup.knownTotalUnits += card.knownTotalUnits
-      existingGroup.hasUnlimitedProducts =
-        existingGroup.hasUnlimitedProducts || card.hasUnlimitedProducts
-
-      if (
-        card.submission &&
-        (!existingGroup.submission ||
-          (card.submission.submittedAt?.seconds || 0) > (existingGroup.submission.submittedAt?.seconds || 0))
-      ) {
-        existingGroup.submission = card.submission
-      }
-
-      card.products.forEach((product) => {
-        const currentProduct = existingGroup.productsMap.get(product.questionId) || {
-          ...product,
-          locations: [],
-          locationEntries: [],
-          recommendedUnits: 0,
-          hasUnlimitedEntries: false,
-          isOrdered: true,
-          sourceEntries: [],
-        }
-
-        currentProduct.locations.push(card.location)
-        currentProduct.locationEntries.push({
-          location: card.location,
-          currentValue: product.currentValue,
-          currentCategory: product.currentCategory,
-          targetValue: product.targetValue,
-          maxUnits: product.maxUnits,
-          unlimited: product.unlimited,
-          recommendedUnits: product.recommendedUnits,
-          isOrdered: product.isOrdered,
-          sourceEntries: Array.isArray(product.sourceEntries) ? product.sourceEntries : [],
-        })
-        if (typeof product.recommendedUnits === 'number') {
-          currentProduct.recommendedUnits += product.recommendedUnits
-        } else {
-          currentProduct.hasUnlimitedEntries = true
-        }
-        currentProduct.unlimited = currentProduct.hasUnlimitedEntries
-        currentProduct.isOrdered = currentProduct.isOrdered && Boolean(product.isOrdered)
-        currentProduct.sourceEntries = [
-          ...currentProduct.sourceEntries,
-          ...(Array.isArray(product.sourceEntries) ? product.sourceEntries : []),
-        ]
-        currentProduct.currentCategory =
-          currentProduct.currentCategory === 'red' || product.currentCategory === 'red'
-            ? 'red'
-            : 'orange'
-
-        existingGroup.productsMap.set(product.questionId, currentProduct)
-      })
-
-      accumulator.set(key, existingGroup)
-      return accumulator
-    }, new Map()),
-  ).map(([, group]) => ({
-    location: group.location,
-    city: group.city,
-    locations: group.locations.sort((a, b) => a.localeCompare(b, 'nb')),
-    submission: group.submission,
-    products: Array.from(group.productsMap.values()).map((product) => ({
-      ...product,
-      locationEntries: sortDeliveryLocationEntries(product.locationEntries),
-    })),
-    knownTotalUnits: group.knownTotalUnits,
-    hasUnlimitedProducts: group.hasUnlimitedProducts,
-  }))
-  const groupedDeliveryCardsByProduct = groupedDeliveryCards.flatMap((card) =>
-    card.products.map((product) => ({
-      location: card.location,
-      city: card.city,
-      locations: card.locations,
-      submission: card.submission,
-      products: [product],
-      knownTotalUnits: typeof product.recommendedUnits === 'number' ? product.recommendedUnits : 0,
-      hasUnlimitedProducts: Boolean(product.unlimited),
-    })),
-  )
-  const visibleDeliveryCards = sortDeliveryCards(
-    deliveryGroupByNeighborhood
-      ? deliveryGroupByProductPerCity
-        ? groupedDeliveryCardsByProduct
-        : groupedDeliveryCards
-      : deliveryCards,
-  )
-  const deliveryCardRows = deliveryGroupByNeighborhood
-    ? Array.from(
-        visibleDeliveryCards.reduce((accumulator, card) => {
-          const key = card.city || card.location
-          const existingRow = accumulator.get(key) || {
-            key,
-            label: key,
-            cards: [],
-          }
-
-          existingRow.cards.push(card)
-          accumulator.set(key, existingRow)
-          return accumulator
-        }, new Map()).values(),
-      )
-    : []
-  useEffect(() => {
-    if (!deliveryGroupByNeighborhood && deliveryGroupByProductPerCity) {
-      setDeliveryGroupByProductPerCity(false)
-    }
-  }, [deliveryGroupByNeighborhood, deliveryGroupByProductPerCity])
-
   useEffect(() => {
     const nextDefault = Math.max(1, Number.parseInt(formData.analysisDefaultSubmissionLimit, 10) || 3)
     setHistorySubmissionLimit((previous) => {
@@ -7840,147 +7334,6 @@ function FormPage() {
     )
   }
 
-  function renderDeliverySettingsPage() {
-    return (
-      <div className="delivery-settings-page">
-        <div className="history-header">
-          <div className="history-title-block">
-            <h3>Lokasjonsinnstillinger</h3>
-            <p className="history-legend">
-              Sett mål og maks beholdning per lokasjon for produktene som brukes i leveringslisten.
-            </p>
-          </div>
-          <div className="delivery-settings-actions">
-            <a className="ghost" href={`/skjema/${activeFormSlug}/leveringsliste`}>
-              Tilbake til leveringsliste
-            </a>
-            <button
-              type="button"
-              className="cta"
-              onClick={onSaveDeliverySettings}
-              disabled={deliverySettingsState.saving || loadingLocations || Boolean(availableLocationsError)}
-            >
-              {deliverySettingsState.saving ? 'Lagrer...' : 'Lagre innstillinger'}
-            </button>
-          </div>
-        </div>
-
-        {deliverySettingsState.error ? <p className="forms-error">{deliverySettingsState.error}</p> : null}
-        {deliverySettingsState.message ? <p className="forms-success">{deliverySettingsState.message}</p> : null}
-        {loadingLocations ? <p>Laster lokasjoner...</p> : null}
-        {!loadingLocations && availableLocationsError ? (
-          <p className="forms-error">{availableLocationsError}</p>
-        ) : null}
-        {!loadingLocations && !availableLocationsError && availableLocations.length === 0 ? (
-          <p>Ingen lokasjoner funnet ennå. Sjekk `/lokasjoner`.</p>
-        ) : null}
-        {!loadingLocations &&
-        !availableLocationsError &&
-        availableLocations.length > 0 &&
-        deliveryConfigQuestions.length === 0 ? (
-          <p>Ingen valgfelt er merket med "Inkluder i analyse" ennå.</p>
-        ) : null}
-
-        {!loadingLocations &&
-        !availableLocationsError &&
-        availableLocations.length > 0 &&
-        deliveryConfigQuestions.length > 0 ? (
-          <div className="delivery-settings-list">
-            {deliveryConfigQuestions.map((question) => (
-              <article key={question.id} className="response-card delivery-settings-card">
-                <div className="delivery-settings-card-header">
-                  <div>
-                    <h4>{question.analysisLabel || question.label}</h4>
-                    <p>{question.label}</p>
-                  </div>
-                </div>
-                <div className="location-delivery-settings">
-                  <div className="location-delivery-settings-list">
-                    {availableLocations.map((location) => {
-                      const locationSetting = getEditorLocationSetting(location.id, question)
-
-                      return (
-                        <div key={`${question.id}-${location.id}`} className="location-delivery-setting-row">
-                          <p className="location-delivery-setting-name">{location.name}</p>
-                          <label
-                            className="field-block"
-                            htmlFor={`delivery-settings-target-${question.id}-${location.id}`}
-                          >
-                            <span>Mål</span>
-                            <select
-                              id={`delivery-settings-target-${question.id}-${location.id}`}
-                              value={locationSetting.targetValue}
-                              onChange={(event) =>
-                                onEditorLocationSettingChange(
-                                  location.id,
-                                  question,
-                                  'targetValue',
-                                  event.target.value,
-                                )
-                              }
-                            >
-                              {(question.options || []).map((option) => (
-                                <option key={option} value={option}>
-                                  {option}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label
-                            className="checkbox-inline"
-                            htmlFor={`delivery-settings-unlimited-${question.id}-${location.id}`}
-                          >
-                            <input
-                              id={`delivery-settings-unlimited-${question.id}-${location.id}`}
-                              type="checkbox"
-                              checked={Boolean(locationSetting.deliveryUnlimited)}
-                              onChange={(event) =>
-                                onEditorLocationSettingChange(
-                                  location.id,
-                                  question,
-                                  'deliveryUnlimited',
-                                  event.target.checked,
-                                )
-                              }
-                            />
-                            Ubegrenset
-                          </label>
-                          <label
-                            className="field-block delivery-max-field"
-                            htmlFor={`delivery-settings-max-${question.id}-${location.id}`}
-                          >
-                            <span>Maks antall</span>
-                            <input
-                              id={`delivery-settings-max-${question.id}-${location.id}`}
-                              type="number"
-                              min="1"
-                              inputMode="numeric"
-                              value={locationSetting.deliveryMaxUnits || ''}
-                              disabled={Boolean(locationSetting.deliveryUnlimited)}
-                              placeholder="f.eks. 40"
-                              onChange={(event) =>
-                                onEditorLocationSettingChange(
-                                  location.id,
-                                  question,
-                                  'deliveryMaxUnits',
-                                  event.target.value,
-                                )
-                              }
-                            />
-                          </label>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
-        ) : null}
-      </div>
-    )
-  }
-
   function renderRemarksPage() {
     const loadingRemarks = loadingSubmissions || loadingManualRemarks
 
@@ -8515,7 +7868,7 @@ function FormPage() {
   return (
     <div
       className={`forms-page stengeskjema-page ${isStandalonePublicForm ? 'public-form-page' : ''} ${
-        isHistoryView || isDeliveryView || isDeliverySettingsView || isRemarksView || isRatingView ? 'history-page' : ''
+        isHistoryView || isRemarksView || isRatingView ? 'history-page' : ''
       }`}
     >
       {isAdminShellView ? (
@@ -8806,9 +8159,7 @@ function FormPage() {
           {loading ? <p>Kontrollerer innlogging...</p> : null}
           {error ? <p className="forms-error">{error}</p> : null}
 
-            {isDeliverySettingsView ? (
-              renderDeliverySettingsPage()
-            ) : isRemarksView ? (
+            {isRemarksView ? (
               renderRemarksPage()
             ) : isEditPage ? (
               <div className="admin-editor">
@@ -9206,6 +8557,22 @@ function FormPage() {
                                   />
                                   Inkluder i analyse
                                 </label>
+                                {question.includeInAnalysis ? (
+                                  <label
+                                    className="checkbox-inline editor-settings-toggle-cell editor-settings-toggle-cell--sub"
+                                    htmlFor={`q-exclude-location-status-${index}`}
+                                  >
+                                    <input
+                                      id={`q-exclude-location-status-${index}`}
+                                      type="checkbox"
+                                      checked={Boolean(question.excludeFromLocationStatus)}
+                                      onChange={(event) =>
+                                        onEditorQuestionChange(index, 'excludeFromLocationStatus', event.target.checked)
+                                      }
+                                    />
+                                    Utelat fra status per lokasjon
+                                  </label>
+                                ) : null}
                                 <label
                                   className="checkbox-inline editor-settings-toggle-cell"
                                   htmlFor={`q-review-${index}`}
@@ -9839,6 +9206,21 @@ function FormPage() {
                       {inventoryAlertState.error ? (
                         <span className="forms-error">{inventoryAlertState.error}</span>
                       ) : null}
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={onSendTestInventoryAlert}
+                        disabled={inventoryTestState.sending}
+                        title="Send test-epost til magnus@crust.no"
+                      >
+                        {inventoryTestState.sending ? 'Sender...' : '✉ Send test-epost'}
+                      </button>
+                      {inventoryTestState.message ? (
+                        <span className="history-alert-msg">{inventoryTestState.message}</span>
+                      ) : null}
+                      {inventoryTestState.error ? (
+                        <span className="forms-error">{inventoryTestState.error}</span>
+                      ) : null}
                     </div>
                     <label className="field-block history-days-field history-days-inline" htmlFor="history-submission-limit">
                       <span>Vis siste innsendinger</span>
@@ -10013,6 +9395,61 @@ function FormPage() {
                 </div>
                 {historyDefaultState.error ? <p className="forms-error">{historyDefaultState.error}</p> : null}
                 {historyDefaultState.message ? <p className="forms-success">{historyDefaultState.message}</p> : null}
+
+                {!loadingSubmissions && analysisQuestions.length > 0 && historyRows.length > 0 ? (() => {
+                  const alertRows = historyRows.map((row) => {
+                    const latest = row.items[0]
+                    if (!latest) return null
+                    const items = analysisQuestions.flatMap((q) => {
+                      if (q.excludeFromLocationStatus) return []
+                      if (hasAnalysisRefillAction(latest, q.id)) return []
+                      const value = String(latest.answers?.[q.id] || '').trim()
+                      if (!value) return []
+                      const category = getSelectOptionBehavior(q, value).historyCategory
+                      if (category !== 'orange' && category !== 'red') return []
+                      return [{ label: (q.analysisLabel || q.label || q.id).trim(), value, category }]
+                    })
+                    if (items.length === 0) return null
+                    const sortedItems = [...items].sort((a, b) =>
+                      (a.category === 'red' ? 0 : 1) - (b.category === 'red' ? 0 : 1)
+                    )
+                    return { location: row.location, items: sortedItems }
+                  }).filter(Boolean).sort((a, b) => {
+                    const aRed = a.items.some((i) => i.category === 'red') ? 0 : 1
+                    const bRed = b.items.some((i) => i.category === 'red') ? 0 : 1
+                    return aRed - bRed
+                  })
+
+                  if (alertRows.length === 0) {
+                    return (
+                      <div className="inventory-alert-summary inventory-alert-summary--ok">
+                        <span>✅ Ingen oransje eller røde varer akkurat nå.</span>
+                      </div>
+                    )
+                  }
+                  return (
+                    <div className="inventory-alert-summary">
+                      <p className="inventory-alert-summary-title">
+                        Status per lokasjon
+                        <span className="inventory-alert-summary-note">Sendes daglig kl. 08:00</span>
+                      </p>
+                      <div className="inventory-alert-location-grid">
+                        {alertRows.map(({ location, items }) => (
+                          <div key={location} className="inventory-alert-location-card">
+                            <p className="inventory-alert-location-name">📍 {location}</p>
+                            {items.map((item, i) => (
+                              <div key={i} className={`inventory-alert-item is-${item.category}`}>
+                                <span className="inventory-alert-item-label">{item.label}</span>
+                                <span className="inventory-alert-item-value">{item.value}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })() : null}
+
                 {loadingSubmissions ? <p>Laster analyse...</p> : null}
                 {!loadingSubmissions && analysisQuestions.length === 0 ? (
                   <p>Ingen spørsmål er merket med "Inkluder i analyse" ennå.</p>
@@ -10173,357 +9610,6 @@ function FormPage() {
                 visibleHistoryRows.length > 0 &&
                 visibleHistoryQuestions.length === 0 ? (
                   <p>Ingen spørsmål er valgt i filteret.</p>
-                ) : null}
-              </div>
-            ) : null}
-
-            {isDeliveryView ? (
-              <div className="delivery-overview" id="delivery-section">
-                <div className="history-header">
-                  <div className="history-title-block">
-                    <h3>Leverings-/bestillingsliste</h3>
-                    <p className="history-legend">
-                      Basert på siste innsending per lokasjon og første normale nivå for hvert produkt.
-                    </p>
-                  </div>
-                  <div className="delivery-controls">
-                    <a
-                      className="ghost"
-                      href={`/skjema/${activeFormSlug}/leveringsliste/innstillinger`}
-                    >
-                      Lokasjonsinnstillinger
-                    </a>
-                    <div className="delivery-toggle-row">
-                      <label className="checkbox-inline delivery-group-toggle">
-                        <input
-                          type="checkbox"
-                          checked={deliveryGroupByNeighborhood}
-                          onChange={(event) => {
-                            const isChecked = event.target.checked
-                            setDeliveryGroupByNeighborhood(isChecked)
-                            if (!isChecked) {
-                              setDeliveryGroupByProductPerCity(false)
-                            }
-                          }}
-                        />
-                        Samle per by
-                      </label>
-                      <label className="checkbox-inline delivery-group-toggle">
-                        <input
-                          type="checkbox"
-                          checked={deliveryGroupByProductPerCity}
-                          onChange={(event) => {
-                            const isChecked = event.target.checked
-                            setDeliveryGroupByProductPerCity(isChecked)
-                            if (isChecked) {
-                              setDeliveryGroupByNeighborhood(true)
-                            }
-                          }}
-                        />
-                        Samle per produkt per by
-                      </label>
-                    </div>
-                  </div>
-                </div>
-                {loadingSubmissions ? <p>Laster leveringsliste...</p> : null}
-                {!loadingSubmissions && analysisQuestions.length === 0 ? (
-                  <p>Ingen spørsmål er merket med "Inkluder i analyse" ennå.</p>
-                ) : null}
-                {!loadingSubmissions && analysisQuestions.length > 0 && historyRows.length === 0 ? (
-                  <p>Ingen innsendinger ennå.</p>
-                ) : null}
-                {!loadingSubmissions && analysisQuestions.length > 0 && historyRows.length > 0 ? (
-                  <>
-                    {deliveryGroupByNeighborhood ? (
-                      <div className="delivery-city-rows">
-                        {deliveryCardRows.map((row) => (
-                          <section key={row.key} className="delivery-city-row">
-                            <div className="delivery-city-label">
-                              <h4>{row.label}</h4>
-                            </div>
-                            <div className="delivery-city-cards-scroll">
-                              <div
-                                className={`delivery-city-cards${
-                                  deliveryGroupByProductPerCity ? '' : ' delivery-city-cards-fullwidth'
-                                }`}
-                              >
-                                {row.cards.map((card, cardIndex) => (
-                                  <article
-                                    key={`${row.key}-${cardIndex}-${card.products
-                                      .map((product) => product.questionId)
-                                      .join('-') || 'empty'}`}
-                                    className="response-card delivery-card"
-                                  >
-                                    <div className="delivery-card-header">
-                                      <div>
-                                        <p>
-                                          <strong>Sist sendt inn:</strong>{' '}
-                                          {formatTime(card.submission?.submittedAt)}
-                                        </p>
-                                      </div>
-                                    </div>
-                                    {card.products.length > 0 ? (
-                                      <div className="delivery-item-list delivery-item-list-horizontal">
-                                        {card.products.map((product) => (
-                                          <article
-                                            key={`${card.location}-${product.questionId}`}
-                                            className="delivery-item"
-                                          >
-                                            {(() => {
-                                              const sourceEntries = Array.isArray(product.sourceEntries)
-                                                ? product.sourceEntries
-                                                : []
-                                              const productActionStates = sourceEntries.map((entry) =>
-                                                analysisActionState[
-                                                  `${entry.submissionId}:${entry.questionId}`
-                                                ] || {
-                                                  saving: false,
-                                                  error: '',
-                                                },
-                                              )
-                                              const isSaving = productActionStates.some((state) => state.saving)
-                                              const actionError =
-                                                productActionStates.find((state) => state.error)?.error || ''
-
-                                              return (
-                                                <>
-                                                  <div className="delivery-item-header">
-                                                    <h5>{product.label}</h5>
-                                                    <div className="delivery-item-header-right">
-                                                      <span
-                                                        className={`delivery-item-status is-${product.currentCategory}`}
-                                                      >
-                                                        {product.currentCategory === 'red'
-                                                          ? 'Kritisk'
-                                                          : 'Snart tomt'}
-                                                      </span>
-                                                      {product.isOrdered ? (
-                                                        <label
-                                                          className="history-cell-checkbox-wrap"
-                                                          aria-label="Nullstill bestilling"
-                                                          title="Nullstill bestilling"
-                                                        >
-                                                          <input
-                                                            type="checkbox"
-                                                            className="history-cell-checkbox"
-                                                            checked
-                                                            disabled={isSaving}
-                                                            onChange={() => onResetDeliveryOrdered(product)}
-                                                          />
-                                                        </label>
-                                                      ) : (
-                                                        <button
-                                                          type="button"
-                                                          className="ghost history-cell-action"
-                                                          onClick={() => onMarkDeliveryOrdered(product)}
-                                                          disabled={isSaving}
-                                                          aria-label="Marker som bestilt"
-                                                          title="Marker som bestilt"
-                                                        >
-                                                          {isSaving ? '...' : '+'}
-                                                        </button>
-                                                      )}
-                                                    </div>
-                                                  </div>
-                                                  {actionError ? (
-                                                    <p className="delivery-item-error">{actionError}</p>
-                                                  ) : null}
-                                                  {Array.isArray(product.locationEntries) &&
-                                                  product.locationEntries.length > 0 ? (
-                                                    <>
-                                                      <div className="delivery-location-list">
-                                                        {product.locationEntries.map((entry) => (
-                                                          <article
-                                                            key={`${product.questionId}-${entry.location}`}
-                                                            className="delivery-location-entry"
-                                                          >
-                                                            <div className="delivery-location-entry-header">
-                                                              <p className="delivery-location-name">
-                                                                {entry.location}
-                                                              </p>
-                                                              <span
-                                                                className={`delivery-item-status is-${entry.currentCategory}`}
-                                                              >
-                                                                {entry.currentCategory === 'red'
-                                                                  ? 'Kritisk'
-                                                                  : 'Snart tomt'}
-                                                              </span>
-                                                            </div>
-                                                            <p className="delivery-item-values">
-                                                              <span
-                                                                className={`delivery-current-value is-${entry.currentCategory}`}
-                                                              >
-                                                                <strong>Nå:</strong> {entry.currentValue}
-                                                              </span>
-                                                              <span>
-                                                                <strong>Mål:</strong> {entry.targetValue}
-                                                              </span>
-                                                            </p>
-                                                            <p>
-                                                              <strong>Behov:</strong>{' '}
-                                                              {formatDeliveryPurchaseLabel(entry)}
-                                                            </p>
-                                                          </article>
-                                                        ))}
-                                                      </div>
-                                                      <p className="delivery-product-total">
-                                                        <strong>Totalt behov:</strong>{' '}
-                                                        {formatDeliveryPurchaseLabel(product)}
-                                                      </p>
-                                                    </>
-                                                  ) : (
-                                                    <>
-                                                      <p className="delivery-item-values">
-                                                        <span
-                                                          className={`delivery-current-value is-${product.currentCategory}`}
-                                                        >
-                                                          <strong>Nå:</strong> {product.currentValue}
-                                                        </span>
-                                                        <span>
-                                                          <strong>Mål:</strong> {product.targetValue}
-                                                        </span>
-                                                      </p>
-                                                      <p>
-                                                        <strong>Maks:</strong>{' '}
-                                                        {product.unlimited
-                                                          ? 'Ubegrenset'
-                                                          : `${product.maxUnits} stk`}
-                                                      </p>
-                                                      <p>
-                                                        <strong>Anbefalt innkjøp:</strong>{' '}
-                                                        {formatDeliveryPurchaseLabel(product)}
-                                                      </p>
-                                                    </>
-                                                  )}
-                                                </>
-                                              )
-                                            })()}
-                                          </article>
-                                        ))}
-                                      </div>
-                                    ) : (
-                                      <p className="delivery-empty">Alle produkter er på normalt nivå.</p>
-                                    )}
-                                  </article>
-                                ))}
-                              </div>
-                            </div>
-                          </section>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="delivery-card-scroll">
-                        <div className="delivery-card-grid">
-                          {visibleDeliveryCards.map((card) => (
-                            <article key={card.location} className="response-card delivery-card">
-                              <div className="delivery-card-header">
-                                <div>
-                                  <h4>{card.location}</h4>
-                                  <p>
-                                    <strong>By:</strong> {card.city}
-                                  </p>
-                                  <p>
-                                    <strong>Sist sendt inn:</strong> {formatTime(card.submission?.submittedAt)}
-                                  </p>
-                                </div>
-                              </div>
-                              {card.products.length > 0 ? (
-                                <div className="delivery-item-list">
-                                  {card.products.map((product) => (
-                                    <article
-                                      key={`${card.location}-${product.questionId}`}
-                                      className="delivery-item"
-                                    >
-                                      {(() => {
-                                        const sourceEntries = Array.isArray(product.sourceEntries)
-                                          ? product.sourceEntries
-                                          : []
-                                        const productActionStates = sourceEntries.map((entry) =>
-                                          analysisActionState[`${entry.submissionId}:${entry.questionId}`] || {
-                                            saving: false,
-                                            error: '',
-                                          },
-                                        )
-                                        const isSaving = productActionStates.some((state) => state.saving)
-                                        const actionError =
-                                          productActionStates.find((state) => state.error)?.error || ''
-
-                                        return (
-                                          <>
-                                            <div className="delivery-item-header">
-                                              <h5>{product.label}</h5>
-                                              <div className="delivery-item-header-right">
-                                                <span
-                                                  className={`delivery-item-status is-${product.currentCategory}`}
-                                                >
-                                                  {product.currentCategory === 'red'
-                                                    ? 'Kritisk'
-                                                    : 'Snart tomt'}
-                                                </span>
-                                                {product.isOrdered ? (
-                                                  <label
-                                                    className="history-cell-checkbox-wrap"
-                                                    aria-label="Nullstill bestilling"
-                                                    title="Nullstill bestilling"
-                                                  >
-                                                    <input
-                                                      type="checkbox"
-                                                      className="history-cell-checkbox"
-                                                      checked
-                                                      disabled={isSaving}
-                                                      onChange={() => onResetDeliveryOrdered(product)}
-                                                    />
-                                                  </label>
-                                                ) : (
-                                                  <button
-                                                    type="button"
-                                                    className="ghost history-cell-action"
-                                                    onClick={() => onMarkDeliveryOrdered(product)}
-                                                    disabled={isSaving}
-                                                    aria-label="Marker som bestilt"
-                                                    title="Marker som bestilt"
-                                                  >
-                                                    {isSaving ? '...' : '+'}
-                                                  </button>
-                                                )}
-                                              </div>
-                                            </div>
-                                            <p className="delivery-item-values">
-                                              <span
-                                                className={`delivery-current-value is-${product.currentCategory}`}
-                                              >
-                                                <strong>Nå:</strong> {product.currentValue}
-                                              </span>
-                                              <span>
-                                                <strong>Mål:</strong> {product.targetValue}
-                                              </span>
-                                            </p>
-                                            <p>
-                                              <strong>Maks:</strong>{' '}
-                                              {product.unlimited ? 'Ubegrenset' : `${product.maxUnits} stk`}
-                                            </p>
-                                            <p>
-                                              <strong>Anbefalt innkjøp:</strong>{' '}
-                                              {formatDeliveryPurchaseLabel(product)}
-                                            </p>
-                                            {actionError ? (
-                                              <p className="delivery-item-error">{actionError}</p>
-                                            ) : null}
-                                          </>
-                                        )
-                                      })()}
-                                    </article>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="delivery-empty">Alle produkter er på normalt nivå.</p>
-                              )}
-                            </article>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </>
                 ) : null}
               </div>
             ) : null}

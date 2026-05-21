@@ -390,6 +390,7 @@ function App() {
       </Route>
       <Route path="/worker" element={withPageLoader(<OrderDashboard />)} />
       <Route path="/order" element={withPageLoader(<Order />)} />
+      <Route path="/ordre" element={<Navigate to="/order" replace />} />
     </Routes>
   );
 }

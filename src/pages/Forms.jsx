@@ -146,7 +146,11 @@ function Forms() {
           }
 
           if (String(data?.status || "").trim().toLowerCase() === "awaiting review") {
-            nextCounts[formSlug] = (nextCounts[formSlug] || 0) + 1;
+            const submittedAt = data?.submittedAt?.toMillis?.() ?? (data?.submittedAt?.seconds ? data.submittedAt.seconds * 1000 : null)
+            const ageMs = submittedAt != null ? Date.now() - submittedAt : 0
+            if (ageMs <= 14 * 24 * 60 * 60 * 1000) {
+              nextCounts[formSlug] = (nextCounts[formSlug] || 0) + 1
+            }
           }
         });
 
@@ -402,12 +406,6 @@ function Forms() {
                     href={`/skjema/${form.slug}/analyse`}
                   >
                     Varebeholdning
-                  </a>
-                  <a
-                    className="ghost"
-                    href={`/skjema/${form.slug}/leveringsliste`}
-                  >
-                    Leverings-/bestillingsliste
                   </a>
                 </div>
               ) : null}

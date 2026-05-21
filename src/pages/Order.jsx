@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import { doc, getDoc, getDocs, collection } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { db, functions } from '../firebase'
+import vippsLogo from '../assets/vipps-logo.svg'
 import './Order.css'
 
 function getOpenWindow(schedule) {
@@ -47,7 +48,11 @@ export default function Order() {
 
   useEffect(() => {
     document.body.classList.add('order-bg')
-    return () => document.body.classList.remove('order-bg')
+    document.documentElement.style.overflowX = 'hidden'
+    return () => {
+      document.body.classList.remove('order-bg')
+      document.documentElement.style.overflowX = ''
+    }
   }, [])
 
   useEffect(() => {
@@ -100,7 +105,7 @@ export default function Order() {
 
   const enabledLocations = locations.filter((loc) => loc.orderEnabled)
   const availableLocations = enabledLocations.filter(
-    (loc) => getLocationOpen(locationSettings[loc.id]),
+    (loc) => getLocationOpen(locationSettings[loc.id]) && !locationSettings[loc.id]?.paused,
   )
 
   const cartItems = Object.entries(cart)
@@ -494,7 +499,7 @@ export default function Order() {
                     disabled={submitting}
                   >
                     {submitting ? 'Starter Vipps...' : (
-                      <><span className="order-vipps-logo">V</span>Betal {cartTotal > 0 ? `${cartTotal} kr` : ''} med Vipps</>
+                      <><img src={vippsLogo} alt="Vipps" className="order-vipps-logo" />Betal {cartTotal > 0 ? `${cartTotal} kr` : ''} med Vipps</>
                     )}
                   </button>
                 </div>

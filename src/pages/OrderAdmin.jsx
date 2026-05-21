@@ -31,6 +31,7 @@ export default function OrderAdmin() {
   const [addingCombo, setAddingCombo] = useState(false)
   const [newCombo, setNewCombo] = useState({ name: '', typeIds: [], totalPrice: '' })
   const [smsTest, setSmsTest] = useState({ phone: '', sending: false, message: '', error: '' })
+  const [smsTexts, setSmsTexts] = useState({ confirmation: '', ready: '', feedback: '', feedbackLink: '' })
 
   useEffect(() => {
     if (!isAdmin) return
@@ -44,6 +45,7 @@ export default function OrderAdmin() {
         setProductTypes(cfg.productTypes || [])
         setCombos(cfg.combos || [])
         setLocationSettings(cfg.locationSettings || {})
+        setSmsTexts({ confirmation: '', ready: '', feedback: '', feedbackLink: '', ...(cfg.smsTexts || {}) })
         const locs = locsSnap.docs
           .map((d) => ({ id: d.id, ...d.data() }))
           .filter((l) => l.orderEnabled)
@@ -58,9 +60,10 @@ export default function OrderAdmin() {
       .finally(() => setLoading(false))
   }, [isAdmin])
 
-  async function save(updatedProducts, updatedLocationSettings, updatedTypes, updatedCombos) {
+  async function save(updatedProducts, updatedLocationSettings, updatedTypes, updatedCombos, updatedSmsTexts) {
     const types = updatedTypes !== undefined ? updatedTypes : productTypes
     const cms = updatedCombos !== undefined ? updatedCombos : combos
+    const texts = updatedSmsTexts !== undefined ? updatedSmsTexts : smsTexts
     setSaveState({ saving: true, error: '', message: '' })
     try {
       await setDoc(doc(db, 'orderConfig', 'default'), {
@@ -68,12 +71,14 @@ export default function OrderAdmin() {
         productTypes: types,
         combos: cms,
         locationSettings: updatedLocationSettings,
+        smsTexts: texts,
         updatedAt: serverTimestamp(),
       })
       setProducts(updatedProducts)
       setProductTypes(types)
       setCombos(cms)
       setLocationSettings(updatedLocationSettings)
+      setSmsTexts(texts)
       setSaveState({ saving: false, error: '', message: 'Lagret!' })
       setTimeout(() => setSaveState((s) => ({ ...s, message: '' })), 2500)
     } catch (err) {
@@ -130,6 +135,16 @@ export default function OrderAdmin() {
       locationSettings,
       productTypes.map((t) => (t.id === typeId ? { ...t, name } : t)),
     )
+  }
+
+  function onMoveProduct(id, dir) {
+    const idx = products.findIndex((p) => p.id === id)
+    if (idx === -1) return
+    const newIdx = idx + dir
+    if (newIdx < 0 || newIdx >= products.length) return
+    const next = [...products]
+    ;[next[idx], next[newIdx]] = [next[newIdx], next[idx]]
+    save(next, locationSettings)
   }
 
   function onToggleProduct(id) {
@@ -222,6 +237,10 @@ export default function OrderAdmin() {
 
   function onSaveComboPrice() {
     save(products, locationSettings, productTypes, combos)
+  }
+
+  function saveSmsTexts(texts) {
+    save(products, locationSettings, productTypes, combos, texts)
   }
 
   async function onSendSmsTest() {
@@ -361,8 +380,12 @@ export default function OrderAdmin() {
           <p className="order-admin-empty">Ingen produkter ennå. Legg til det første.</p>
         ) : (
           <div className="order-admin-product-list">
-            {products.map((product) => (
+            {products.map((product, idx) => (
               <div key={product.id} className={`order-admin-product-row${product.available ? '' : ' is-unavailable'}`}>
+                <div className="order-admin-product-sort">
+                  <button type="button" className="order-admin-sort-btn" onClick={() => onMoveProduct(product.id, -1)} disabled={idx === 0} aria-label="Flytt opp">↑</button>
+                  <button type="button" className="order-admin-sort-btn" onClick={() => onMoveProduct(product.id, 1)} disabled={idx === products.length - 1} aria-label="Flytt ned">↓</button>
+                </div>
                 <label className="order-admin-product-img-area" title="Last opp bilde">
                   {imageUploading[product.id] ? (
                     <div className="order-admin-product-thumb order-admin-product-thumb--loading">…</div>
@@ -725,6 +748,59 @@ export default function OrderAdmin() {
             </table>
           </div>
         )}
+      </section>
+
+      {/* ── SMS texts ── */}
+      <section className="order-admin-section">
+        <h2>SMS-tekster</h2>
+        <p className="order-admin-section-desc">
+          Tilpass tekstene som sendes til kunder. Bruk <code>{'{name}'}</code>, <code>{'{items}'}</code>, <code>{'{location}'}</code>, <code>{'{link}'}</code> som variabler.
+        </p>
+        <div className="order-admin-sms-texts">
+          <label className="order-field">
+            <span>Bekreftelse (etter betaling)</span>
+            <textarea
+              className="order-admin-sms-textarea"
+              value={smsTexts.confirmation}
+              onChange={(e) => setSmsTexts((s) => ({ ...s, confirmation: e.target.value }))}
+              onBlur={() => saveSmsTexts(smsTexts)}
+              placeholder={`Hei {name}! Vi har mottatt bestillingen din ({items}) fra Crust n' Trust. Du får ny SMS når den er klar for henting. 🍕`}
+              rows={3}
+            />
+          </label>
+          <label className="order-field">
+            <span>Klar for henting</span>
+            <textarea
+              className="order-admin-sms-textarea"
+              value={smsTexts.ready}
+              onChange={(e) => setSmsTexts((s) => ({ ...s, ready: e.target.value }))}
+              onBlur={() => saveSmsTexts(smsTexts)}
+              placeholder={`Hei {name}! 🍕 Bestillingen din er klar for henting hos Crust n' Trust — {location}. God appetitt!`}
+              rows={3}
+            />
+          </label>
+          <label className="order-field">
+            <span>Tilbakemelding (15 min etter henting)</span>
+            <textarea
+              className="order-admin-sms-textarea"
+              value={smsTexts.feedback}
+              onChange={(e) => setSmsTexts((s) => ({ ...s, feedback: e.target.value }))}
+              onBlur={() => saveSmsTexts(smsTexts)}
+              placeholder={`Hei {name}! Håper maten smakte godt. Del gjerne din tilbakemelding: {link} 🍕`}
+              rows={3}
+            />
+          </label>
+          <label className="order-field" style={{ maxWidth: 400 }}>
+            <span>Tilbakemeldingslenke</span>
+            <input
+              type="url"
+              value={smsTexts.feedbackLink}
+              onChange={(e) => setSmsTexts((s) => ({ ...s, feedbackLink: e.target.value }))}
+              onBlur={() => saveSmsTexts(smsTexts)}
+              placeholder="https://crust.no/tilbakemelding"
+            />
+          </label>
+        </div>
       </section>
 
       {/* ── SMS test ── */}

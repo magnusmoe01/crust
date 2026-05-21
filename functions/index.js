@@ -757,6 +757,16 @@ function formatOrderItems(items) {
   return items.map((i) => `${i.quantity}× ${i.name}`).join(", ");
 }
 
+function renderSmsTemplate(template, vars) {
+  return template.replace(/\{(\w+)\}/g, (_, key) => vars[key] ?? "");
+}
+
+const SMS_DEFAULTS = {
+  confirmation: "Hei {name}! Vi har mottatt bestillingen din ({items}) fra Crust n' Trust. Du får ny SMS når den er klar for henting. 🍕",
+  ready:        "Hei {name}! 🍕 Bestillingen din er klar for henting hos Crust n' Trust — {location}. God appetitt!",
+  feedback:     "Hei {name}! Håper maten smakte godt. Del gjerne din tilbakemelding: {link} 🍕",
+};
+
 async function getVippsToken() {
   const axios = require("axios");
   const res = await axios.post(
@@ -924,10 +934,12 @@ exports.vippsCallback = onRequest(
 
       // Send confirmation SMS to customer
       try {
-        const name = capitalizeFirst(order.customerName || "");
+        const cfg      = await getOrderConfig();
+        const template = cfg.smsTexts?.confirmation || SMS_DEFAULTS.confirmation;
+        const name     = capitalizeFirst(order.customerName || "");
         await sendElksSms(
           order.customerPhone,
-          `Hei ${name}! Vi har mottatt bestillingen din (${formatOrderItems(order.items)}) fra Crust n' Trust. Du får ny SMS når den er klar for henting. 🍕`,
+          renderSmsTemplate(template, { name, items: formatOrderItems(order.items) }),
         );
       } catch (err) {
         logger.error("Confirmation SMS failed", { orderId, error: err?.message });
@@ -1000,10 +1012,12 @@ exports.checkVippsOrder = onCall(
         // Send SMS if not already sent
         if (!order.smsSent) {
           try {
-            const name = capitalizeFirst(order.customerName || "");
+            const cfg      = await getOrderConfig();
+            const template = cfg.smsTexts?.confirmation || SMS_DEFAULTS.confirmation;
+            const name     = capitalizeFirst(order.customerName || "");
             await sendElksSms(
               order.customerPhone,
-              `Hei ${name}! Vi har mottatt bestillingen din (${formatOrderItems(order.items)}) fra Crust n' Trust. Du får ny SMS når den er klar for henting. 🍕`,
+              renderSmsTemplate(template, { name, items: formatOrderItems(order.items) }),
             );
             await admin.firestore().doc(`orders/${orderId}`).update({ smsSent: true });
           } catch (err) {
@@ -1091,20 +1105,60 @@ exports.sendOrderReadySms = onCall(
       throw new HttpsError("permission-denied", "Invalid PIN");
     }
 
-    const order = snap.data();
-    const name = capitalizeFirst(order.customerName || "");
+    const order    = snap.data();
+    const name     = capitalizeFirst(order.customerName || "");
+    const template = config.smsTexts?.ready || SMS_DEFAULTS.ready;
 
     await sendElksSms(
       order.customerPhone,
-      `Hei ${name}! 🍕 Bestillingen din er klar for henting hos Crust n' Trust — ${order.locationName}. God appetitt!`,
+      renderSmsTemplate(template, { name, location: order.locationName || "" }),
     );
 
     await orderRef.update({
-      status:  "ready",
-      readyAt: admin.firestore.FieldValue.serverTimestamp(),
+      status:          "ready",
+      readyAt:         admin.firestore.FieldValue.serverTimestamp(),
+      feedbackSmsSent: false,
     });
 
     return { sent: true };
+  },
+);
+
+// Send feedback SMS 15 min after order is ready
+exports.scheduledFeedbackSms = onSchedule(
+  {
+    schedule: "every 5 minutes",
+    region:   "europe-west1",
+    timeZone: "Europe/Oslo",
+    secrets:  ["ELKS_API_USERNAME", "ELKS_API_PASSWORD"],
+  },
+  async () => {
+    const db     = admin.firestore();
+    const cutoff = new Date(Date.now() - 15 * 60 * 1000);
+    const config = await getOrderConfig();
+    const template     = config.smsTexts?.feedback     || SMS_DEFAULTS.feedback;
+    const feedbackLink = config.smsTexts?.feedbackLink || "";
+
+    const snap = await db.collection("orders")
+      .where("status", "==", "ready")
+      .where("readyAt", "<=", admin.firestore.Timestamp.fromDate(cutoff))
+      .get();
+
+    await Promise.all(
+      snap.docs
+        .filter((d) => d.data().feedbackSmsSent !== true)
+        .map(async (docSnap) => {
+          const order = docSnap.data();
+          const name  = capitalizeFirst(order.customerName || "");
+          const msg   = renderSmsTemplate(template, { name, link: feedbackLink });
+          try {
+            await sendElksSms(order.customerPhone, msg);
+            await docSnap.ref.update({ feedbackSmsSent: true });
+          } catch (err) {
+            logger.error("Feedback SMS failed", { orderId: docSnap.id, error: err?.message });
+          }
+        }),
+    );
   },
 );
 
@@ -1125,12 +1179,18 @@ function getSelectOptionHistoryCategory(question, selectedOption) {
 async function buildInventoryAlertData() {
   const db = admin.firestore();
 
-  // Load stengeskjema form definition
-  const formsSnap = await db.collection("forms")
-    .where("slug", "==", "stengeskjema")
-    .limit(1)
-    .get();
+  // Load stengeskjema form definition and active locations in parallel
+  const [formsSnap, locationsSnap] = await Promise.all([
+    db.collection("forms").where("slug", "==", "stengeskjema").limit(1).get(),
+    db.collection("locations").get(),
+  ]);
   if (formsSnap.empty) throw new Error("stengeskjema form not found");
+
+  const activeLocationNames = new Set(
+    locationsSnap.docs
+      .map((d) => String(d.data().name || "").trim())
+      .filter(Boolean),
+  );
 
   const formDoc = formsSnap.docs[0].data();
   const allQuestions = Array.isArray(formDoc.questions) ? formDoc.questions : [];
@@ -1160,13 +1220,15 @@ async function buildInventoryAlertData() {
     }
   }
 
-  // Build alert data per location
+  // Build alert data per location — only for locations active on /analyse
   const result = [];
   for (const [location, submission] of Array.from(latestByLocation.entries()).sort((a, b) => a[0].localeCompare(b[0], "nb"))) {
+    if (!activeLocationNames.has(location)) continue;
     const redItems = [];
     const orangeItems = [];
 
     for (const question of analysisQuestions) {
+      if (question.excludeFromLocationStatus) continue;
       // Skip if a refill/ordered action already exists
       const action = submission.analysisActions?.[question.id];
       const actionType = String(action?.type || "").toLowerCase();
@@ -1183,8 +1245,9 @@ async function buildInventoryAlertData() {
       else if (category === "orange") orangeItems.push(item);
     }
 
+    const submittedAtSeconds = submission.submittedAt?.seconds || null;
     if (redItems.length > 0 || orangeItems.length > 0) {
-      result.push({ location, items: [...redItems, ...orangeItems] });
+      result.push({ location, items: [...redItems, ...orangeItems], submittedAtSeconds });
     }
   }
 
@@ -1200,7 +1263,7 @@ function buildInventoryAlertEmailHtml(alertData, dateStr) {
       </div>`;
   }
 
-  const sections = alertData.map(({ location, items }) => {
+  const sections = alertData.map(({ location, items, submittedAtSeconds }) => {
     const rows = items.map(({ label, value, category }) => {
       const isRed = category === "red";
       const borderColor = isRed ? "#dc2626" : "#d97706";
@@ -1212,9 +1275,21 @@ function buildInventoryAlertEmailHtml(alertData, dateStr) {
         </div>`;
     }).join("");
 
+    const submittedLabel = submittedAtSeconds
+      ? (() => {
+          const d = new Date(submittedAtSeconds * 1000);
+          const days2 = ["søn","man","tir","ons","tor","fre","lør"];
+          const pad = (n) => String(n).padStart(2, "0");
+          return `${days2[d.getDay()]} ${d.getDate()}. kl. ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        })()
+      : null;
+
     return `
       <div style="margin-bottom:28px;">
-        <h3 style="margin:0 0 10px;font-size:1rem;color:#374151;border-bottom:1px solid #e5e7eb;padding-bottom:6px;">📍 ${location}</h3>
+        <div style="display:flex;align-items:baseline;gap:10px;border-bottom:1px solid #e5e7eb;padding-bottom:6px;margin-bottom:10px;">
+          <h3 style="margin:0;font-size:1rem;color:#374151;">📍 ${location}</h3>
+          ${submittedLabel ? `<span style="font-size:0.78rem;color:#9ca3af;">Siste skjema: ${submittedLabel}</span>` : ""}
+        </div>
         ${rows}
       </div>`;
   }).join("");
@@ -1271,16 +1346,92 @@ async function doSendInventoryAlert(testRecipient) {
 }
 
 exports.sendInventoryAlertEmail = onCall(
-  { invoker: "public", secrets: AZURE_SECRETS_INVENTORY },
+  { region: "europe-west1", invoker: "public", secrets: AZURE_SECRETS_INVENTORY },
   async (req) => {
     const testRecipient = typeof req.data?.testRecipient === "string" ? req.data.testRecipient.trim() : null;
     return doSendInventoryAlert(testRecipient || null);
   },
 );
 
+// Toggle pause state for a location (worker PIN auth)
+exports.toggleLocationPause = onCall(
+  { region: "europe-west1", invoker: "public" },
+  async ({ data }) => {
+    const { workerPin, paused } = data || {};
+    if (!workerPin) throw new HttpsError("invalid-argument", "workerPin required");
+
+    const configRef = admin.firestore().doc("orderConfig/default");
+    const snap = await configRef.get();
+    const locSettings = snap.data()?.locationSettings || {};
+
+    const matchedLocId = Object.entries(locSettings).find(
+      ([, s]) => s.workerPin && String(s.workerPin) === String(workerPin)
+    )?.[0];
+
+    if (!matchedLocId) throw new HttpsError("permission-denied", "Invalid PIN");
+
+    await configRef.update({
+      [`locationSettings.${matchedLocId}.paused`]: Boolean(paused),
+    });
+
+    return { paused: Boolean(paused) };
+  },
+);
+
+// Refund a paid/confirmed/ready order via Vipps (admin only)
+exports.refundVippsOrder = onCall(
+  {
+    region:  "europe-west1",
+    invoker: "public",
+    secrets: ["VIPPS_CLIENT_ID", "VIPPS_CLIENT_SECRET", "VIPPS_SUBSCRIPTION_KEY", "VIPPS_MSN"],
+  },
+  async ({ data, auth }) => {
+    if (!String(auth?.token?.email || "").endsWith("@crust.no")) {
+      throw new HttpsError("permission-denied", "Admin access required");
+    }
+
+    const { orderId } = data || {};
+    if (!orderId) throw new HttpsError("invalid-argument", "orderId required");
+
+    const orderRef = admin.firestore().doc(`orders/${orderId}`);
+    const snap = await orderRef.get();
+    if (!snap.exists) throw new HttpsError("not-found", "Order not found");
+
+    const order = snap.data();
+    const refundableStatuses = ["paid", "confirmed", "ready"];
+    if (!refundableStatuses.includes(order.status)) {
+      throw new HttpsError("failed-precondition", `Cannot refund order with status: ${order.status}`);
+    }
+
+    const axios = require("axios");
+    const token = await getVippsToken();
+    await axios.post(
+      `${VIPPS_API}/ecomm/v2/payments/${orderId}/refund`,
+      {
+        merchantInfo: { merchantSerialNumber: process.env.VIPPS_MSN },
+        transaction: {
+          amount: Math.round((order.total || 0) * 100),
+          transactionText: "Refusjon fra Crust n' Trust",
+        },
+      },
+      { headers: vippsHeaders(token, `refund-${orderId}`) },
+    );
+
+    await orderRef.update({
+      status:     "refunded",
+      refundedAt: admin.firestore.FieldValue.serverTimestamp(),
+      refundedBy: auth.token.email,
+    });
+
+    logger.info("Order refunded", { orderId, by: auth.token.email });
+    return { refunded: true };
+  },
+);
+
 exports.scheduledInventoryAlert = onSchedule(
   {
-    schedule: "0 7 * * *",
+    schedule: "0 8 * * *",
+    region: "europe-west1",
     timeZone: "Europe/Oslo",
     secrets: AZURE_SECRETS_INVENTORY,
   },
