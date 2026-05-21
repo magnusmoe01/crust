@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { doc, getDoc, getDocs, setDoc, collection, serverTimestamp } from 'firebase/firestore'
-import { db } from '../firebase'
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { db, storage, functions } from '../firebase'
+import { httpsCallable } from 'firebase/functions'
 import { useAdminSession } from '../hooks/useAdminSession'
 import { Navigate } from 'react-router-dom'
 import './Order.css'
@@ -15,14 +17,20 @@ function generateId() {
 export default function OrderAdmin() {
   const { isAdmin, loading: authLoading } = useAdminSession()
   const [products, setProducts] = useState([])
+  const [productTypes, setProductTypes] = useState([])
+  const [combos, setCombos] = useState([])
   const [locationSettings, setLocationSettings] = useState({})
-  const [workerPin, setWorkerPin] = useState('')
-  const [locations, setLocations] = useState([]) // orderEnabled locations from /plasseringer
+  const [locations, setLocations] = useState([])
   const [loading, setLoading] = useState(true)
   const [saveState, setSaveState] = useState({ saving: false, error: '', message: '' })
 
-  const [newProduct, setNewProduct] = useState({ name: '', description: '', price: '' })
+  const [newProduct, setNewProduct] = useState({ name: '', description: '', price: '', typeId: '' })
   const [addingProduct, setAddingProduct] = useState(false)
+  const [newTypeName, setNewTypeName] = useState('')
+  const [imageUploading, setImageUploading] = useState({})
+  const [addingCombo, setAddingCombo] = useState(false)
+  const [newCombo, setNewCombo] = useState({ name: '', typeIds: [], totalPrice: '' })
+  const [smsTest, setSmsTest] = useState({ phone: '', sending: false, message: '', error: '' })
 
   useEffect(() => {
     if (!isAdmin) return
@@ -33,8 +41,9 @@ export default function OrderAdmin() {
       .then(([configSnap, locsSnap]) => {
         const cfg = configSnap.exists() ? configSnap.data() : {}
         setProducts(cfg.products || [])
+        setProductTypes(cfg.productTypes || [])
+        setCombos(cfg.combos || [])
         setLocationSettings(cfg.locationSettings || {})
-        setWorkerPin(cfg.workerPin || '')
         const locs = locsSnap.docs
           .map((d) => ({ id: d.id, ...d.data() }))
           .filter((l) => l.orderEnabled)
@@ -49,18 +58,22 @@ export default function OrderAdmin() {
       .finally(() => setLoading(false))
   }, [isAdmin])
 
-  async function save(updatedProducts, updatedLocationSettings, updatedPin) {
+  async function save(updatedProducts, updatedLocationSettings, updatedTypes, updatedCombos) {
+    const types = updatedTypes !== undefined ? updatedTypes : productTypes
+    const cms = updatedCombos !== undefined ? updatedCombos : combos
     setSaveState({ saving: true, error: '', message: '' })
     try {
       await setDoc(doc(db, 'orderConfig', 'default'), {
         products: updatedProducts,
+        productTypes: types,
+        combos: cms,
         locationSettings: updatedLocationSettings,
-        workerPin: updatedPin,
         updatedAt: serverTimestamp(),
       })
       setProducts(updatedProducts)
+      setProductTypes(types)
+      setCombos(cms)
       setLocationSettings(updatedLocationSettings)
-      setWorkerPin(updatedPin)
       setSaveState({ saving: false, error: '', message: 'Lagret!' })
       setTimeout(() => setSaveState((s) => ({ ...s, message: '' })), 2500)
     } catch (err) {
@@ -74,22 +87,75 @@ export default function OrderAdmin() {
     const name = newProduct.name.trim()
     const price = parseFloat(String(newProduct.price).replace(',', '.'))
     if (!name || isNaN(price) || price <= 0) return
-    const product = { id: generateId(), name, description: newProduct.description.trim(), price, available: true }
-    save([...products, product], locationSettings, workerPin)
-    setNewProduct({ name: '', description: '', price: '' })
+    const product = {
+      id: generateId(),
+      name,
+      description: newProduct.description.trim(),
+      price,
+      available: true,
+      ...(newProduct.typeId ? { typeId: newProduct.typeId } : {}),
+    }
+    save([...products, product], locationSettings)
+    setNewProduct({ name: '', description: '', price: '', typeId: '' })
     setAddingProduct(false)
+  }
+
+  function onChangeProductType(id, typeId) {
+    const updated = products.map((p) =>
+      p.id === id ? { ...p, typeId: typeId || undefined } : p,
+    )
+    save(updated, locationSettings)
+  }
+
+  function onAddType() {
+    const name = newTypeName.trim()
+    if (!name) return
+    const updated = [...productTypes, { id: generateId(), name }]
+    save(products, locationSettings, updated)
+    setNewTypeName('')
+  }
+
+  function onDeleteType(typeId) {
+    const updated = productTypes.filter((t) => t.id !== typeId)
+    const updatedProducts = products.map((p) =>
+      p.typeId === typeId ? { ...p, typeId: undefined } : p,
+    )
+    save(updatedProducts, locationSettings, updated)
+  }
+
+  function onRenameType(typeId, name) {
+    if (!name.trim()) return
+    save(
+      products,
+      locationSettings,
+      productTypes.map((t) => (t.id === typeId ? { ...t, name } : t)),
+    )
   }
 
   function onToggleProduct(id) {
     save(
       products.map((p) => (p.id === id ? { ...p, available: !p.available } : p)),
       locationSettings,
-      workerPin,
     )
   }
 
   function onDeleteProduct(id) {
-    save(products.filter((p) => p.id !== id), locationSettings, workerPin)
+    save(products.filter((p) => p.id !== id), locationSettings)
+  }
+
+  async function onUploadProductImage(productId, file) {
+    setImageUploading((prev) => ({ ...prev, [productId]: true }))
+    try {
+      const fileRef = storageRef(storage, `productImages/${productId}`)
+      await uploadBytes(fileRef, file)
+      const url = await getDownloadURL(fileRef)
+      const updated = products.map((p) => (p.id === productId ? { ...p, imageUrl: url } : p))
+      await save(updated, locationSettings)
+    } catch (err) {
+      setSaveState({ saving: false, error: err.message || 'Bildeopplasting feilet', message: '' })
+    } finally {
+      setImageUploading((prev) => ({ ...prev, [productId]: false }))
+    }
   }
 
   function onEditProductPrice(id, rawValue) {
@@ -99,7 +165,7 @@ export default function OrderAdmin() {
   }
 
   function onSaveProductPrice() {
-    save(products, locationSettings, workerPin)
+    save(products, locationSettings)
   }
 
   // ── Schedule (calendar) ───────────────────────────────────────────────────
@@ -115,7 +181,7 @@ export default function OrderAdmin() {
   }
 
   function onSaveSchedule() {
-    save(products, locationSettings, workerPin)
+    save(products, locationSettings)
   }
 
   function onClearCell(locId, dayIndex) {
@@ -123,13 +189,60 @@ export default function OrderAdmin() {
     const schedule = { ...(current.schedule || {}) }
     delete schedule[String(dayIndex)]
     const updated = { ...locationSettings, [locId]: { ...current, schedule } }
-    save(products, updated, workerPin)
+    save(products, updated)
   }
 
-  // ── PIN ───────────────────────────────────────────────────────────────────
+  function onLocationSettingChange(locId, field, value) {
+    setLocationSettings((prev) => ({
+      ...prev,
+      [locId]: { ...(prev[locId] || {}), [field]: value },
+    }))
+  }
 
-  function onSavePin(newPin) {
-    save(products, locationSettings, newPin)
+  // ── Combos ───────────────────────────────────────────────────────────────
+
+  function onAddCombo() {
+    const price = parseFloat(String(newCombo.totalPrice).replace(',', '.'))
+    if (newCombo.typeIds.length < 2 || isNaN(price) || price <= 0) return
+    const combo = { id: generateId(), name: newCombo.name.trim(), typeIds: newCombo.typeIds, totalPrice: price }
+    save(products, locationSettings, productTypes, [...combos, combo])
+    setNewCombo({ name: '', typeIds: [], totalPrice: '' })
+    setAddingCombo(false)
+  }
+
+  function onDeleteCombo(id) {
+    save(products, locationSettings, productTypes, combos.filter((c) => c.id !== id))
+  }
+
+  function onEditComboPrice(id, rawValue) {
+    const price = parseFloat(String(rawValue).replace(',', '.'))
+    if (isNaN(price) || price <= 0) return
+    setCombos((prev) => prev.map((c) => (c.id === id ? { ...c, totalPrice: price } : c)))
+  }
+
+  function onSaveComboPrice() {
+    save(products, locationSettings, productTypes, combos)
+  }
+
+  async function onSendSmsTest() {
+    const phone = smsTest.phone.trim()
+    if (!phone) return
+    setSmsTest((s) => ({ ...s, sending: true, message: '', error: '' }))
+    try {
+      await httpsCallable(functions, 'sendTestSms')({ phone })
+      setSmsTest((s) => ({ ...s, sending: false, message: 'SMS sendt!' }))
+    } catch (err) {
+      setSmsTest((s) => ({ ...s, sending: false, error: err.message || 'Sending feilet' }))
+    }
+  }
+
+  function onOverrideChange(locId, value) {
+    const updated = {
+      ...locationSettings,
+      [locId]: { ...(locationSettings[locId] || {}), openOverride: value },
+    }
+    setLocationSettings(updated)
+    save(products, updated)
   }
 
   if (authLoading) return <div className="loading-box">Laster...</div>
@@ -153,6 +266,42 @@ export default function OrderAdmin() {
           <button type="button" className="order-btn-sm" onClick={() => setAddingProduct((v) => !v)}>
             {addingProduct ? 'Avbryt' : '+ Nytt produkt'}
           </button>
+        </div>
+
+        {/* Types */}
+        <div className="order-admin-types-block">
+          <p className="order-admin-types-label">Typer</p>
+          <div className="order-admin-types-list">
+            {productTypes.map((t) => (
+              <div key={t.id} className="order-admin-type-chip">
+                <input
+                  type="text"
+                  className="order-admin-type-input"
+                  defaultValue={t.name}
+                  onBlur={(e) => onRenameType(t.id, e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="order-admin-type-delete"
+                  onClick={() => onDeleteType(t.id)}
+                  aria-label="Slett type"
+                >✕</button>
+              </div>
+            ))}
+            <div className="order-admin-type-add">
+              <input
+                type="text"
+                className="order-admin-type-input"
+                value={newTypeName}
+                onChange={(e) => setNewTypeName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onAddType() } }}
+                placeholder="Ny type..."
+              />
+              <button type="button" className="order-btn-sm" onClick={onAddType} disabled={!newTypeName.trim()}>
+                Legg til
+              </button>
+            </div>
+          </div>
         </div>
 
         {addingProduct ? (
@@ -187,6 +336,20 @@ export default function OrderAdmin() {
                   placeholder="150"
                 />
               </label>
+              {productTypes.length > 0 ? (
+                <label className="order-field">
+                  <span>Type</span>
+                  <select
+                    value={newProduct.typeId}
+                    onChange={(e) => setNewProduct((p) => ({ ...p, typeId: e.target.value }))}
+                  >
+                    <option value="">— ingen —</option>
+                    {productTypes.map((t) => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
             </div>
             <button type="button" className="order-btn" onClick={onAddProduct}>
               Legg til produkt
@@ -200,10 +363,37 @@ export default function OrderAdmin() {
           <div className="order-admin-product-list">
             {products.map((product) => (
               <div key={product.id} className={`order-admin-product-row${product.available ? '' : ' is-unavailable'}`}>
+                <label className="order-admin-product-img-area" title="Last opp bilde">
+                  {imageUploading[product.id] ? (
+                    <div className="order-admin-product-thumb order-admin-product-thumb--loading">…</div>
+                  ) : product.imageUrl ? (
+                    <img src={product.imageUrl} className="order-admin-product-thumb" alt={product.name} />
+                  ) : (
+                    <div className="order-admin-product-thumb order-admin-product-thumb--empty">📷</div>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    onChange={(e) => e.target.files[0] && onUploadProductImage(product.id, e.target.files[0])}
+                  />
+                </label>
                 <div className="order-admin-product-info">
                   <p className="order-admin-product-name">{product.name}</p>
                   {product.description ? (
                     <p className="order-admin-product-desc">{product.description}</p>
+                  ) : null}
+                  {productTypes.length > 0 ? (
+                    <select
+                      className="order-admin-type-select"
+                      value={product.typeId || ''}
+                      onChange={(e) => onChangeProductType(product.id, e.target.value)}
+                    >
+                      <option value="">— ingen type —</option>
+                      {productTypes.map((t) => (
+                        <option key={t.id} value={t.id}>{t.name}</option>
+                      ))}
+                    </select>
                   ) : null}
                 </div>
                 <div className="order-admin-product-controls">
@@ -238,6 +428,138 @@ export default function OrderAdmin() {
         )}
       </section>
 
+      {/* ── Combos ── */}
+      <section className="order-admin-section">
+        <div className="order-admin-section-header">
+          <h2>Kombotilbud</h2>
+          <button type="button" className="order-btn-sm" onClick={() => setAddingCombo((v) => !v)}>
+            {addingCombo ? 'Avbryt' : '+ Nytt kombotilbud'}
+          </button>
+        </div>
+        <p className="order-admin-section-desc">
+          Kombiner to eller flere produkttyper til en rabattert totalpris. Rabatten vises automatisk på bestillingssiden.
+        </p>
+
+        {addingCombo ? (
+          <div className="order-admin-add-form">
+            <div className="order-admin-add-fields">
+              <label className="order-field">
+                <span>Navn (valgfritt)</span>
+                <input
+                  type="text"
+                  value={newCombo.name}
+                  onChange={(e) => setNewCombo((c) => ({ ...c, name: e.target.value }))}
+                  placeholder="f.eks. Pizza + Drikke"
+                />
+              </label>
+              <div className="order-field">
+                <span>Typer som inngår</span>
+                <div className="order-combo-type-counters">
+                  {productTypes.map((t) => {
+                    const count = newCombo.typeIds.filter((id) => id === t.id).length
+                    return (
+                      <div key={t.id} className="order-combo-type-counter">
+                        <span className="order-combo-type-counter-name">{t.name}</span>
+                        <button
+                          type="button"
+                          className="order-combo-counter-btn"
+                          onClick={() => setNewCombo((c) => {
+                            const idx = [...c.typeIds].lastIndexOf(t.id)
+                            if (idx === -1) return c
+                            const next = [...c.typeIds]
+                            next.splice(idx, 1)
+                            return { ...c, typeIds: next }
+                          })}
+                          disabled={count === 0}
+                        >−</button>
+                        <span className="order-combo-counter-val">{count}</span>
+                        <button
+                          type="button"
+                          className="order-combo-counter-btn"
+                          onClick={() => setNewCombo((c) => ({ ...c, typeIds: [...c.typeIds, t.id] }))}
+                        >+</button>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+              <label className="order-field">
+                <span>Kombopris (kr)</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={newCombo.totalPrice}
+                  onChange={(e) => setNewCombo((c) => ({ ...c, totalPrice: e.target.value }))}
+                  placeholder="170"
+                />
+              </label>
+            </div>
+            {newCombo.typeIds.length < 2 && (
+              <p className="order-admin-combo-hint">Velg minst 2 typer.</p>
+            )}
+            <button
+              type="button"
+              className="order-btn"
+              onClick={onAddCombo}
+              disabled={newCombo.typeIds.length < 2 || !newCombo.totalPrice}
+            >
+              Opprett kombotilbud
+            </button>
+          </div>
+        ) : null}
+
+        {combos.length === 0 ? (
+          <p className="order-admin-empty">Ingen kombotilbud ennå.</p>
+        ) : (
+          <div className="order-admin-combo-list">
+            {combos.map((combo) => {
+              const countMap = {}
+              for (const id of combo.typeIds) countMap[id] = (countMap[id] || 0) + 1
+              const typeLabels = Object.entries(countMap).map(([id, cnt]) => ({
+                id, cnt, name: productTypes.find((t) => t.id === id)?.name || id,
+              }))
+              const autoName = typeLabels.map(({ name, cnt }) => cnt > 1 ? `${name} ×${cnt}` : name).join(' + ')
+              return (
+                <div key={combo.id} className="order-admin-combo-row">
+                  <div className="order-admin-combo-info">
+                    <p className="order-admin-combo-name">
+                      {combo.name || autoName}
+                    </p>
+                    <div className="order-admin-combo-types">
+                      {typeLabels.map(({ id, name, cnt }) => (
+                        <span key={id} className="order-admin-combo-tag">
+                          {name}{cnt > 1 ? ` ×${cnt}` : ''}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="order-admin-combo-controls">
+                    <label className="order-admin-price-label">
+                      <span>kr</span>
+                      <input
+                        type="number"
+                        min="0"
+                        className="order-admin-price-input"
+                        value={combo.totalPrice}
+                        onChange={(e) => onEditComboPrice(combo.id, e.target.value)}
+                        onBlur={onSaveComboPrice}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="order-admin-delete"
+                      onClick={() => onDeleteCombo(combo.id)}
+                      aria-label="Slett kombotilbud"
+                    >✕</button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </section>
+
       {/* ── Schedule calendar ── */}
       <section className="order-admin-section">
         <div className="order-admin-section-header">
@@ -251,10 +573,55 @@ export default function OrderAdmin() {
         </p>
 
         {locations.length === 0 ? (
-          <p className="order-admin-empty">
-            Ingen lokasjoner har bestilling aktivert.{' '}
-            <a href="/plasseringer">Gå til /plasseringer</a> for å slå det på.
-          </p>
+          <div className="order-cal-wrap">
+            <table className="order-cal-table order-cal-table--demo">
+              <thead>
+                <tr>
+                  <th className="order-cal-day-head" />
+                  <th className="order-cal-loc-head">
+                    <span className="order-cal-loc-name">Eksempel-lokasjon</span>
+                    <span className="order-cal-loc-city">Aktiver under /plasseringer</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="order-cal-meta-row">
+                  <td className="order-cal-day-cell"><span className="order-cal-day-full">Status</span></td>
+                  <td className="order-cal-cell order-cal-meta-cell">
+                    <div className="order-cal-override-group">
+                      {[['Auto', null], ['Åpen', 'open'], ['Stengt', 'closed']].map(([label, val]) => (
+                        <button key={label} type="button" className={`order-cal-override-btn${val === null ? ' is-active' : ''}`} disabled>{label}</button>
+                      ))}
+                    </div>
+                  </td>
+                </tr>
+                <tr className="order-cal-meta-row">
+                  <td className="order-cal-day-cell"><span className="order-cal-day-full">PIN</span></td>
+                  <td className="order-cal-cell order-cal-meta-cell">
+                    <input type="text" className="order-cal-pin-input" placeholder="PIN" disabled />
+                  </td>
+                </tr>
+                {DAYS.map((day, i) => (
+                  <tr key={i} className={i === 0 || i === 6 ? 'order-cal-weekend' : ''}>
+                    <td className="order-cal-day-cell">
+                      <span className="order-cal-day-full">{day}</span>
+                      <span className="order-cal-day-short">{DAYS_SHORT[i]}</span>
+                    </td>
+                    <td className="order-cal-cell">
+                      <div className="order-cal-inputs">
+                        <input type="time" className="order-cal-time" disabled placeholder="11:00" />
+                        <span className="order-cal-sep">–</span>
+                        <input type="time" className="order-cal-time" disabled placeholder="20:00" />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="order-admin-demo-hint">
+              Ingen lokasjoner har bestilling aktivert. <a href="/plasseringer">Gå til /plasseringer</a> for å slå det på.
+            </p>
+          </div>
         ) : (
           <div className="order-cal-wrap">
             <table className="order-cal-table">
@@ -270,6 +637,49 @@ export default function OrderAdmin() {
                 </tr>
               </thead>
               <tbody>
+                <tr className="order-cal-meta-row">
+                  <td className="order-cal-day-cell">
+                    <span className="order-cal-day-full">Status</span>
+                    <span className="order-cal-day-short">Status</span>
+                  </td>
+                  {locations.map((loc) => {
+                    const override = locationSettings[loc.id]?.openOverride ?? null
+                    return (
+                      <td key={loc.id} className="order-cal-cell order-cal-meta-cell">
+                        <div className="order-cal-override-group">
+                          {[['auto', 'Auto', null], ['open', 'Åpen', 'open'], ['closed', 'Stengt', 'closed']].map(([key, label, val]) => (
+                            <button
+                              key={key}
+                              type="button"
+                              data-val={val ?? 'auto'}
+                              className={`order-cal-override-btn${override === val ? ' is-active' : ''}`}
+                              onClick={() => onOverrideChange(loc.id, val)}
+                            >{label}</button>
+                          ))}
+                        </div>
+                      </td>
+                    )
+                  })}
+                </tr>
+                <tr className="order-cal-meta-row">
+                  <td className="order-cal-day-cell">
+                    <span className="order-cal-day-full">PIN</span>
+                    <span className="order-cal-day-short">PIN</span>
+                  </td>
+                  {locations.map((loc) => (
+                    <td key={loc.id} className="order-cal-cell order-cal-meta-cell">
+                      <input
+                        type="text"
+                        className="order-cal-pin-input"
+                        value={locationSettings[loc.id]?.workerPin || ''}
+                        onChange={(e) => onLocationSettingChange(loc.id, 'workerPin', e.target.value)}
+                        onBlur={onSaveSchedule}
+                        placeholder="PIN"
+                        inputMode="numeric"
+                      />
+                    </td>
+                  ))}
+                </tr>
                 {DAYS.map((day, i) => (
                   <tr key={i} className={i === 0 || i === 6 ? 'order-cal-weekend' : ''}>
                     <td className="order-cal-day-cell">
@@ -317,49 +727,36 @@ export default function OrderAdmin() {
         )}
       </section>
 
-      {/* ── Worker PIN ── */}
+      {/* ── SMS test ── */}
       <section className="order-admin-section">
-        <h2>Worker PIN</h2>
+        <h2>Test SMS</h2>
         <p className="order-admin-section-desc">
-          PIN-koden som ansatte bruker for å logge inn på arbeidsdashbordet.
+          Send en test-SMS via 46elks for å verifisere at oppsett er korrekt.
         </p>
-        <WorkerPinEditor currentPin={workerPin} onSave={onSavePin} saving={saveState.saving} />
+        <div className="order-admin-sms-test">
+          <label className="order-field" style={{ maxWidth: 220 }}>
+            <span>Mobilnummer</span>
+            <input
+              type="tel"
+              value={smsTest.phone}
+              onChange={(e) => setSmsTest((s) => ({ ...s, phone: e.target.value }))}
+              placeholder="+4712345678"
+              inputMode="tel"
+            />
+          </label>
+          <button
+            type="button"
+            className="order-btn"
+            onClick={onSendSmsTest}
+            disabled={smsTest.sending || !smsTest.phone.trim()}
+          >
+            {smsTest.sending ? 'Sender...' : 'Send test-SMS'}
+          </button>
+          {smsTest.message ? <span className="order-save-msg">{smsTest.message}</span> : null}
+          {smsTest.error ? <span className="order-error" style={{ margin: 0 }}>{smsTest.error}</span> : null}
+        </div>
       </section>
-    </div>
-  )
-}
 
-function WorkerPinEditor({ currentPin, onSave, saving }) {
-  const [pin, setPin] = useState(currentPin || '')
-  const [show, setShow] = useState(false)
-
-  useEffect(() => { setPin(currentPin || '') }, [currentPin])
-
-  return (
-    <div className="order-admin-pin-row">
-      <label className="order-field" style={{ maxWidth: 220 }}>
-        <span>PIN-kode</span>
-        <input
-          type={show ? 'text' : 'password'}
-          value={pin}
-          onChange={(e) => setPin(e.target.value)}
-          placeholder="F.eks. 1234"
-          inputMode="numeric"
-        />
-      </label>
-      <div className="order-admin-pin-actions">
-        <button type="button" className="ghost" onClick={() => setShow((v) => !v)}>
-          {show ? 'Skjul' : 'Vis'}
-        </button>
-        <button
-          type="button"
-          className="order-btn"
-          onClick={() => onSave(pin)}
-          disabled={saving || !pin.trim() || pin === currentPin}
-        >
-          {saving ? 'Lagrer...' : 'Lagre PIN'}
-        </button>
-      </div>
     </div>
   )
 }

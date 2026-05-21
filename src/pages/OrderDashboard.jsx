@@ -8,9 +8,30 @@ import { db, functions } from '../firebase'
 import './Order.css'
 
 const ALERT_MINUTES = 2
+const STORAGE_KEY = 'worker_session'
+
+function loadSession() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+function saveSession(pin, locationId, locationName) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ pin, locationId, locationName }))
+}
+
+function clearSession() {
+  localStorage.removeItem(STORAGE_KEY)
+}
 
 export default function OrderDashboard() {
-  const [pin, setPin] = useState('')
+  const saved = loadSession()
+  const [pin, setPin] = useState(saved?.pin || '')
+  const [locationId, setLocationId] = useState(saved?.locationId || null)
+  const [locationName, setLocationName] = useState(saved?.locationName || '')
   const [pinInput, setPinInput] = useState('')
   const [pinError, setPinError] = useState('')
   const [pinLoading, setPinLoading] = useState(false)
@@ -20,7 +41,7 @@ export default function OrderDashboard() {
   const alertedRef = useRef(new Set())
 
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 5000)
+    const t = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(t)
   }, [])
 
@@ -30,9 +51,18 @@ export default function OrderDashboard() {
     setPinLoading(true)
     try {
       const snap = await getDoc(doc(db, 'orderConfig', 'default'))
-      const storedPin = String(snap.data()?.workerPin || '')
-      if (storedPin && storedPin === String(pinInput).trim()) {
-        setPin(pinInput.trim())
+      const locSettings = snap.data()?.locationSettings || {}
+      const enteredPin = String(pinInput).trim()
+      const matchedLocId = Object.entries(locSettings).find(
+        ([, s]) => s.workerPin && String(s.workerPin) === enteredPin,
+      )?.[0]
+      if (matchedLocId) {
+        const locSnap = await getDoc(doc(db, 'locations', matchedLocId))
+        const name = locSnap.exists() ? (locSnap.data().name || matchedLocId) : matchedLocId
+        setPin(enteredPin)
+        setLocationId(matchedLocId)
+        setLocationName(name)
+        saveSession(enteredPin, matchedLocId, name)
       } else {
         setPinError('Feil PIN. Prøv igjen.')
       }
@@ -44,16 +74,19 @@ export default function OrderDashboard() {
   }
 
   useEffect(() => {
-    if (!pin) return
+    if (!pin || !locationId) return
     const q = query(
       collection(db, 'orders'),
+      where('locationId', '==', locationId),
       where('status', 'in', ['paid', 'confirmed']),
       orderBy('createdAt', 'desc'),
     )
     return onSnapshot(q, (snap) => {
       setOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    }, (err) => {
+      console.error('Orders query failed:', err)
     })
-  }, [pin])
+  }, [pin, locationId])
 
   // Fire alert for unconfirmed orders older than ALERT_MINUTES
   useEffect(() => {
@@ -135,12 +168,13 @@ export default function OrderDashboard() {
         <div>
           <h1 className="worker-title">Bestillinger</h1>
           <p className="worker-subtitle">
+            📍 {locationName}
             {pendingOrders.length > 0
-              ? `${pendingOrders.length} venter bekreftelse`
-              : 'Ingen venter bekreftelse'}
+              ? ` · ${pendingOrders.length} venter bekreftelse`
+              : ''}
           </p>
         </div>
-        <button type="button" className="worker-logout" onClick={() => { setPin(''); setPinInput('') }}>
+        <button type="button" className="worker-logout" onClick={() => { clearSession(); setPin(''); setPinInput(''); setLocationId(null); setLocationName('') }}>
           Logg ut
         </button>
       </div>
@@ -160,10 +194,12 @@ export default function OrderDashboard() {
           <div className="worker-order-grid">
             {pendingOrders.map((order) => {
               const ageMs = now - (order.createdAt?.toMillis?.() || now)
-              const ageSec = Math.floor(ageMs / 1000)
-              const ageMin = Math.floor(ageSec / 60)
-              const ageSecs = ageSec % 60
-              const isUrgent = ageMs >= ALERT_MINUTES * 60 * 1000
+              const limitMs = ALERT_MINUTES * 60 * 1000
+              const remainMs = Math.max(0, limitMs - ageMs)
+              const remainSec = Math.ceil(remainMs / 1000)
+              const remainMin = Math.floor(remainSec / 60)
+              const remainSecPart = remainSec % 60
+              const isUrgent = ageMs >= limitMs
               const state = actionState[order.id] || {}
 
               return (
@@ -174,9 +210,13 @@ export default function OrderDashboard() {
                       <p className="worker-order-location">📍 {order.locationName}</p>
                     </div>
                     <div className="worker-order-timer-wrap">
-                      <span className={`worker-order-timer${isUrgent ? ' is-urgent' : ''}`}>
-                        {ageMin}:{String(ageSecs).padStart(2, '0')}
-                      </span>
+                      {isUrgent ? (
+                        <span className="worker-order-timer is-urgent">SMS sendt</span>
+                      ) : (
+                        <span className="worker-order-timer">
+                          {remainMin}:{String(remainSecPart).padStart(2, '0')}
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -192,7 +232,7 @@ export default function OrderDashboard() {
                   </div>
 
                   {isUrgent ? (
-                    <p className="worker-urgent-note">⚠️ Varsling sendt til butikk</p>
+                    <p className="worker-urgent-note">⚠️ SMS-varsling sendt til Magnus</p>
                   ) : null}
 
                   {state.error ? <p className="order-error">{state.error}</p> : null}

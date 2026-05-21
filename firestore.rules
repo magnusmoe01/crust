@@ -80,6 +80,17 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /orderConfig/{docId} {
+      allow read: if true;
+      allow create, update, delete: if isCrustUser();
+    }
+
+    match /orders/{docId} {
+      allow create: if true;
+      allow read, update: if true;
+      allow delete: if isCrustUser();
+    }
+
     match /zettlePrivate/{docId} {
       allow read, write: if false;
     }

@@ -752,6 +752,11 @@ function capitalizeFirst(str) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+function formatOrderItems(items) {
+  if (!Array.isArray(items) || items.length === 0) return "";
+  return items.map((i) => `${i.quantity}× ${i.name}`).join(", ");
+}
+
 async function getVippsToken() {
   const axios = require("axios");
   const res = await axios.post(
@@ -780,39 +785,20 @@ function vippsHeaders(token, requestId) {
   };
 }
 
-async function sendAcsSms(to, message) {
+async function sendElksSms(to, message) {
   const axios = require("axios");
-  const connStr = process.env.ACS_CONNECTION_STRING || "";
-  const endpointMatch = connStr.match(/endpoint=([^;]+)/i);
-  const keyMatch      = connStr.match(/accesskey=([^;]+)/i);
-  if (!endpointMatch || !keyMatch) throw new Error("ACS_CONNECTION_STRING not configured");
+  const username = process.env.ELKS_API_USERNAME;
+  const password = process.env.ELKS_API_PASSWORD;
+  if (!username || !password) throw new Error("ELKS_API_USERNAME/ELKS_API_PASSWORD not configured");
 
-  const endpoint    = endpointMatch[1].replace(/\/$/, "");
-  const keyBase64   = keyMatch[1];
-  const fromNumber  = process.env.ACS_PHONE_NUMBER;
-
-  const body = JSON.stringify({
-    from: fromNumber,
-    smsRecipients: [{ to }],
-    message,
-  });
-
-  const url       = `${endpoint}/sms?api-version=2021-03-07`;
-  const urlObj    = new URL(url);
-  const contentHash = crypto.createHash("sha256").update(body).digest("base64");
-  const utcDate   = new Date().toUTCString();
-  const stringToSign = `POST\n${urlObj.pathname}${urlObj.search}\n${utcDate};${urlObj.host};${contentHash}`;
-  const signature = crypto.createHmac("sha256", Buffer.from(keyBase64, "base64"))
-    .update(stringToSign).digest("base64");
-
-  await axios.post(url, JSON.parse(body), {
-    headers: {
-      "Content-Type":          "application/json",
-      "x-ms-date":             utcDate,
-      "x-ms-content-sha256":   contentHash,
-      "Authorization": `HMAC-SHA256 SignedHeaders=x-ms-date;host;x-ms-content-sha256&Signature=${signature}`,
+  await axios.post(
+    "https://api.46elks.com/a1/sms",
+    new URLSearchParams({ from: "Crust", to, message }).toString(),
+    {
+      auth: { username, password },
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
     },
-  });
+  );
 }
 
 async function getOrderConfig() {
@@ -883,7 +869,7 @@ exports.initiateVippsOrder = onCall(
 exports.vippsCallback = onRequest(
   {
     region:  "europe-west1",
-    secrets: ["VIPPS_CLIENT_ID", "VIPPS_CLIENT_SECRET", "VIPPS_SUBSCRIPTION_KEY", "VIPPS_MSN", "ACS_CONNECTION_STRING", "ACS_PHONE_NUMBER"],
+    secrets: ["VIPPS_CLIENT_ID", "VIPPS_CLIENT_SECRET", "VIPPS_SUBSCRIPTION_KEY", "VIPPS_MSN", "ELKS_API_USERNAME", "ELKS_API_PASSWORD"],
   },
   async (req, res) => {
     if (req.method !== "POST") { res.status(405).send("Method Not Allowed"); return; }
@@ -939,9 +925,9 @@ exports.vippsCallback = onRequest(
       // Send confirmation SMS to customer
       try {
         const name = capitalizeFirst(order.customerName || "");
-        await sendAcsSms(
+        await sendElksSms(
           order.customerPhone,
-          `Hei ${name}! Vi har mottatt bestillingen din på ${order.total} kr fra Crust n' Trust. Du får ny SMS når den er klar for henting. 🍕`,
+          `Hei ${name}! Vi har mottatt bestillingen din (${formatOrderItems(order.items)}) fra Crust n' Trust. Du får ny SMS når den er klar for henting. 🍕`,
         );
       } catch (err) {
         logger.error("Confirmation SMS failed", { orderId, error: err?.message });
@@ -960,7 +946,7 @@ exports.checkVippsOrder = onCall(
   {
     region:  "europe-west1",
     invoker: "public",
-    secrets: ["VIPPS_CLIENT_ID", "VIPPS_CLIENT_SECRET", "VIPPS_SUBSCRIPTION_KEY", "VIPPS_MSN", "ACS_CONNECTION_STRING", "ACS_PHONE_NUMBER"],
+    secrets: ["VIPPS_CLIENT_ID", "VIPPS_CLIENT_SECRET", "VIPPS_SUBSCRIPTION_KEY", "VIPPS_MSN", "ELKS_API_USERNAME", "ELKS_API_PASSWORD"],
   },
   async ({ data }) => {
     const { orderId } = data || {};
@@ -986,8 +972,27 @@ exports.checkVippsOrder = onCall(
       );
       const history = Array.isArray(res.data?.transactionLogHistory) ? res.data.transactionLogHistory : [];
       const captured = history.find((h) => (h.operation === "CAPTURE" || h.operation === "SALE") && h.operationSuccess);
+      const reserved = history.find((h) => h.operation === "RESERVE" && h.operationSuccess);
 
-      if (captured) {
+      if (captured || reserved) {
+        if (reserved && !captured) {
+          try {
+            await axios.post(
+              `${VIPPS_API}/ecomm/v2/payments/${orderId}/capture`,
+              {
+                merchantInfo: { merchantSerialNumber: process.env.VIPPS_MSN },
+                transaction: {
+                  amount: Math.round((order.total || 0) * 100),
+                  transactionText: "Crust pizza bestilling",
+                },
+              },
+              { headers: vippsHeaders(token, `capture-${orderId}`) },
+            );
+          } catch (err) {
+            logger.error("Fallback capture failed", { orderId, error: err?.message });
+          }
+        }
+
         await admin.firestore().doc(`orders/${orderId}`).update({
           status: "paid",
           paidAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -996,9 +1001,9 @@ exports.checkVippsOrder = onCall(
         if (!order.smsSent) {
           try {
             const name = capitalizeFirst(order.customerName || "");
-            await sendAcsSms(
+            await sendElksSms(
               order.customerPhone,
-              `Hei ${name}! Vi har mottatt bestillingen din på ${order.total} kr fra Crust n' Trust. Du får ny SMS når den er klar for henting. 🍕`,
+              `Hei ${name}! Vi har mottatt bestillingen din (${formatOrderItems(order.items)}) fra Crust n' Trust. Du får ny SMS når den er klar for henting. 🍕`,
             );
             await admin.firestore().doc(`orders/${orderId}`).update({ smsSent: true });
           } catch (err) {
@@ -1015,32 +1020,48 @@ exports.checkVippsOrder = onCall(
   },
 );
 
+// Test SMS (admin only)
+exports.sendTestSms = onCall(
+  {
+    region:  "europe-west1",
+    invoker: "public",
+    secrets: ["ELKS_API_USERNAME", "ELKS_API_PASSWORD"],
+  },
+  async ({ data }) => {
+    const { phone } = data || {};
+    if (!phone) throw new HttpsError("invalid-argument", "phone required");
+    await sendElksSms(phone, "Test-SMS fra Crust n' Trust. 46elks er riktig konfigurert!");
+    return { sent: true };
+  },
+);
+
 // Send unconfirmed order alert SMS to store workers
 exports.sendUnconfirmedOrderAlert = onCall(
   {
     region:  "europe-west1",
     invoker: "public",
-    secrets: ["ACS_CONNECTION_STRING", "ACS_PHONE_NUMBER"],
+    secrets: ["ELKS_API_USERNAME", "ELKS_API_PASSWORD"],
   },
   async ({ data }) => {
     const { orderId, workerPin } = data || {};
     if (!orderId) throw new HttpsError("invalid-argument", "orderId required");
 
-    const config = await getOrderConfig();
-    if (String(config.workerPin || "") !== String(workerPin || "")) {
-      throw new HttpsError("permission-denied", "Invalid PIN");
-    }
-
     const snap = await admin.firestore().doc(`orders/${orderId}`).get();
     if (!snap.exists) throw new HttpsError("not-found", "Order not found");
 
     const order = snap.data();
+    const config = await getOrderConfig();
+    const locPin = String(config.locationSettings?.[order.locationId]?.workerPin || "");
+    if (!locPin || locPin !== String(workerPin || "")) {
+      throw new HttpsError("permission-denied", "Invalid PIN");
+    }
+
     if (order.alertSent) return { skipped: true };
     if (order.status !== "paid") return { skipped: true };
 
     await admin.firestore().doc(`orders/${orderId}`).update({ alertSent: true });
 
-    await sendAcsSms(
+    await sendElksSms(
       WORKER_ALERT_PHONE,
       `⚠️ Ubehandlet bestilling fra Crust n' Trust: ${order.customerName} — ${order.locationName} — ${order.total} kr. Ikke bekreftet på ${ORDER_ALERT_MINUTES} minutter. Sjekk dashbordet!`,
     );
@@ -1054,25 +1075,26 @@ exports.sendOrderReadySms = onCall(
   {
     region:  "europe-west1",
     invoker: "public",
-    secrets: ["ACS_CONNECTION_STRING", "ACS_PHONE_NUMBER"],
+    secrets: ["ELKS_API_USERNAME", "ELKS_API_PASSWORD"],
   },
   async ({ data }) => {
     const { orderId, workerPin } = data || {};
     if (!orderId) throw new HttpsError("invalid-argument", "orderId required");
 
-    const config = await getOrderConfig();
-    if (String(config.workerPin || "") !== String(workerPin || "")) {
-      throw new HttpsError("permission-denied", "Invalid PIN");
-    }
-
     const orderRef = admin.firestore().doc(`orders/${orderId}`);
     const snap = await orderRef.get();
     if (!snap.exists) throw new HttpsError("not-found", "Order not found");
 
+    const config = await getOrderConfig();
+    const locPin = String(config.locationSettings?.[snap.data().locationId]?.workerPin || "");
+    if (!locPin || locPin !== String(workerPin || "")) {
+      throw new HttpsError("permission-denied", "Invalid PIN");
+    }
+
     const order = snap.data();
     const name = capitalizeFirst(order.customerName || "");
 
-    await sendAcsSms(
+    await sendElksSms(
       order.customerPhone,
       `Hei ${name}! 🍕 Bestillingen din er klar for henting hos Crust n' Trust — ${order.locationName}. God appetitt!`,
     );

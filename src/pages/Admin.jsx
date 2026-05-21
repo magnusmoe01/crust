@@ -611,6 +611,7 @@ function Admin() {
                 <Link className="admin-button" to="/skjema">Gå til /skjema</Link>
                 <Link className="admin-button admin-button-secondary" to="/admin/leverandører">Leverandører</Link>
                 <Link className="admin-button admin-button-secondary" to="/admin/ordre">Ordreinnstillinger</Link>
+                <Link className="admin-button admin-button-secondary" to="/admin/all-orders">Alle bestillinger</Link>
                 <Link className="admin-button admin-button-secondary" to="/order">Bestillingsside</Link>
                 <Link className="admin-button admin-button-secondary" to="/worker">Worker-dashboard</Link>
                 <Link className="admin-button admin-button-secondary" to="/sales">Open sales</Link>

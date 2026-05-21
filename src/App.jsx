@@ -49,6 +49,7 @@ const FinancialReport = lazy(() => import("./pages/FinancialReport"));
 const Order = lazy(() => import("./pages/Order"));
 const OrderDashboard = lazy(() => import("./pages/OrderDashboard"));
 const OrderAdmin = lazy(() => import("./pages/OrderAdmin"));
+const AllOrders = lazy(() => import("./pages/AllOrders"));
 
 function withPageLoader(element) {
   return (
@@ -355,13 +356,20 @@ function App() {
           )}
         />
 
-        <Route path="/order" element={withPageLoader(<Order />)} />
-        <Route path="/worker" element={withPageLoader(<OrderDashboard />)} />
         <Route
           path="/admin/ordre"
           element={withPageLoader(
             <RequireAdminRoute>
               <OrderAdmin />
+            </RequireAdminRoute>
+          )}
+        />
+
+        <Route
+          path="/admin/all-orders"
+          element={withPageLoader(
+            <RequireAdminRoute>
+              <AllOrders />
             </RequireAdminRoute>
           )}
         />
@@ -380,6 +388,8 @@ function App() {
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
+      <Route path="/worker" element={withPageLoader(<OrderDashboard />)} />
+      <Route path="/order" element={withPageLoader(<Order />)} />
     </Routes>
   );
 }
