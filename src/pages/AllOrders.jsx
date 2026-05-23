@@ -7,12 +7,12 @@ import { Navigate } from 'react-router-dom'
 import './Order.css'
 
 const STATUS_LABELS = {
-  pending_payment: 'Venter betaling',
-  paid:            'Betalt',
-  confirmed:       'Bekreftet',
-  ready:           'Klar',
-  cancelled:       'Kansellert',
-  refunded:        'Refundert',
+  pending_payment: 'Awaiting payment',
+  paid:            'Paid',
+  confirmed:       'Confirmed',
+  ready:           'Ready',
+  cancelled:       'Cancelled',
+  refunded:        'Refunded',
 }
 
 const STATUS_CLASS = {
@@ -28,13 +28,13 @@ const REFUNDABLE = new Set(['paid', 'confirmed', 'ready'])
 
 const FILTERS = ['alle', 'paid', 'confirmed', 'ready', 'pending_payment', 'cancelled', 'refunded']
 const FILTER_LABELS = {
-  alle:            'Alle',
-  paid:            'Betalt',
-  confirmed:       'Bekreftet',
-  ready:           'Klar',
-  pending_payment: 'Venter betaling',
-  cancelled:       'Kansellert',
-  refunded:        'Refundert',
+  alle:            'All',
+  paid:            'Paid',
+  confirmed:       'Confirmed',
+  ready:           'Ready',
+  pending_payment: 'Awaiting payment',
+  cancelled:       'Cancelled',
+  refunded:        'Refunded',
 }
 
 function formatTime(ts) {
@@ -43,21 +43,22 @@ function formatTime(ts) {
   const now = new Date()
   const diffMs = now - d
   const diffMin = Math.floor(diffMs / 60000)
-  if (diffMin < 1) return 'Akkurat nå'
-  if (diffMin < 60) return `${diffMin} min siden`
+  if (diffMin < 1) return 'Just now'
+  if (diffMin < 60) return `${diffMin} min ago`
   const sameDay =
     d.getDate() === now.getDate() &&
     d.getMonth() === now.getMonth() &&
     d.getFullYear() === now.getFullYear()
-  const hm = d.toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' })
-  if (sameDay) return `i dag ${hm}`
-  return d.toLocaleDateString('nb-NO', { day: 'numeric', month: 'short' }) + ` ${hm}`
+  const hm = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  if (sameDay) return `today ${hm}`
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + ` ${hm}`
 }
 
 export default function AllOrders() {
   const { isAdmin, loading: authLoading } = useAdminSession()
   const [orders, setOrders] = useState([])
   const [filter, setFilter] = useState('alle')
+  const [locationFilter, setLocationFilter] = useState('all')
   const [loading, setLoading] = useState(true)
   const [refundState, setRefundState] = useState({})
 
@@ -71,7 +72,7 @@ export default function AllOrders() {
     return unsub
   }, [isAdmin])
 
-  if (authLoading) return <div className="loading-box">Laster...</div>
+  if (authLoading) return <div className="loading-box">Loading...</div>
   if (!isAdmin) return <Navigate to="/admin" replace />
 
   function setOrderRefund(orderId, state) {
@@ -84,25 +85,41 @@ export default function AllOrders() {
       await httpsCallable(functions, 'refundVippsOrder')({ orderId: order.id })
       setOrderRefund(order.id, { loading: false, confirming: false, done: true })
     } catch (err) {
-      setOrderRefund(order.id, { loading: false, confirming: false, error: err?.message || 'Refusjon feilet' })
+      setOrderRefund(order.id, { loading: false, confirming: false, error: err?.message || 'Refund failed' })
     }
   }
 
-  const visible = filter === 'alle' ? orders : orders.filter((o) => o.status === filter)
+  const locations = [...new Set(orders.map((o) => o.locationName || o.locationId).filter(Boolean))].sort()
+
+  const locationFiltered = locationFilter === 'all' ? orders : orders.filter((o) => (o.locationName || o.locationId) === locationFilter)
+  const visible = filter === 'alle' ? locationFiltered : locationFiltered.filter((o) => o.status === filter)
 
   const counts = {}
-  for (const o of orders) counts[o.status] = (counts[o.status] || 0) + 1
+  for (const o of locationFiltered) counts[o.status] = (counts[o.status] || 0) + 1
 
   return (
     <div className="order-admin-page">
       <div className="order-admin-header">
-        <h1>Alle bestillinger</h1>
-        <a className="ghost" href="/admin">← Tilbake til admin</a>
+        <h1>All orders</h1>
+        <a className="ghost" href="/admin">← Back to admin</a>
+      </div>
+
+      <div className="all-orders-toolbar">
+        <select
+          className="all-orders-location-select"
+          value={locationFilter}
+          onChange={(e) => setLocationFilter(e.target.value)}
+        >
+          <option value="all">All locations</option>
+          {locations.map((loc) => (
+            <option key={loc} value={loc}>{loc}</option>
+          ))}
+        </select>
       </div>
 
       <div className="all-orders-filters">
         {FILTERS.map((f) => {
-          const cnt = f === 'alle' ? orders.length : (counts[f] || 0)
+          const cnt = f === 'alle' ? locationFiltered.length : (counts[f] || 0)
           return (
             <button
               key={f}
@@ -118,9 +135,9 @@ export default function AllOrders() {
       </div>
 
       {loading ? (
-        <p className="order-loading">Laster bestillinger...</p>
+        <p className="order-loading">Loading orders...</p>
       ) : visible.length === 0 ? (
-        <p className="order-admin-empty">Ingen bestillinger.</p>
+        <p className="order-admin-empty">No orders.</p>
       ) : (
         <div className="all-orders-list">
           {visible.map((order) => {
@@ -128,38 +145,36 @@ export default function AllOrders() {
             const canRefund = REFUNDABLE.has(order.status)
             return (
               <div key={order.id} className="all-orders-row">
-                <div className="all-orders-row-top">
+                <div className="all-orders-row-main">
                   <span className="all-orders-customer">{order.customerName || '—'}</span>
+                  <span className="all-orders-location">📍 {order.locationName || order.locationId || '—'}</span>
+                  <span className="all-orders-total">{order.total} kr</span>
+                  <span className="all-orders-phone">{order.customerPhone || ''}</span>
                   <span className={`all-orders-status ${STATUS_CLASS[order.status] || ''}`}>
                     {STATUS_LABELS[order.status] || order.status}
                   </span>
                 </div>
-                <div className="all-orders-row-meta">
-                  <span className="all-orders-location">📍 {order.locationName || order.locationId || '—'}</span>
+                <div className="all-orders-row-sub">
+                  <div className="all-orders-items">
+                    {(order.items || []).map((item, i) => (
+                      <span key={i} className="all-orders-item-chip">
+                        {item.quantity}× {item.name}
+                      </span>
+                    ))}
+                  </div>
                   <span className="all-orders-time">{formatTime(order.createdAt)}</span>
-                </div>
-                <div className="all-orders-items">
-                  {(order.items || []).map((item, i) => (
-                    <span key={i} className="all-orders-item-chip">
-                      {item.quantity}× {item.name}
-                    </span>
-                  ))}
-                </div>
-                <div className="all-orders-row-footer">
-                  <span className="all-orders-total">{order.total} kr</span>
-                  <span className="all-orders-phone">{order.customerPhone || ''}</span>
                   {canRefund && !rs.done ? (
                     <div className="all-orders-refund">
                       {rs.confirming ? (
                         <>
-                          <span className="all-orders-refund-confirm-label">Refundere {order.total} kr?</span>
+                          <span className="all-orders-refund-confirm-label">Refund {order.total} kr?</span>
                           <button
                             type="button"
                             className="all-orders-refund-yes"
                             onClick={() => onRefundConfirm(order)}
                             disabled={rs.loading}
                           >
-                            {rs.loading ? 'Refunderer...' : 'Ja, refunder'}
+                            {rs.loading ? 'Refunding...' : 'Yes, refund'}
                           </button>
                           <button
                             type="button"
@@ -167,7 +182,7 @@ export default function AllOrders() {
                             onClick={() => setOrderRefund(order.id, { confirming: false })}
                             disabled={rs.loading}
                           >
-                            Avbryt
+                            Cancel
                           </button>
                         </>
                       ) : (
@@ -176,13 +191,13 @@ export default function AllOrders() {
                           className="all-orders-refund-btn"
                           onClick={() => setOrderRefund(order.id, { confirming: true, error: '' })}
                         >
-                          Refunder
+                          Refund
                         </button>
                       )}
                       {rs.error ? <span className="all-orders-refund-error">{rs.error}</span> : null}
                     </div>
                   ) : rs.done ? (
-                    <span className="all-orders-refund-done">✓ Refundert</span>
+                    <span className="all-orders-refund-done">✓ Refunded</span>
                   ) : null}
                 </div>
               </div>

@@ -55,27 +55,27 @@ function getPortalStatus(data) {
 function getSettingsErrorMessage(error, fallbackMessage) {
   const code = error?.code || "";
   if (code === "permission-denied") {
-    return "Ingen tilgang til å endre innstillinger. Sjekk at du er logget inn med @crust.no og at Firestore-regler er deployet.";
+    return "No access to change settings. Make sure you're logged in with @crust.no and that Firestore rules are deployed.";
   }
   if (code === "unauthenticated") {
-    return "Du må være logget inn for å endre innstillinger.";
+    return "You must be logged in to change settings.";
   }
   return fallbackMessage;
 }
 
 function formatDateTime(timestamp) {
   const date = timestamp?.toDate?.();
-  if (!date) return "Ukjent tidspunkt";
-  return date.toLocaleString("nb-NO");
+  if (!date) return "Unknown time";
+  return date.toLocaleString("en-GB");
 }
 
 function getIntegrationErrorMessage(error, fallbackMessage) {
   const code = error?.code || "";
   if (code === "functions/permission-denied" || code === "permission-denied") {
-    return "Ingen tilgang til integrasjonen. Sjekk admin-innloggingen.";
+    return "No access to the integration. Check the admin login.";
   }
   if (code === "functions/unauthenticated" || code === "unauthenticated") {
-    return "Du må være logget inn som admin for å koble til.";
+    return "You must be logged in as admin to connect.";
   }
   return fallbackMessage;
 }
@@ -161,7 +161,7 @@ function Admin() {
         setPortalStatus(getPortalStatus(snapshot.data()));
       } catch (err) {
         setSettingsError(
-          getSettingsErrorMessage(err, "Kunne ikke hente innstillinger akkurat nå."),
+          getSettingsErrorMessage(err, "Could not load settings right now."),
         );
       } finally {
         setSettingsLoading(false);
@@ -190,7 +190,7 @@ function Admin() {
         setWaitlistLoading(false);
       },
       () => {
-        setWaitlistError("Kunne ikke hente e-postregistreringer.");
+        setWaitlistError("Could not load email registrations.");
         setWaitlistLoading(false);
       },
     );
@@ -214,7 +214,7 @@ function Admin() {
         setZettleLoading(false);
       },
       () => {
-        setZettleError("Kunne ikke hente Zettle-status.");
+        setZettleError("Could not load Zettle status.");
         setZettleLoading(false);
       },
     );
@@ -238,7 +238,7 @@ function Admin() {
         setPlandayLoading(false);
       },
       () => {
-        setPlandayError("Kunne ikke hente Planday-status.");
+        setPlandayError("Could not load Planday status.");
         setPlandayLoading(false);
       },
     );
@@ -266,7 +266,7 @@ function Admin() {
         setPlandayDepartmentIdsInput(departmentIds.join(", "));
       } catch (err) {
         setPlandaySettingsError(
-          getSettingsErrorMessage(err, "Kunne ikke hente Planday-innstillingene akkurat nå."),
+          getSettingsErrorMessage(err, "Could not load Planday settings right now."),
         );
       } finally {
         setPlandaySettingsLoading(false);
@@ -437,9 +437,9 @@ function Admin() {
         },
         { merge: true },
       );
-      setStatusMessage(`Status for /jobb er oppdatert til: ${JOB_PORTAL_STATUS_LABELS[portalStatus]}.`);
+      setStatusMessage(`Status for /jobb updated to: ${JOB_PORTAL_STATUS_LABELS[portalStatus]}.`);
     } catch (err) {
-      setSettingsError(getSettingsErrorMessage(err, "Kunne ikke lagre innstillingen. Prøv igjen."));
+      setSettingsError(getSettingsErrorMessage(err, "Could not save the setting. Try again."));
     } finally {
       setSaving(false);
     }
@@ -451,14 +451,14 @@ function Admin() {
     try {
       await deleteDoc(doc(db, JOB_PORTAL_WAITLIST_COLLECTION, entryId));
     } catch {
-      setWaitlistError("Kunne ikke slette registreringen. Prøv igjen.");
+      setWaitlistError("Could not delete the registration. Try again.");
     } finally {
       setDeletingEntryId("");
     }
   }
 
   function onRequestDeleteWaitlistEntry(entry) {
-    const confirmed = window.confirm("Sikker på at du vil slette registreringen?");
+    const confirmed = window.confirm("Are you sure you want to delete this registration?");
     if (!confirmed) return;
     onDeleteWaitlistEntry(entry.id);
   }
@@ -474,13 +474,13 @@ function Admin() {
       if (!authUrl) throw new Error("No auth URL returned.");
       window.location.assign(authUrl);
     } catch (err) {
-      setZettleError(getIntegrationErrorMessage(err, "Kunne ikke starte Zettle-innloggingen."));
+      setZettleError(getIntegrationErrorMessage(err, "Could not start the Zettle login."));
       setZettleAction("");
     }
   }
 
   async function onDisconnectZettle() {
-    const confirmed = window.confirm("Koble fra Zettle og slette lagrede tokens?");
+    const confirmed = window.confirm("Disconnect Zettle and delete saved tokens?");
     if (!confirmed) return;
     setZettleAction("disconnect");
     setZettleError("");
@@ -488,9 +488,9 @@ function Admin() {
     try {
       const disconnect = httpsCallable(functions, "disconnectZettle");
       await disconnect();
-      setZettleMessage("Zettle er koblet fra.");
+      setZettleMessage("Zettle disconnected.");
     } catch (err) {
-      setZettleError(getIntegrationErrorMessage(err, "Kunne ikke koble fra Zettle akkurat nå."));
+      setZettleError(getIntegrationErrorMessage(err, "Could not disconnect Zettle right now."));
     } finally {
       setZettleAction("");
     }
@@ -523,18 +523,18 @@ function Admin() {
       const employeeCount = Number(result?.employeeCount || 0);
       setPlandayMessage(
         employeeCount > 0
-          ? `Planday er koblet til. Fant ${employeeCount} ansatte.`
-          : "Planday er koblet til.",
+          ? `Planday connected. Found ${employeeCount} employees.`
+          : "Planday connected.",
       );
     } catch (err) {
-      setPlandayError(getIntegrationErrorMessage(err, "Kunne ikke koble til Planday."));
+      setPlandayError(getIntegrationErrorMessage(err, "Could not connect to Planday."));
     } finally {
       setPlandayAction("");
     }
   }
 
   async function onDisconnectPlanday() {
-    const confirmed = window.confirm("Markere Planday som frakoblet i admin?");
+    const confirmed = window.confirm("Mark Planday as disconnected in admin?");
     if (!confirmed) return;
     setPlandayAction("disconnect");
     setPlandayError("");
@@ -542,9 +542,9 @@ function Admin() {
     try {
       const disconnect = httpsCallable(functions, "disconnectPlanday");
       await disconnect();
-      setPlandayMessage("Planday er koblet fra.");
+      setPlandayMessage("Planday disconnected.");
     } catch (err) {
-      setPlandayError(getIntegrationErrorMessage(err, "Kunne ikke koble fra Planday akkurat nå."));
+      setPlandayError(getIntegrationErrorMessage(err, "Could not disconnect Planday right now."));
     } finally {
       setPlandayAction("");
     }
@@ -566,10 +566,10 @@ function Admin() {
         { merge: true },
       );
       setPlandayDepartmentIdsInput(departmentIds.join(", "));
-      setPlandaySettingsMessage("Planday-avdelinger er lagret.");
+      setPlandaySettingsMessage("Planday departments saved.");
     } catch (err) {
       setPlandaySettingsError(
-        getSettingsErrorMessage(err, "Kunne ikke lagre Planday-innstillingene. Prøv igjen."),
+        getSettingsErrorMessage(err, "Could not save Planday settings. Try again."),
       );
     } finally {
       setPlandaySettingsSaving(false);
@@ -591,7 +591,7 @@ function Admin() {
     <div className="admin-page">
       <header className="admin-hero">
         <p className="eyebrow">Admin</p>
-        <h1>Administrasjon</h1>
+        <h1>Administration</h1>
       </header>
 
       {!loading && !isAdmin ? (
@@ -603,20 +603,20 @@ function Admin() {
 
       {isAdmin && (
         <section className="admin-panel">
-          {loading ? <p>Kontrollerer innlogging...</p> : null}
+          {loading ? <p>Checking login...</p> : null}
           {isAdmin ? (
             <>
-              <p>Innlogget som {user?.email}</p>
+              <p>Logged in as {user?.email}</p>
               <div className="admin-actions">
-                <Link className="admin-button" to="/skjema">Gå til /skjema</Link>
-                <Link className="admin-button admin-button-secondary" to="/admin/leverandører">Leverandører</Link>
-                <Link className="admin-button admin-button-secondary" to="/admin/ordre">Ordreinnstillinger</Link>
-                <Link className="admin-button admin-button-secondary" to="/admin/all-orders">Alle bestillinger</Link>
-                <Link className="admin-button admin-button-secondary" to="/order">Bestillingsside</Link>
-                <Link className="admin-button admin-button-secondary" to="/worker">Worker-dashboard</Link>
+                <Link className="admin-button" to="/skjema">Go to /skjema</Link>
+                <Link className="admin-button admin-button-secondary" to="/admin/leverandører">Suppliers</Link>
+                <Link className="admin-button admin-button-secondary" to="/admin/ordre">Order Settings</Link>
+                <Link className="admin-button admin-button-secondary" to="/admin/all-orders">All orders</Link>
+                <Link className="admin-button admin-button-secondary" to="/order">Order Page</Link>
+                <Link className="admin-button admin-button-secondary" to="/worker">Worker Dashboard</Link>
                 <Link className="admin-button admin-button-secondary" to="/sales">Open sales</Link>
                 <Link className="admin-button admin-button-secondary" to="/admin/financial-report">Financial report</Link>
-                <button type="button" className="admin-button admin-button-secondary" onClick={signOutAdmin}>Logg ut</button>
+                <button type="button" className="admin-button admin-button-secondary" onClick={signOutAdmin}>Log out</button>
               </div>
             </>
           ) : null}
@@ -627,10 +627,10 @@ function Admin() {
         <section className="admin-panel">
           <h2>Zettle</h2>
           <p className={`admin-status-badge is-${zettleStatus}`}>{getZettleStatusLabel(zettleStatus)}</p>
-          {zettleLoading ? <p>Laster Zettle-status...</p> : null}
+          {zettleLoading ? <p>Loading Zettle status...</p> : null}
           {zettleError ? <p className="forms-error">{zettleError}</p> : null}
           {zettleMessage ? <p className="forms-success">{zettleMessage}</p> : null}
-          <p className="admin-muted">OAuth er satt opp via Firebase Functions. Tokens lagres serverside og vises ikke i klienten.</p>
+          <p className="admin-muted">OAuth is set up via Firebase Functions. Tokens are stored server-side and are not visible to the client.</p>
           <div className="admin-detail-list">
             <p><strong>Connected by:</strong> {zettleConnection?.connectedByEmail || "-"}</p>
             <p><strong>Connected at:</strong> {formatDateTime(zettleConnection?.connectedAt)}</p>
@@ -641,10 +641,10 @@ function Admin() {
           </div>
           <div className="admin-inline-actions">
             <button type="button" className="admin-button" onClick={onConnectZettle} disabled={zettleAction === "connect"}>
-              {zettleAction === "connect" ? "Starter..." : "Connect Zettle"}
+              {zettleAction === "connect" ? "Starting..." : "Connect Zettle"}
             </button>
             <button type="button" className="admin-button admin-button-secondary" onClick={onDisconnectZettle} disabled={zettleAction === "disconnect" || zettleStatus === "not_connected"}>
-              {zettleAction === "disconnect" ? "Kobler fra..." : "Disconnect"}
+              {zettleAction === "disconnect" ? "Disconnecting..." : "Disconnect"}
             </button>
             <a className="admin-button admin-button-secondary" href="https://developer.zettle.com/" target="_blank" rel="noreferrer">Open Zettle Developer Portal</a>
             <Link className="admin-button admin-button-secondary" to="/sales">Open sales</Link>
@@ -656,27 +656,27 @@ function Admin() {
         <section className="admin-panel">
           <h2>Planday</h2>
           <p className={`admin-status-badge is-${plandayStatus}`}>{getPlandayStatusLabel(plandayStatus)}</p>
-          {plandayLoading ? <p>Laster Planday-status...</p> : null}
+          {plandayLoading ? <p>Loading Planday status...</p> : null}
           {plandayError ? <p className="forms-error">{plandayError}</p> : null}
           {plandayMessage ? <p className="forms-success">{plandayMessage}</p> : null}
-          <p className="admin-muted">Brukes for å hente lønnskost fra Time and Cost API. Tokens lagres serverside i Firebase Functions.</p>
+          <p className="admin-muted">Used to fetch labor costs from the Time and Cost API. Tokens are stored server-side in Firebase Functions.</p>
           <div className="admin-detail-list">
-            <p><strong>Koblet til av:</strong> {plandayConnection?.connectedByEmail || "-"}</p>
-            <p><strong>Koblet til:</strong> {formatDateTime(plandayConnection?.connectedAt)}</p>
+            <p><strong>Connected by:</strong> {plandayConnection?.connectedByEmail || "-"}</p>
+            <p><strong>Connected at:</strong> {formatDateTime(plandayConnection?.connectedAt)}</p>
             <p><strong>Scope:</strong> {plandayConnection?.scope || "-"}</p>
-            <p><strong>Ansatte funnet:</strong> {plandayConnection?.employeeCount ?? "-"}</p>
-            <p><strong>Siste feil:</strong> {plandayConnection?.lastError || "-"}</p>
+            <p><strong>Employees found:</strong> {plandayConnection?.employeeCount ?? "-"}</p>
+            <p><strong>Last error:</strong> {plandayConnection?.lastError || "-"}</p>
           </div>
           <div className="admin-inline-actions">
             <button type="button" className="admin-button" onClick={onConnectPlanday} disabled={plandayAction === "connect"}>
-              {plandayAction === "connect" ? "Kobler til..." : "Connect Planday"}
+              {plandayAction === "connect" ? "Connecting..." : "Connect Planday"}
             </button>
             <button type="button" className="admin-button admin-button-secondary" onClick={onDisconnectPlanday} disabled={plandayAction === "disconnect" || plandayStatus === "not_connected"}>
-              {plandayAction === "disconnect" ? "Kobler fra..." : "Koble fra"}
+              {plandayAction === "disconnect" ? "Disconnecting..." : "Disconnect"}
             </button>
           </div>
           <hr className="admin-divider" />
-          <label htmlFor="planday-department-ids">Department IDs for lønnskost</label>
+          <label htmlFor="planday-department-ids">Department IDs for labor costs</label>
           <textarea
             id="planday-department-ids"
             className="admin-text-input"
@@ -684,16 +684,16 @@ function Admin() {
             value={plandayDepartmentIdsInput}
             onChange={(event) => setPlandayDepartmentIdsInput(event.target.value)}
             disabled={plandaySettingsLoading || plandaySettingsSaving}
-            placeholder="Eksempel: 101, 102, 205"
+            placeholder="Example: 101, 102, 205"
           />
-          <p className="admin-muted">Legg inn én eller flere Planday department IDs, separert med komma eller linjeskift.</p>
+          <p className="admin-muted">Enter one or more Planday department IDs, separated by commas or line breaks.</p>
           {plandaySettingsError ? <p className="forms-error">{plandaySettingsError}</p> : null}
           {plandaySettingsMessage ? <p className="forms-success">{plandaySettingsMessage}</p> : null}
           <div className="admin-inline-actions">
             <button type="button" className="admin-button" onClick={onSavePlandaySettings} disabled={plandaySettingsLoading || plandaySettingsSaving}>
-              {plandaySettingsSaving ? "Lagrer..." : "Lagre avdelinger"}
+              {plandaySettingsSaving ? "Saving..." : "Save departments"}
             </button>
-            <Link className="admin-button admin-button-secondary" to="/sales">Åpne salg</Link>
+            <Link className="admin-button admin-button-secondary" to="/sales">Open sales</Link>
           </div>
         </section>
       ) : null}
@@ -1011,11 +1011,11 @@ function Admin() {
 
       {isAdmin ? (
         <section className="admin-panel">
-          <h2>Søknader på /jobb</h2>
-          {settingsLoading ? <p>Laster innstillinger...</p> : null}
+          <h2>Applications for /jobb</h2>
+          {settingsLoading ? <p>Loading settings...</p> : null}
           {settingsError ? <p className="forms-error">{settingsError}</p> : null}
           <p>Status: <strong>{JOB_PORTAL_STATUS_LABELS[portalStatus]}</strong></p>
-          <label htmlFor="job-portal-status">Velg status</label>
+          <label htmlFor="job-portal-status">Select status</label>
           <select
             id="job-portal-status"
             className="admin-status-select"
@@ -1028,7 +1028,7 @@ function Admin() {
             <option value={JOB_PORTAL_STATUS_WAITLIST}>Register email</option>
           </select>
           <button type="button" className="admin-button" onClick={onSavePortalStatus} disabled={settingsLoading || saving}>
-            {saving ? "Lagrer..." : "Lagre status"}
+            {saving ? "Saving..." : "Save status"}
           </button>
           {statusMessage ? <p className="forms-success">{statusMessage}</p> : null}
         </section>
@@ -1036,19 +1036,19 @@ function Admin() {
 
       {isAdmin ? (
         <section className="admin-panel">
-          <h2>E-poster for varsling om /jobb</h2>
-          {waitlistLoading ? <p>Laster e-poster...</p> : null}
+          <h2>Emails for /jobb notifications</h2>
+          {waitlistLoading ? <p>Loading emails...</p> : null}
           {waitlistError ? <p className="forms-error">{waitlistError}</p> : null}
           {!waitlistLoading && !waitlistError && waitlistEntries.length === 0 ? (
-            <p>Ingen registrerte e-poster ennå.</p>
+            <p>No registered emails yet.</p>
           ) : null}
           {!waitlistLoading && waitlistEntries.length > 0 ? (
             <div className="admin-email-list" role="list">
               {waitlistEntries.map((entry) => (
                 <div key={entry.id} className="admin-email-item" role="listitem">
                   <p className="admin-email-contact">
-                    <span className="admin-email-name">{entry.name || "(mangler navn)"}</span>
-                    {entry.email || "(mangler e-post)"}
+                    <span className="admin-email-name">{entry.name || "(no name)"}</span>
+                    {entry.email || "(no email)"}
                   </p>
                   <div className="admin-email-actions">
                     <span>{formatDateTime(entry.createdAt)}</span>
@@ -1058,7 +1058,7 @@ function Admin() {
                       onClick={() => onRequestDeleteWaitlistEntry(entry)}
                       disabled={deletingEntryId === entry.id}
                     >
-                      {deletingEntryId === entry.id ? "Sletter..." : "Slett"}
+                      {deletingEntryId === entry.id ? "Deleting..." : "Delete"}
                     </button>
                   </div>
                 </div>
