@@ -1829,32 +1829,32 @@ function getRemarkSaveErrorMessage(error) {
   const code = error?.code || ''
 
   if (code === 'permission-denied') {
-    return 'Kunne ikke lagre remark. Mangler tilgang i Firestore-regler.'
+    return 'Could not save remark. Missing permission in Firestore rules.'
   }
 
   if (code === 'storage/unauthorized') {
-    return 'Kunne ikke laste opp remark-bilde. Mangler tilgang i Firebase Storage-regler.'
+    return 'Could not upload remark image. Missing permission in Firebase Storage rules.'
   }
 
   if (code === 'storage/canceled') {
-    return 'Bildeopplastingen ble avbrutt.'
+    return 'Image upload was cancelled.'
   }
 
   if (code === 'storage/unknown') {
-    return 'Ukjent Storage-feil ved opplasting av remark-bilde.'
+    return 'Unknown Storage error while uploading remark image.'
   }
 
-  return code ? `Kunne ikke lagre remark (${code}).` : 'Kunne ikke lagre remark.'
+  return code ? `Could not save remark (${code}).` : 'Could not save remark.'
 }
 
 function getRemarkDeleteErrorMessage(error) {
   const code = error?.code || ''
 
   if (code === 'permission-denied') {
-    return 'Kunne ikke slette remark. Mangler tilgang i Firestore-regler.'
+    return 'Could not delete remark. Missing permission in Firestore rules.'
   }
 
-  return code ? `Kunne ikke slette remark (${code}).` : 'Kunne ikke slette remark.'
+  return code ? `Could not delete remark (${code}).` : 'Could not delete remark.'
 }
 
 function getLocationsLoadErrorMessage(error) {
@@ -3884,6 +3884,13 @@ function FormPage() {
         { merge: isSubmissionEditMode },
       )
 
+      const submitterPhone = getSubmissionPhone(submissionAnswers, formData.questions)
+      if (submitterPhone && submitterEmail) {
+        setDoc(doc(db, 'phoneEmails', submitterPhone), { email: submitterEmail }, { merge: true }).catch(
+          (err) => console.error('Failed to save phoneEmails', err),
+        )
+      }
+
       if (receiptTokenValue) {
         const receiptUrl = `${window.location.origin}/skjema/${activeFormSlug}/kvittering/${receiptTokenValue}`
         receiptWindow?.location.replace(
@@ -5694,7 +5701,7 @@ function FormPage() {
       return
     }
 
-    const confirmed = window.confirm('Slette denne remarken permanent?')
+    const confirmed = window.confirm('Delete this remark permanently?')
     if (!confirmed) {
       return
     }
@@ -5739,8 +5746,8 @@ function FormPage() {
         saving: false,
         error: '',
         message: cleanupFailed
-          ? 'Remark slettet, men ett eller flere bilder kunne ikke fjernes fra Storage.'
-          : 'Remark slettet.',
+          ? 'Remark deleted, but one or more images could not be removed from Storage.'
+          : 'Remark deleted.',
         categorySaving: false,
         categoryError: '',
       }))
@@ -5764,7 +5771,7 @@ function FormPage() {
       setRemarkState((previous) => ({
         ...previous,
         saving: false,
-        error: 'Oppgi et gyldig telefonnummer med 8 sifre.',
+        error: 'Please enter a valid phone number with 8 digits.',
         message: '',
       }))
       return
@@ -5774,7 +5781,7 @@ function FormPage() {
       setRemarkState((previous) => ({
         ...previous,
         saving: false,
-        error: 'Velg kategori før remark lagres.',
+        error: 'Select a category before saving the remark.',
         message: '',
       }))
       return
@@ -5839,14 +5846,13 @@ function FormPage() {
         [normalizedPhone]: true,
       }))
       setRemarkDraftPhone(normalizedPhone)
-      setRemarkDraftName(name)
       setRemarkDraftCategory('')
       setRemarkDraftComment('')
       setRemarkDraftImages([])
       setRemarkState({
         saving: false,
         error: '',
-        message: 'Remark lagret.',
+        message: 'Remark saved.',
         categorySaving: false,
         categoryError: '',
       })
@@ -7343,7 +7349,7 @@ function FormPage() {
           <div className="history-title-block">
             <h3>Remarks</h3>
             <p className="history-legend">
-              Registrer nye remarks og åpne hvert telefonnummer for å se alle remarks, bilder og kommentarer.
+              Register new remarks and expand each phone number to see all remarks, images, and comments.
             </p>
           </div>
         </div>
@@ -7351,34 +7357,24 @@ function FormPage() {
         <form className="response-card remarks-create-card" onSubmit={onSaveManualRemark}>
           <div className="remarks-create-fields">
             <label className="field-block" htmlFor="remarks-phone">
-              <span>Telefonnummer</span>
+              <span>Phone number</span>
               <input
                 id="remarks-phone"
                 type="tel"
                 inputMode="numeric"
-                placeholder="8 siffer"
+                placeholder="8 digits"
                 value={remarkDraftPhone}
                 onChange={(event) => setRemarkDraftPhone(event.target.value)}
               />
             </label>
-            <label className="field-block" htmlFor="remarks-name">
-              <span>Navn</span>
-              <input
-                id="remarks-name"
-                type="text"
-                placeholder="Valgfritt"
-                value={remarkDraftName}
-                onChange={(event) => setRemarkDraftName(event.target.value)}
-              />
-            </label>
             <label className="field-block" htmlFor="remarks-category">
-              <span>Kategori</span>
+              <span>Category</span>
               <select
                 id="remarks-category"
                 value={remarkDraftCategory}
                 onChange={(event) => setRemarkDraftCategory(event.target.value)}
               >
-                <option value="">Velg kategori</option>
+                <option value="">Select category</option>
                 {availableWarningCategories.map((category) => (
                   <option key={`remark-category-${category}`} value={category}>
                     {category}
@@ -7388,17 +7384,17 @@ function FormPage() {
             </label>
           </div>
           <label className="field-block" htmlFor="remarks-comment">
-            <span>Kommentar</span>
+            <span>Comment</span>
             <textarea
               id="remarks-comment"
               rows={4}
-              placeholder="Legg til kommentar for denne remarken"
+              placeholder="Add a comment for this remark"
               value={remarkDraftComment}
               onChange={(event) => setRemarkDraftComment(event.target.value)}
             />
           </label>
           <label className="field-block" htmlFor="remarks-images">
-            <span>Bilder</span>
+            <span>Images</span>
             <input
               id="remarks-images"
               type="file"
@@ -7409,7 +7405,7 @@ function FormPage() {
                 event.target.value = ''
               }}
             />
-            <small className="question-help">Du kan legge ved ett eller flere bilder.</small>
+            <small className="question-help">You can attach one or more images.</small>
           </label>
           {remarkDraftImages.length > 0 ? (
             <div className="remarks-image-list remarks-image-list--draft">
@@ -7419,7 +7415,7 @@ function FormPage() {
                     <img
                       className="remarks-image"
                       src={image.previewUrl}
-                      alt={`Valgt remark-bilde ${index + 1}`}
+                      alt={`Selected remark image ${index + 1}`}
                     />
                   ) : (
                     <p className="review-answer-value">{image.file.name}</p>
@@ -7429,7 +7425,7 @@ function FormPage() {
                     className="ghost"
                     onClick={() => onRemoveRemarkDraftImage(image.id)}
                   >
-                    Fjern
+                    Remove
                   </button>
                 </article>
               ))}
@@ -7442,17 +7438,17 @@ function FormPage() {
                 className="ghost"
                 onClick={() => setRemarkCategoryPopupOpen((previous) => !previous)}
               >
-                Ny kategori
+                New category
               </button>
               {remarkCategoryPopupOpen ? (
                 <div className="flagged-category-popup">
                   <label className="field-block" htmlFor="remarks-new-category">
-                    <span>Ny kategori</span>
+                    <span>New category</span>
                     <input
                       id="remarks-new-category"
                       type="text"
                       value={newRemarkCategoryDraft}
-                      placeholder="f.eks. Møtte ikke opp"
+                      placeholder="e.g. Did not show up"
                       onChange={(event) => setNewRemarkCategoryDraft(event.target.value)}
                     />
                   </label>
@@ -7462,7 +7458,7 @@ function FormPage() {
                       className="ghost"
                       onClick={() => setRemarkCategoryPopupOpen(false)}
                     >
-                      Lukk
+                      Close
                     </button>
                     <button
                       type="button"
@@ -7473,8 +7469,8 @@ function FormPage() {
                       {remarkState.categorySaving &&
                       remarkCategoryPendingAction === 'create' &&
                       remarkCategoryPendingName === String(newRemarkCategoryDraft || '').trim()
-                        ? 'Lagrer...'
-                        : 'Lagre kategori'}
+                        ? 'Saving...'
+                        : 'Save category'}
                     </button>
                   </div>
                 </div>
@@ -7486,10 +7482,10 @@ function FormPage() {
               onClick={openRemarkCategoryManager}
               disabled={remarkState.categorySaving}
             >
-              Endre kategorier
+              Manage categories
             </button>
             <button type="submit" className="cta" disabled={remarkState.saving}>
-              {remarkState.saving ? 'Lagrer...' : 'Lagre remark'}
+              {remarkState.saving ? 'Saving...' : 'Save remark'}
             </button>
           </div>
           {remarkState.categoryError && !remarkCategoryManagerOpen ? (
@@ -7512,14 +7508,14 @@ function FormPage() {
               onClick={(event) => event.stopPropagation()}
             >
               <div className="submission-modal-header">
-                <h4 id="remark-category-modal-title">Administrer kategori</h4>
+                <h4 id="remark-category-modal-title">Manage category</h4>
                 <button
                   type="button"
                   className="ghost"
                   onClick={closeRemarkCategoryModal}
                   disabled={remarkState.categorySaving}
                 >
-                  Lukk
+                  Close
                 </button>
               </div>
               <div className="submission-modal-content">
@@ -7537,10 +7533,10 @@ function FormPage() {
                             <div key={`remark-category-${category}`} className="remarks-category-admin-row">
                               <span className="remarks-category-chip">{category}</span>
                               <span className="review-answer-value">
-                                {usageCount > 0 ? `I bruk: ${usageCount}` : 'Ikke i bruk'}
+                                {usageCount > 0 ? `In use: ${usageCount}` : 'Not in use'}
                               </span>
                               <span className="review-answer-value">
-                                {isConfigured ? 'Valgbar kategori' : 'Kun i eksisterende data'}
+                                {isConfigured ? 'Selectable category' : 'In existing data only'}
                               </span>
                               <button
                                 type="button"
@@ -7548,30 +7544,30 @@ function FormPage() {
                                 onClick={() => openRemarkCategoryModal(category)}
                                 disabled={remarkState.categorySaving}
                               >
-                                Administrer
+                                Manage
                               </button>
                             </div>
                           )
                         })}
                       </div>
                       <small className="question-help">
-                        Du kan gi kategorier nytt navn her. Sletting er bare tilgjengelig for kategorier som ikke er i bruk.
+                        You can rename categories here. Deletion is only available for categories not in use.
                       </small>
                     </>
                   ) : (
-                    <p className="review-answer-value">Ingen kategorier finnes ennå.</p>
+                    <p className="review-answer-value">No categories yet.</p>
                   )}
                   {remarkCategoryModalCategory ? (
                     <>
                       <p className="review-answer-value">
-                        <strong>Nåværende navn:</strong> {remarkCategoryModalCategory}
+                        <strong>Current name:</strong> {remarkCategoryModalCategory}
                       </p>
                       <p className="review-answer-value">
-                        <strong>Bruk:</strong>{' '}
+                        <strong>Usage:</strong>{' '}
                         {warningCategoryUsageCounts[remarkCategoryModalCategory.toLowerCase()] || 0}
                       </p>
                       <label className="field-block" htmlFor="remark-category-rename">
-                        <span>Nytt navn</span>
+                        <span>New name</span>
                         <input
                           id="remark-category-rename"
                           type="text"
@@ -7594,7 +7590,7 @@ function FormPage() {
                           }}
                           disabled={remarkState.categorySaving}
                         >
-                          Lukk administrering
+                          Close management
                         </button>
                         <button
                           type="button"
@@ -7606,8 +7602,8 @@ function FormPage() {
                           remarkCategoryPendingAction === 'rename' &&
                           remarkCategoryPendingName.toLowerCase() ===
                             remarkCategoryModalCategory.toLowerCase()
-                            ? 'Lagrer...'
-                            : 'Lagre nytt navn'}
+                            ? 'Saving...'
+                            : 'Save new name'}
                         </button>
                         <button
                           type="button"
@@ -7622,13 +7618,13 @@ function FormPage() {
                           remarkCategoryPendingAction === 'delete' &&
                           remarkCategoryPendingName.toLowerCase() ===
                             remarkCategoryModalCategory.toLowerCase()
-                            ? 'Sletter...'
-                            : 'Slett kategori'}
+                            ? 'Deleting...'
+                            : 'Delete category'}
                         </button>
                       </div>
                       {(warningCategoryUsageCounts[remarkCategoryModalCategory.toLowerCase()] || 0) > 0 ? (
                         <p className="review-pending-note">
-                          Kategorien er i bruk og kan derfor ikke slettes før tilhørende remarks eller advarsler er endret.
+                          The category is in use and cannot be deleted until the associated remarks or warnings have been changed.
                         </p>
                       ) : null}
                     </>
@@ -7640,23 +7636,23 @@ function FormPage() {
           </div>
         ) : null}
 
-        {loadingRemarks ? <p>Laster remarks...</p> : null}
+        {loadingRemarks ? <p>Loading remarks...</p> : null}
         {!loadingRemarks && remarksOverview.totalWarnings === 0 ? (
-          <p>Ingen registrerte advarsler ennå.</p>
+          <p>No recorded warnings yet.</p>
         ) : null}
         {!loadingRemarks && remarksOverview.totalWarnings > 0 ? (
           <>
             <div className="remarks-summary-row">
               <span className="submission-status-badge is-flagged">
-                {remarksOverview.totalWarnings} advarsler
+                {remarksOverview.totalWarnings} warnings
               </span>
               <span className="submission-status-badge is-reviewed">
-                {remarksOverview.rows.length} telefonnummer
+                {remarksOverview.rows.length} phone numbers
               </span>
             </div>
             {remarksOverview.withoutPhoneCount > 0 ? (
               <p className="review-pending-note">
-                {remarksOverview.withoutPhoneCount} advarsler mangler telefonnummer og vises ikke i listen under.
+                {remarksOverview.withoutPhoneCount} warnings are missing a phone number and are not shown in the list below.
               </p>
             ) : null}
             <div className="remarks-list">
@@ -7675,20 +7671,20 @@ function FormPage() {
                       </div>
                       <div className="remarks-card-header-right">
                         <span className="remarks-count-badge">
-                          {entry.warningCount} {entry.warningCount === 1 ? 'advarsel' : 'advarsler'}
+                          {entry.warningCount} {entry.warningCount === 1 ? 'warning' : 'warnings'}
                         </span>
                         <span className="review-answer-value">
-                          {expandedRemarkPhones[entry.phone] ? 'Skjul' : 'Vis alle'}
+                          {expandedRemarkPhones[entry.phone] ? 'Hide' : 'Show all'}
                         </span>
                       </div>
                     </div>
                   </button>
                   <div className="remarks-meta-grid">
                     <p>
-                      <strong>Siste lokasjon:</strong> {entry.latestLocation || '-'}
+                      <strong>Last location:</strong> {entry.latestLocation || '-'}
                     </p>
                     <p>
-                      <strong>Sist registrert:</strong> {formatTime(entry.latestSubmittedAt)}
+                      <strong>Last recorded:</strong> {formatTime(entry.latestSubmittedAt)}
                     </p>
                   </div>
                   <div className="remarks-category-list">
@@ -7721,20 +7717,20 @@ function FormPage() {
                           </div>
                           <div className="remarks-meta-grid">
                             <p>
-                              <strong>Registrert av:</strong> {remarkEntry.recordedBy || '-'}
+                              <strong>Recorded by:</strong> {remarkEntry.recordedBy || '-'}
                             </p>
                             <p>
-                              <strong>Lokasjon:</strong> {remarkEntry.location || '-'}
+                              <strong>Location:</strong> {remarkEntry.location || '-'}
                             </p>
                             {remarkEntry.name ? (
                               <p>
-                                <strong>Navn:</strong> {remarkEntry.name}
+                                <strong>Name:</strong> {remarkEntry.name}
                               </p>
                             ) : null}
                           </div>
                           {remarkEntry.comment ? (
                             <p className="flagged-answer-comment">
-                              <strong>Kommentar:</strong> {remarkEntry.comment}
+                              <strong>Comment:</strong> {remarkEntry.comment}
                             </p>
                           ) : null}
                           {remarkEntry.sourceType === 'manual' ? (
@@ -7745,7 +7741,7 @@ function FormPage() {
                                 onClick={() => onDeleteManualRemark(remarkEntry)}
                                 disabled={deleteState.deleting}
                               >
-                                {deleteState.deleting ? 'Sletter...' : 'Slett remark'}
+                                {deleteState.deleting ? 'Deleting...' : 'Delete remark'}
                               </button>
                               {deleteState.error ? (
                                 <small className="forms-error">{deleteState.error}</small>
@@ -7775,9 +7771,9 @@ function FormPage() {
                                         />
                                       </a>
                                     ) : hasStoragePath && typeof remarkImageUrls[imageValue] !== 'undefined' ? (
-                                      <p className="review-answer-value">Kunne ikke laste bilde.</p>
+                                      <p className="review-answer-value">Could not load image.</p>
                                     ) : (
-                                      <p className="review-answer-value">Laster bilde...</p>
+                                      <p className="review-answer-value">Loading image...</p>
                                     )}
                                   </article>
                                 )
@@ -7791,7 +7787,7 @@ function FormPage() {
                               target="_blank"
                               rel="noreferrer"
                             >
-                              Vis kvittering
+                              View receipt
                             </a>
                           ) : null}
                           {remarkEntry.flaggedAnswers.length > 0 ? (
@@ -7810,7 +7806,7 @@ function FormPage() {
                                     <p className="review-answer-label">{item.label}</p>
                                     {item.comment ? (
                                       <p className="flagged-answer-comment">
-                                        <strong>Kommentar:</strong> {item.comment}
+                                        <strong>Comment:</strong> {item.comment}
                                       </p>
                                     ) : null}
                                     {hasImagePath ? (
@@ -7823,9 +7819,9 @@ function FormPage() {
                                         />
                                       ) : typeof item.imageUrl === 'string' ||
                                         typeof flaggedImageUrls[item.value] !== 'undefined' ? (
-                                        <p className="review-answer-value">Kunne ikke laste bilde.</p>
+                                        <p className="review-answer-value">Could not load image.</p>
                                       ) : (
-                                        <p className="review-answer-value">Laster bilde...</p>
+                                        <p className="review-answer-value">Loading image...</p>
                                       )
                                     ) : (
                                       <p className="review-answer-value">{String(item.value || '-')}</p>

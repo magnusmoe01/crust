@@ -139,19 +139,19 @@ function resolveAccessType(item) {
 function getPublicationErrorMessage(error, fallbackMessage) {
   const code = error?.code || "";
   if (code === "permission-denied") {
-    return "Ingen tilgang til å publisere. Sjekk at du er logget inn med @crust.no og at Firestore/Storage-regler er deployet.";
+    return "No permission to publish. Check that you're logged in with @crust.no and that Firestore/Storage rules are deployed.";
   }
   if (code === "unauthenticated") {
-    return "Du må være logget inn som admin for å publisere.";
+    return "You must be logged in as admin to publish.";
   }
   if (code === "storage/unauthorized") {
-    return "Ingen tilgang til bildeopplasting i Storage.";
+    return "No permission to upload images in Storage.";
   }
   if (code === "storage/canceled") {
-    return "Opplastingen ble avbrutt.";
+    return "The upload was cancelled.";
   }
   if (code === "storage/unknown") {
-    return "Ukjent Storage-feil under opplasting.";
+    return "Unknown Storage error during upload.";
   }
   return code ? `${fallbackMessage} (${code})` : fallbackMessage;
 }
@@ -190,7 +190,7 @@ function Publications() {
         setItemsError(
           getPublicationErrorMessage(
             err,
-            "Kunne ikke hente omtaler akkurat nå.",
+            "Could not fetch coverage right now.",
           ),
         );
         setLoadingItems(false);
@@ -204,16 +204,16 @@ function Publications() {
 
   function validatePublication(formData) {
     if (!formData.title.trim()) {
-      return "Overskrift er påkrevd.";
+      return "Headline is required.";
     }
     if (!formData.description.trim()) {
-      return "Beskrivelse er påkrevd.";
+      return "Description is required.";
     }
     if (!formData.articleUrl.trim()) {
-      return "Sak-lenke er påkrevd.";
+      return "Article link is required.";
     }
     if (!formData.publicationDate) {
-      return "Dato er påkrevd.";
+      return "Date is required.";
     }
 
     const normalizedArticleUrl = normalizeUrl(formData.articleUrl);
@@ -221,7 +221,7 @@ function Publications() {
     try {
       new URL(normalizedArticleUrl);
     } catch {
-      return "Sak-lenken er ikke gyldig.";
+      return "The article link is not valid.";
     }
 
     return "";
@@ -232,7 +232,7 @@ function Publications() {
     setFormState({ saving: false, error: "" });
 
     if (!newImageFile) {
-      setFormState({ saving: false, error: "Bilde er påkrevd." });
+      setFormState({ saving: false, error: "Image is required." });
       return;
     }
 
@@ -272,7 +272,7 @@ function Publications() {
         saving: false,
         error: getPublicationErrorMessage(
           err,
-          "Kunne ikke legge til omtale. Prøv igjen.",
+          "Could not add coverage. Please try again.",
         ),
       });
     }
@@ -302,7 +302,7 @@ function Publications() {
       return;
     }
     if (!editItem.imageUrl && !editImageFile) {
-      setEditState({ saving: false, error: "Bilde er påkrevd." });
+      setEditState({ saving: false, error: "Image is required." });
       return;
     }
 
@@ -338,7 +338,7 @@ function Publications() {
         saving: false,
         error: getPublicationErrorMessage(
           err,
-          "Kunne ikke oppdatere omtale. Prøv igjen.",
+          "Could not update coverage. Please try again.",
         ),
       });
     }
@@ -347,26 +347,26 @@ function Publications() {
   return (
     <div className="publications-page">
       <header className="publications-hero">
-        <p className="eyebrow">Omtale</p>
-        <h1>Omtale og medieoppslag</h1>
+        <p className="eyebrow">Press Coverage</p>
+        <h1>Press Coverage & Media Features</h1>
         <p className="lead">
-          Her finner du omtale av Crust n&apos; Trust (tidligere Toastmasters).
-          Klikk deg videre til saken for å lese mer.
+          Here you&apos;ll find press coverage of Crust n&apos; Trust (formerly Toastmasters).
+          Click through to the article to read more.
         </p>
       </header>
 
       <section className="publications-grid" aria-live="polite">
-        {loadingItems ? <p>Laster omtaler...</p> : null}
+        {loadingItems ? <p>Loading coverage...</p> : null}
         {itemsError ? <p className="forms-error">{itemsError}</p> : null}
         {!loadingItems && !hasItems ? (
-          <p>Ingen omtaler lagt inn enda.</p>
+          <p>No coverage added yet.</p>
         ) : null}
 
         {items.map((item) => (
           <article key={item.id} className="publication-card">
             <img
               src={item.imageUrl}
-              alt="Omtalebilde"
+              alt="Article image"
               loading="lazy"
               decoding="async"
             />
@@ -375,13 +375,13 @@ function Publications() {
                 <p className="publication-date">
                   {item.publicationDate
                     ? formatPublicationDate(item.publicationDate)
-                    : "Uten dato"}
+                    : "No date"}
                 </p>
                 {isAdmin ? (
                   <button
                     type="button"
                     className="publication-edit-icon"
-                    aria-label="Rediger omtale"
+                    aria-label="Edit coverage"
                     onClick={() => onStartEdit(item)}
                   >
                     <FontAwesomeIcon icon={faPenToSquare} />
@@ -389,13 +389,13 @@ function Publications() {
                 ) : null}
               </div>
               <h3 className="publication-title">
-                {item.title || "Uten overskrift"}
+                {item.title || "No title"}
                 {resolveAccessType(item) === "internal" ? (
-                  <span className="publication-internal-tag">Intern</span>
+                  <span className="publication-internal-tag">Internal</span>
                 ) : null}
               </h3>
               <p className="publication-description">
-                {item.description || "Ingen beskrivelse enda."}
+                {item.description || "No description yet."}
               </p>
               <a
                 className="cta publication-link"
@@ -403,7 +403,7 @@ function Publications() {
                 target="_blank"
                 rel="noreferrer"
               >
-                Les saken{resolveAccessType(item) === "paywall" ? " (+)" : ""}
+                Read article{resolveAccessType(item) === "paywall" ? " (+)" : ""}
               </a>
             </div>
           </article>
@@ -411,13 +411,13 @@ function Publications() {
       </section>
 
       <section className={isAdmin ? "admin-box" : "admin-login-line"}>
-        {loading ? <p>Kontrollerer innlogging...</p> : null}
+        {loading ? <p>Checking login...</p> : null}
         {error ? <p className="forms-error">{error}</p> : null}
 
         {isAdmin ? (
           <>
             <div className="admin-actions publications-admin-actions">
-              <p>Innlogget som {user?.email}</p>
+              <p>Logged in as {user?.email}</p>
               <div className="publication-admin-controls">
                 <button
                   type="button"
@@ -427,14 +427,14 @@ function Publications() {
                     setIsAddModalOpen(true);
                   }}
                 >
-                  Legg til omtale
+                  Add coverage
                 </button>
                 <button
                   type="button"
                   className="ghost admin-logout-mini"
                   onClick={signOutAdmin}
                 >
-                  Logg ut
+                  Log out
                 </button>
               </div>
             </div>
@@ -451,13 +451,13 @@ function Publications() {
                     className="publications-admin-form"
                     onSubmit={onCreatePublication}
                   >
-                    <h3 id="publication-modal-title">Legg til omtale</h3>
+                    <h3 id="publication-modal-title">Add coverage</h3>
 
                     <label
                       className="field-block"
                       htmlFor="publication-image-url"
                     >
-                      <span>Bilde</span>
+                      <span>Image</span>
                       <input
                         id="publication-image-url"
                         type="file"
@@ -470,7 +470,7 @@ function Publications() {
                     </label>
 
                     <label className="field-block" htmlFor="publication-title">
-                      <span>Overskrift</span>
+                      <span>Headline</span>
                       <input
                         id="publication-title"
                         type="text"
@@ -489,7 +489,7 @@ function Publications() {
                       className="field-block"
                       htmlFor="publication-description"
                     >
-                      <span>Beskrivelse</span>
+                      <span>Description</span>
                       <textarea
                         id="publication-description"
                         rows={3}
@@ -508,7 +508,7 @@ function Publications() {
                       className="field-block"
                       htmlFor="publication-article-url"
                     >
-                      <span>Lenke til sak</span>
+                      <span>Link to article</span>
                       <input
                         id="publication-article-url"
                         type="url"
@@ -525,7 +525,7 @@ function Publications() {
                     </label>
 
                     <label className="field-block" htmlFor="publication-date">
-                      <span>Dato</span>
+                      <span>Date</span>
                       <input
                         id="publication-date"
                         type="date"
@@ -544,7 +544,7 @@ function Publications() {
                       className="field-block"
                       htmlFor="publication-access-status"
                     >
-                      <span>Tilgang</span>
+                      <span>Access</span>
                       <select
                         id="publication-access-status"
                         value={newItem.accessType}
@@ -556,10 +556,10 @@ function Publications() {
                         }
                       >
                         <option value="public">
-                          Åpen (ingen betalingsmur)
+                          Open (no paywall)
                         </option>
-                        <option value="paywall">Bak betalingsmur</option>
-                        <option value="internal">Intern</option>
+                        <option value="paywall">Behind paywall</option>
+                        <option value="internal">Internal</option>
                       </select>
                     </label>
 
@@ -572,7 +572,7 @@ function Publications() {
                         className="cta"
                         disabled={formState.saving}
                       >
-                        {formState.saving ? "Lagrer..." : "Publiser omtale"}
+                        {formState.saving ? "Saving..." : "Publish coverage"}
                       </button>
                       <button
                         type="button"
@@ -584,7 +584,7 @@ function Publications() {
                           setFormState({ saving: false, error: "" });
                         }}
                       >
-                        Lukk
+                        Close
                       </button>
                     </div>
                   </form>
@@ -604,13 +604,13 @@ function Publications() {
                     className="publications-admin-form"
                     onSubmit={onSaveEdit}
                   >
-                    <h3 id="publication-edit-modal-title">Rediger omtale</h3>
+                    <h3 id="publication-edit-modal-title">Edit coverage</h3>
 
                     <label
                       className="field-block"
                       htmlFor="edit-publication-image-url"
                     >
-                      <span>Last opp nytt bilde (valgfritt)</span>
+                      <span>Upload new image (optional)</span>
                       <input
                         id="edit-publication-image-url"
                         type="file"
@@ -625,7 +625,7 @@ function Publications() {
                       className="field-block"
                       htmlFor="edit-publication-title"
                     >
-                      <span>Overskrift</span>
+                      <span>Headline</span>
                       <input
                         id="edit-publication-title"
                         type="text"
@@ -644,7 +644,7 @@ function Publications() {
                       className="field-block"
                       htmlFor="edit-publication-description"
                     >
-                      <span>Beskrivelse</span>
+                      <span>Description</span>
                       <textarea
                         id="edit-publication-description"
                         rows={3}
@@ -663,7 +663,7 @@ function Publications() {
                       className="field-block"
                       htmlFor="edit-publication-article-url"
                     >
-                      <span>Lenke til sak</span>
+                      <span>Link to article</span>
                       <input
                         id="edit-publication-article-url"
                         type="url"
@@ -683,7 +683,7 @@ function Publications() {
                       className="field-block"
                       htmlFor="edit-publication-date"
                     >
-                      <span>Dato</span>
+                      <span>Date</span>
                       <input
                         id="edit-publication-date"
                         type="date"
@@ -702,7 +702,7 @@ function Publications() {
                       className="field-block"
                       htmlFor="edit-publication-access-status"
                     >
-                      <span>Tilgang</span>
+                      <span>Access</span>
                       <select
                         id="edit-publication-access-status"
                         value={editItem.accessType}
@@ -714,10 +714,10 @@ function Publications() {
                         }
                       >
                         <option value="public">
-                          Åpen (ingen betalingsmur)
+                          Open (no paywall)
                         </option>
-                        <option value="paywall">Bak betalingsmur</option>
-                        <option value="internal">Intern</option>
+                        <option value="paywall">Behind paywall</option>
+                        <option value="internal">Internal</option>
                       </select>
                     </label>
 
@@ -730,7 +730,7 @@ function Publications() {
                         className="cta"
                         disabled={editState.saving}
                       >
-                        {editState.saving ? "Oppdaterer..." : "Lagre endringer"}
+                        {editState.saving ? "Updating..." : "Save changes"}
                       </button>
                       <button
                         type="button"
@@ -742,7 +742,7 @@ function Publications() {
                           setEditState({ saving: false, error: "" });
                         }}
                       >
-                        Lukk
+                        Close
                       </button>
                     </div>
                   </form>
