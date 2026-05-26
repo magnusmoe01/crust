@@ -261,10 +261,34 @@ function sanitizeFileName(name) {
     .replace(/-+/g, '-')
 }
 
+function formatDateForFilename(date) {
+  const d = date instanceof Date ? date : new Date(date)
+  if (isNaN(d.getTime())) return ''
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  const hh = String(d.getHours()).padStart(2, '0')
+  const min = String(d.getMinutes()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}_${hh}${min}`
+}
+
+async function readImageCapturedAtDate(file) {
+  if (!file) return null
+  try {
+    const exifDate = extractExifCapturedAt(await file.arrayBuffer())
+    if (exifDate) return exifDate
+  } catch {}
+  if (Number.isFinite(file.lastModified) && file.lastModified > 0) {
+    return new Date(file.lastModified)
+  }
+  return null
+}
+
 function createTemporaryImageUploadPath(formSlug, questionId, fileName, options = {}) {
   const detailSuffix = options.detail ? '-detail' : ''
   const uniqueId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-  return `forms/images/${formSlug}/${questionId}${detailSuffix}-${uniqueId}-${sanitizeFileName(fileName)}`
+  const capturedAtPart = options.capturedAt ? `${formatDateForFilename(options.capturedAt)}-` : ''
+  return `forms/images/${formSlug}/${questionId}${detailSuffix}-${capturedAtPart}${uniqueId}-${sanitizeFileName(fileName)}`
 }
 
 function normalizeNorwegianPhoneNumber(value) {
@@ -3222,8 +3246,10 @@ function FormPage() {
       [questionId]: { uploading: true, error: '' },
     }))
 
-    const capturedAtValue =
-      isAdmin && activeFormSlug === STENGESKJEMA_ID ? await readImageCapturedAtValue(file) : ''
+    const isStengeskjema = isAdmin && activeFormSlug === STENGESKJEMA_ID
+    const [capturedAtValue, capturedAtDate] = isStengeskjema
+      ? await Promise.all([readImageCapturedAtValue(file), readImageCapturedAtDate(file)])
+      : ['', null]
 
     try {
       const nextFile = await compressUploadedImage(file)
@@ -3231,7 +3257,9 @@ function FormPage() {
         ...previous,
         [questionId]: nextFile,
       }))
-      const path = createTemporaryImageUploadPath(activeFormSlug, questionId, nextFile.name)
+      const path = createTemporaryImageUploadPath(activeFormSlug, questionId, nextFile.name, {
+        capturedAt: capturedAtDate,
+      })
       await uploadBytes(ref(storage, path), nextFile, {
         contentType: nextFile.type,
       })
@@ -3385,8 +3413,10 @@ function FormPage() {
       [questionId]: { uploading: true, error: '' },
     }))
 
-    const capturedAtValue =
-      isAdmin && activeFormSlug === STENGESKJEMA_ID ? await readImageCapturedAtValue(file) : ''
+    const isStengeskjema = isAdmin && activeFormSlug === STENGESKJEMA_ID
+    const [capturedAtValue, capturedAtDate] = isStengeskjema
+      ? await Promise.all([readImageCapturedAtValue(file), readImageCapturedAtDate(file)])
+      : ['', null]
 
     try {
       const nextFile = await compressUploadedImage(file)
@@ -3396,6 +3426,7 @@ function FormPage() {
       }))
       const path = createTemporaryImageUploadPath(activeFormSlug, questionId, nextFile.name, {
         detail: true,
+        capturedAt: capturedAtDate,
       })
       await uploadBytes(ref(storage, path), nextFile, {
         contentType: nextFile.type,
@@ -4671,19 +4702,6 @@ function FormPage() {
     )
 
     if (hasPendingDecisions) {
-      return
-    }
-
-    const hasMissingComments = selectedSubmissionAnswerEntries.some(([answerKey]) => {
-      const s = reviewDraftStatuses[answerKey]
-      if (s !== 'flagged' && s !== 'flagged_sad') return false
-      const q = formData.questions?.find((question) => question.id === answerKey)
-      if ((q?.reviewType || 'rating') !== 'rating') return false
-      return !String(reviewDraftComments[answerKey] || '').trim()
-    })
-
-    if (hasMissingComments) {
-      setReviewSubmissionState({ saving: false, error: 'Comment is required for neutral and sad ratings.' })
       return
     }
 
@@ -7286,13 +7304,12 @@ function FormPage() {
                     ) : null}
                     {ratingItems.length > 0 ? (
                       <div className="flagged-content-section">
-                        <h4>Vurdert med <FaceNeutral size={16} /> / <FaceSad size={16} /></h4>
+                        <h4>Vurdert</h4>
                         <div className="flagged-answer-list">
                           {ratingItems.map((item) => (
                             <article key={`${submission.id}-${item.answerKey}-rating`} className={`flagged-answer-row flagged-answer-row--rated ${item.reviewStatus === 'flagged_sad' ? 'is-sad' : 'is-neutral'}`}>
                               <p className="review-answer-label">
-                                {item.reviewStatus === 'flagged_sad' ? <FaceSad size={16} /> : <FaceNeutral size={16} />}
-                                {' '}{item.label}
+                                {item.label}
                               </p>
                               {item.comment ? (
                                 <p className="flagged-answer-comment">
@@ -9888,26 +9905,20 @@ function FormPage() {
                                           </div>
                                         </div>
                                       ) : null}
-                                      {(() => {
-                                        const commentMissing = !String(reviewDraftComments[answerKey] || '').trim()
-                                        return (
-                                          <label
-                                            className={`field-block review-comment-field${commentMissing ? ' review-comment-required' : ''}`}
-                                            htmlFor={`review-comment-${answerKey}`}
-                                          >
-                                            <span>Comment <span className="review-comment-asterisk">*</span></span>
-                                            <textarea
-                                              id={`review-comment-${answerKey}`}
-                                              rows={4}
-                                              required
-                                              value={reviewDraftComments[answerKey] || ''}
-                                              onChange={(event) =>
-                                                onReviewCommentChange(answerKey, event.target.value)
-                                              }
-                                            />
-                                          </label>
-                                        )
-                                      })()}
+                                      <label
+                                        className="field-block review-comment-field"
+                                        htmlFor={`review-comment-${answerKey}`}
+                                      >
+                                        <span>Comment</span>
+                                        <textarea
+                                          id={`review-comment-${answerKey}`}
+                                          rows={4}
+                                          value={reviewDraftComments[answerKey] || ''}
+                                          onChange={(event) =>
+                                            onReviewCommentChange(answerKey, event.target.value)
+                                          }
+                                        />
+                                      </label>
                                     </>
                                   ) : null}
                                 </>
