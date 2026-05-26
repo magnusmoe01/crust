@@ -32,6 +32,7 @@ const emptyLocationForm = {
   imageUrl: "",
   order: "",
   orderEnabled: false,
+  excludeFromCount: false,
 };
 
 function normalizeUrl(value) {
@@ -154,7 +155,10 @@ function Locations() {
   }, []);
 
   const hasLocations = useMemo(() => locations.length > 0, [locations]);
-  const locationCount = locations.length;
+  const locationCount = useMemo(
+    () => locations.filter((l) => !l.excludeFromCount).length,
+    [locations],
+  );
   const locationLabel = locationCount === 1 ? "vogn" : "vogner";
   const foodtruckLabel = locationCount === 1 ? "foodtruck" : "foodtrucks";
   const heroEyebrow = loadingLocations
@@ -255,6 +259,7 @@ function Locations() {
       imageUrl: location.imageUrl || "",
       order: location.order == null ? "" : String(location.order),
       orderEnabled: location.orderEnabled || false,
+      excludeFromCount: location.excludeFromCount || false,
     });
     setEditImageFile(null);
     setEditState({ saving: false, error: "" });
@@ -295,6 +300,7 @@ function Locations() {
         imageUrl,
         order: editLocation.order.trim() ? Number(editLocation.order) : null,
         orderEnabled: editLocation.orderEnabled,
+        excludeFromCount: editLocation.excludeFromCount,
         updatedAt: serverTimestamp(),
         updatedBy: user?.email || "admin",
       });
@@ -896,6 +902,21 @@ function Locations() {
                         }
                       />
                       <span>Tillat bestillinger fra denne lokasjonen</span>
+                    </label>
+
+                    <label className="field-block location-order-enabled-row">
+                      <input
+                        id="edit-location-exclude-from-count"
+                        type="checkbox"
+                        checked={editLocation.excludeFromCount}
+                        onChange={(event) =>
+                          setEditLocation((previous) => ({
+                            ...previous,
+                            excludeFromCount: event.target.checked,
+                          }))
+                        }
+                      />
+                      <span>Utelat fra totalt antall foodtrucks</span>
                     </label>
 
                     {editState.error ? (
