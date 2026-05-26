@@ -47,6 +47,10 @@
   margin-bottom: 8px;
 }
 
+.public-form-page .forms-hero .lead {
+  color: rgba(24, 44, 60, 0.7);
+}
+
 .public-form-language-bar {
   margin-top: 18px;
   display: flex;

@@ -3621,24 +3621,27 @@ function FormPage() {
     setSubmitState({ submitting: false, message: '', error: '' })
 
     if (hasPendingImageUploads) {
+      const msg = publicCopy.waitForPhotoUpload
+      window.alert(msg)
       setSubmitState({
         submitting: false,
         message: '',
-        error: publicCopy.waitForPhotoUpload,
+        error: msg,
       })
       return
     }
 
     if (formData.enableSelfDeclaration && !selfDeclarationAccepted) {
+      const msg = displayLanguage === 'en'
+        ? 'You must confirm the self-declaration.'
+        : 'Du må bekrefte egenerklæringen.'
+      window.alert(msg)
       setSubmitErrorQuestionId('')
       setSubmitErrorTargetId('self-declaration-checkbox')
       setSubmitState({
         submitting: false,
         message: '',
-        error:
-          displayLanguage === 'en'
-            ? 'You must confirm the self-declaration.'
-            : 'Du må bekrefte egenerklæringen.',
+        error: msg,
       })
       focusValidationTarget('self-declaration-checkbox')
       return
@@ -3647,16 +3650,17 @@ function FormPage() {
     const missingRequired = visibleInputQuestions.find(isQuestionMissingRequiredAnswer)
 
     if (missingRequired) {
+      const msg = displayLanguage === 'en'
+        ? `Missing answer: ${translateText(missingRequired.label)}`
+        : `Manglende svar: ${missingRequired.label}`
+      window.alert(msg)
       const targetId = getQuestionValidationTargetId(missingRequired)
       setSubmitErrorQuestionId(missingRequired.id)
       setSubmitErrorTargetId(targetId)
       setSubmitState({
         submitting: false,
         message: '',
-        error:
-          displayLanguage === 'en'
-            ? `Missing answer: ${translateText(missingRequired.label)}`
-            : `Manglende svar: ${missingRequired.label}`,
+        error: msg,
       })
       focusValidationTarget(targetId)
       return
@@ -3676,15 +3680,16 @@ function FormPage() {
     })
 
     if (invalidPhoneQuestion) {
+      const msg = displayLanguage === 'en'
+        ? `${translateText(invalidPhoneQuestion.label)}: ${publicCopy.phoneMustBeEightDigits}`
+        : `${invalidPhoneQuestion.label}: ${publicCopy.phoneMustBeEightDigits}`
+      window.alert(msg)
       setSubmitErrorQuestionId(invalidPhoneQuestion.id)
       setSubmitErrorTargetId(invalidPhoneQuestion.id)
       setSubmitState({
         submitting: false,
         message: '',
-        error:
-          displayLanguage === 'en'
-            ? `${translateText(invalidPhoneQuestion.label)}: ${publicCopy.phoneMustBeEightDigits}`
-            : `${invalidPhoneQuestion.label}: ${publicCopy.phoneMustBeEightDigits}`,
+        error: msg,
       })
       focusValidationTarget(invalidPhoneQuestion.id)
       return
@@ -6066,7 +6071,6 @@ function FormPage() {
           id={question.id}
           value={value}
           placeholder={getLocalizedInputPlaceholder(question)}
-          required={question.required}
           rows={4}
           onChange={(event) => onAnswerChange(question.id, event.target.value)}
         />
@@ -6089,7 +6093,6 @@ function FormPage() {
           <select
             id={question.id}
             value={value}
-            required={question.required}
             onChange={(event) => {
               const nextValue = event.target.value
               onAnswerChange(question.id, nextValue)
@@ -6160,7 +6163,6 @@ function FormPage() {
                 type="text"
                 value={detailValue}
                 placeholder={publicCopy.writeHere}
-                required
                 onChange={(event) =>
                   setSelectDetailAnswers((previous) => ({
                     ...previous,
@@ -6221,7 +6223,6 @@ function FormPage() {
           <select
             id={question.id}
             value={value}
-            required={question.required}
             onChange={(event) => {
               const nextValue = event.target.value
               onAnswerChange(question.id, nextValue)
@@ -6265,7 +6266,6 @@ function FormPage() {
               type="text"
               value={otherValue}
               placeholder={getLocalizedInputPlaceholder(question, publicCopy.enterLocation)}
-              required={question.required}
               onChange={(event) =>
                 setLocationOtherAnswers((previous) => ({
                   ...previous,
@@ -6330,7 +6330,6 @@ function FormPage() {
           value={value}
           placeholder={getLocalizedInputPlaceholder(question, publicCopy.fullName)}
           autoComplete="name"
-          required={question.required}
           onChange={(event) => onAnswerChange(question.id, event.target.value)}
         />
       )
@@ -6346,9 +6345,7 @@ function FormPage() {
             placeholder={getLocalizedInputPlaceholder(question, publicCopy.phoneNumberPlaceholder)}
             inputMode="numeric"
             autoComplete="tel-national"
-            pattern="[0-9]{8}"
             maxLength={8}
-            required={question.required}
             onChange={(event) => onAnswerChange(question.id, event.target.value)}
           />
           <small className="question-help">{publicCopy.phoneNumberHelp}</small>
@@ -6364,7 +6361,6 @@ function FormPage() {
           value={value}
           placeholder={getLocalizedInputPlaceholder(question, publicCopy.emailAddress)}
           autoComplete="email"
-          required={question.required}
           onChange={(event) => onAnswerChange(question.id, event.target.value)}
         />
       )
@@ -6376,7 +6372,6 @@ function FormPage() {
         type={question.type || 'text'}
         value={value}
         placeholder={getLocalizedInputPlaceholder(question)}
-        required={question.required}
         onChange={(event) => onAnswerChange(question.id, event.target.value)}
       />
     )
