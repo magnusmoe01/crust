@@ -852,6 +852,12 @@
     border-radius: 6px;
     border: none;
     background: transparent;
+    color: rgba(251, 249, 219, 0.85);
+  }
+
+  .site-nav a:hover {
+    color: #fbf9db;
+    background: rgba(255, 255, 255, 0.08);
   }
 
   .nav-icon {
