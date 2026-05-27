@@ -107,5 +107,10 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /smsHistory/{docId} {
+      allow read, create: if isCrustUser();
+      allow update, delete: if false;
+    }
+
   }
 }

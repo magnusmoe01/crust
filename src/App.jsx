@@ -51,6 +51,7 @@ const Order = lazy(() => import("./pages/Order"));
 const OrderDashboard = lazy(() => import("./pages/OrderDashboard"));
 const OrderAdmin = lazy(() => import("./pages/OrderAdmin"));
 const AllOrders = lazy(() => import("./pages/AllOrders"));
+const Sms = lazy(() => import("./pages/Sms"));
 
 function withPageLoader(element) {
   return (
@@ -369,6 +370,15 @@ function App() {
           element={withPageLoader(
             <RequireAdminRoute>
               <AllOrders />
+            </RequireAdminRoute>
+          )}
+        />
+
+        <Route
+          path="/admin/sms"
+          element={withPageLoader(
+            <RequireAdminRoute>
+              <Sms />
             </RequireAdminRoute>
           )}
         />

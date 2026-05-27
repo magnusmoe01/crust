@@ -1034,6 +1034,28 @@ exports.checkVippsOrder = onCall(
   },
 );
 
+// Manual SMS — send arbitrary message to one or more numbers (admin only)
+exports.sendManualSms = onCall(
+  {
+    region:  "europe-west1",
+    invoker: "public",
+    secrets: ["ELKS_API_USERNAME", "ELKS_API_PASSWORD"],
+  },
+  async ({ data }) => {
+    const message = (data?.message || "").trim();
+    if (!message) throw new HttpsError("invalid-argument", "message required");
+
+    const phones = Array.isArray(data?.phones)
+      ? data.phones.map((p) => String(p).trim()).filter(Boolean)
+      : [(data?.phone || "").trim()].filter(Boolean);
+
+    if (!phones.length) throw new HttpsError("invalid-argument", "phone required");
+
+    await Promise.all(phones.map((phone) => sendElksSms(phone, message)));
+    return { sent: true, count: phones.length };
+  },
+);
+
 // Test SMS (admin only)
 exports.sendTestSms = onCall(
   {
