@@ -2673,6 +2673,12 @@
   background: #fff;
 }
 
+.review-answer-captured-at {
+  margin: 4px 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
 .review-answer-file-link a {
   color: inherit;
   text-decoration: underline;

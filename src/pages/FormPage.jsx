@@ -3195,7 +3195,7 @@ function FormPage() {
       })
 
       const capturedAtValue =
-        isAdmin && activeFormSlug === STENGESKJEMA_ID ? await readImageCapturedAtValue(file) : ''
+        activeFormSlug === STENGESKJEMA_ID ? await readImageCapturedAtValue(file) : ''
       const nextFile = await compressUploadedImage(file)
 
       setCameraFiles((previous) => ({
@@ -3203,11 +3203,12 @@ function FormPage() {
         [questionId]: nextFile,
       }))
       setCameraCapturedAt((previous) => {
-        if (typeof previous[questionId] === 'undefined') {
-          return previous
-        }
         const next = { ...previous }
-        delete next[questionId]
+        if (capturedAtValue) {
+          next[questionId] = capturedAtValue
+        } else {
+          delete next[questionId]
+        }
         return next
       })
 
@@ -3246,7 +3247,7 @@ function FormPage() {
       [questionId]: { uploading: true, error: '' },
     }))
 
-    const isStengeskjema = isAdmin && activeFormSlug === STENGESKJEMA_ID
+    const isStengeskjema = activeFormSlug === STENGESKJEMA_ID
     const [capturedAtValue, capturedAtDate] = isStengeskjema
       ? await Promise.all([readImageCapturedAtValue(file), readImageCapturedAtDate(file)])
       : ['', null]
@@ -3363,7 +3364,7 @@ function FormPage() {
       })
 
       const capturedAtValue =
-        isAdmin && activeFormSlug === STENGESKJEMA_ID ? await readImageCapturedAtValue(file) : ''
+        activeFormSlug === STENGESKJEMA_ID ? await readImageCapturedAtValue(file) : ''
       const nextFile = await compressUploadedImage(file)
 
       setSelectDetailFiles((previous) => ({
@@ -3371,11 +3372,12 @@ function FormPage() {
         [questionId]: nextFile,
       }))
       setSelectDetailCapturedAt((previous) => {
-        if (typeof previous[questionId] === 'undefined') {
-          return previous
-        }
         const next = { ...previous }
-        delete next[questionId]
+        if (capturedAtValue) {
+          next[questionId] = capturedAtValue
+        } else {
+          delete next[questionId]
+        }
         return next
       })
 
@@ -3413,7 +3415,7 @@ function FormPage() {
       [questionId]: { uploading: true, error: '' },
     }))
 
-    const isStengeskjema = isAdmin && activeFormSlug === STENGESKJEMA_ID
+    const isStengeskjema = activeFormSlug === STENGESKJEMA_ID
     const [capturedAtValue, capturedAtDate] = isStengeskjema
       ? await Promise.all([readImageCapturedAtValue(file), readImageCapturedAtDate(file)])
       : ['', null]
@@ -9764,6 +9766,11 @@ function FormPage() {
                                       )}
                                       loading="lazy"
                                     />
+                                  ) : null}
+                                  {selectedSubmission.answers?.[answerKey + IMAGE_CAPTURED_AT_SUFFIX] ? (
+                                    <p className="review-answer-captured-at">
+                                      📷 {selectedSubmission.answers[answerKey + IMAGE_CAPTURED_AT_SUFFIX]}
+                                    </p>
                                   ) : null}
                                   {reviewImage.imageUrl ? (
                                     <p className="review-answer-value review-answer-file-link">
