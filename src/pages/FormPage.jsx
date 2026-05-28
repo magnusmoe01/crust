@@ -13,7 +13,7 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore'
-import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage'
+import { deleteObject, getDownloadURL, getMetadata, ref, uploadBytes } from 'firebase/storage'
 import { httpsCallable } from 'firebase/functions'
 import { db, functions, storage } from '../firebase'
 import { STENGESKJEMA_ID, defaultStengeskjema } from '../forms/defaultForms'
@@ -1119,7 +1119,7 @@ function formatSubmissionDayLabel(dayKey) {
 
 function formatSubmissionMonthLabel(monthKey) {
   if (!monthKey) {
-    return 'Ukjent måned'
+    return 'Unknown month'
   }
 
   const [year, month] = monthKey.split('-').map((value) => Number(value))
@@ -1127,7 +1127,7 @@ function formatSubmissionMonthLabel(monthKey) {
     return monthKey
   }
 
-  const label = new Date(year, month - 1, 1).toLocaleDateString('nb-NO', {
+  const label = new Date(year, month - 1, 1).toLocaleDateString('en-GB', {
     month: 'long',
     year: 'numeric',
   })
@@ -2019,11 +2019,19 @@ function FormPage() {
   const [selectedSubmissionId, setSelectedSubmissionId] = useState('')
   const [selectedSubmissionImageUrls, setSelectedSubmissionImageUrls] = useState({})
   const [selectedSubmissionImagesLoading, setSelectedSubmissionImagesLoading] = useState(false)
+  const [selectedSubmissionImageMeta, setSelectedSubmissionImageMeta] = useState({})
+  const [submissionLastPhotoMeta, setSubmissionLastPhotoMeta] = useState({})
+  const [showTimingIssues, setShowTimingIssues] = useState(false)
+  const [timingIssuesFetching, setTimingIssuesFetching] = useState(false)
   const [selectedSubmissionDay, setSelectedSubmissionDay] = useState('')
   const [reviewDraftStatuses, setReviewDraftStatuses] = useState({})
   const [reviewDraftComments, setReviewDraftComments] = useState({})
   const [reviewDraftRatings, setReviewDraftRatings] = useState({})
   const [reviewSubmissionState, setReviewSubmissionState] = useState({ saving: false, error: '' })
+  const [plandayTimeConfirmed, setPlandayTimeConfirmed] = useState(null)
+  const [reviewGeneralFeedback, setReviewGeneralFeedback] = useState('')
+  const [reviewRejected, setReviewRejected] = useState(false)
+  const [reviewRejectionComment, setReviewRejectionComment] = useState('')
   const [reviewEmailPreviewData, setReviewEmailPreviewData] = useState(null)
   const [reviewEmailOverride, setReviewEmailOverride] = useState('')
   const [reviewEmailSaving, setReviewEmailSaving] = useState(false)
@@ -2048,6 +2056,7 @@ function FormPage() {
   const [receiptImageUrls, setReceiptImageUrls] = useState({})
   const [flaggedImageUrls, setFlaggedImageUrls] = useState({})
   const [flaggedReviewOpenId, setFlaggedReviewOpenId] = useState('')
+  const [showPastMonths, setShowPastMonths] = useState(false)
   const [flaggedActionDrafts, setFlaggedActionDrafts] = useState({})
   const [flaggedWarningDrafts, setFlaggedWarningDrafts] = useState({})
   const [newWarningCategoryDrafts, setNewWarningCategoryDrafts] = useState({})
@@ -2999,9 +3008,14 @@ function FormPage() {
     if (!selectedSubmissionId) {
       setSelectedSubmissionImageUrls({})
       setSelectedSubmissionImagesLoading(false)
+      setSelectedSubmissionImageMeta({})
       setReviewDraftStatuses({})
       setReviewDraftComments({})
       setReviewSubmissionState({ saving: false, error: '' })
+      setPlandayTimeConfirmed(null)
+      setReviewGeneralFeedback('')
+      setReviewRejected(false)
+      setReviewRejectionComment('')
       return
     }
 
@@ -3009,9 +3023,14 @@ function FormPage() {
     if (!selectedSubmission) {
       setSelectedSubmissionImageUrls({})
       setSelectedSubmissionImagesLoading(false)
+      setSelectedSubmissionImageMeta({})
       setReviewDraftStatuses({})
       setReviewDraftComments({})
       setReviewSubmissionState({ saving: false, error: '' })
+      setPlandayTimeConfirmed(null)
+      setReviewGeneralFeedback('')
+      setReviewRejected(false)
+      setReviewRejectionComment('')
       return
     }
 
@@ -3082,6 +3101,30 @@ function FormPage() {
           setSelectedSubmissionImagesLoading(false)
         }
       })
+
+    setSelectedSubmissionImageMeta({})
+    Promise.all(
+      uniquePaths.map(async (path) => {
+        try {
+          const meta = await getMetadata(ref(storage, path))
+          const t = meta.timeCreated
+          if (!t) return null
+          const d = new Date(t)
+          const formatted = d.toLocaleString('en-GB', {
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit',
+          })
+          return [path, formatted]
+        } catch {
+          return null
+        }
+      }),
+    ).then((pairs) => {
+      if (cancelled) return
+      setSelectedSubmissionImageMeta(
+        Object.fromEntries(pairs.filter(Boolean)),
+      )
+    })
 
     return () => {
       cancelled = true
@@ -4596,6 +4639,23 @@ function FormPage() {
     ([answerKey]) => !String(reviewDraftStatuses[answerKey] || '').trim(),
   )
 
+  const lastReviewCameraQuestion = useMemo(() => {
+    if (activeFormSlug !== STENGESKJEMA_ID) return null
+    const cameraQuestions = formData.questions.filter(
+      (q) => !isSectionQuestion(q) && q.type === 'camera' && Boolean(q.includeInReview),
+    )
+    return cameraQuestions.length > 0 ? cameraQuestions[cameraQuestions.length - 1] : null
+  }, [activeFormSlug, formData.questions])
+
+  function onPlandayTimeCheck(confirmed) {
+    setPlandayTimeConfirmed(confirmed)
+    if (!lastReviewCameraQuestion) return
+    setReviewDraftStatuses((prev) => ({
+      ...prev,
+      [lastReviewCameraQuestion.id]: confirmed ? 'approved' : 'flagged',
+    }))
+  }
+
   function onSetReviewStatus(answerKey, nextStatus) {
     setReviewDraftStatuses((previous) => ({
       ...previous,
@@ -4648,6 +4708,16 @@ function FormPage() {
       return
     }
 
+    if (lastReviewCameraQuestion && plandayTimeConfirmed === null) {
+      alert('Please confirm whether the door lock photo time is within 5 minutes of the Planday check-out time.')
+      return
+    }
+
+    if (reviewRejected && !reviewRejectionComment.trim()) {
+      alert('A comment is required when rejecting the closing form.')
+      return
+    }
+
     const flaggedAnswers = selectedSubmissionAnswerEntries
       .filter(([answerKey]) => {
         const s = reviewDraftStatuses[answerKey]
@@ -4696,6 +4766,9 @@ function FormPage() {
       submitterEmail:
         selectedSubmission.submitterEmail ||
         getSubmissionEmail(selectedSubmission.answers, formData.questions),
+      generalFeedback: reviewGeneralFeedback.trim(),
+      rejected: reviewRejected,
+      rejectionComment: reviewRejectionComment.trim(),
     })
   }
 
@@ -4757,10 +4830,12 @@ function FormPage() {
         flaggedAnswers,
         reviewAnswers,
         reviewScoreSummary,
-        status: 'reviewed',
+        status: reviewRejected ? 'rejected' : 'reviewed',
         statusUpdatedBy: user?.email || 'admin',
         statusUpdatedAt: serverTimestamp(),
         reviewedAt: serverTimestamp(),
+        ...(reviewGeneralFeedback.trim() ? { generalFeedback: reviewGeneralFeedback.trim() } : {}),
+        ...(reviewRejected ? { rejected: true, rejectionComment: reviewRejectionComment.trim() } : { rejected: false }),
       })
 
       setSubmissions((previous) =>
@@ -4824,6 +4899,9 @@ function FormPage() {
             ? `https://crust.no/skjema/${activeFormSlug}/kvittering/${selectedSubmission.receiptToken}`
             : null,
           reviewedBy: user?.email || null,
+          generalFeedback: reviewGeneralFeedback.trim() || null,
+          rejected: reviewRejected,
+          rejectionComment: reviewRejectionComment.trim() || null,
         }).catch((emailError) => {
           console.error('Review email failed to send', emailError)
         })
@@ -4941,6 +5019,32 @@ function FormPage() {
       })
 
       setTestEmailState({ sending: false, error: '', message: 'Test email sent to magnus@crust.no' })
+    } catch (error) {
+      setTestEmailState({ sending: false, error: `Failed to send: ${error.message}`, message: '' })
+    }
+  }
+
+  async function onSendTestRejectionEmail() {
+    setTestEmailState({ sending: true, error: '', message: '' })
+    try {
+      const latestSubmission = [...submissions]
+        .filter((s) => s.submittedAt)
+        .sort((a, b) => (b.submittedAt?.seconds || 0) - (a.submittedAt?.seconds || 0))[0]
+
+      await httpsCallable(functions, 'sendReviewEmail')({
+        submitterEmail: latestSubmission?.submitterEmail || 'test@crust.no',
+        formTitle: formData.title || activeFormSlug,
+        flaggedAnswers: [],
+        approvedAnswers: [],
+        reviewScoreSummary: { happy: 0, neutral: 0, sad: 0 },
+        submittedAtSeconds: latestSubmission?.submittedAt?.seconds || null,
+        reviewUrl: null,
+        reviewedBy: user?.email || null,
+        rejected: true,
+        rejectionComment: 'Dette er en test av avvisnings-e-post. Stengeskjemaet ble ikke godkjent.',
+        testRecipient: 'magnus@crust.no',
+      })
+      setTestEmailState({ sending: false, error: '', message: 'Test rejection email sent to magnus@crust.no' })
     } catch (error) {
       setTestEmailState({ sending: false, error: `Failed to send: ${error.message}`, message: '' })
     }
@@ -6446,6 +6550,47 @@ function FormPage() {
   const visibleSubmissions = selectedSubmissionDay
     ? submissions.filter((submission) => getSubmissionDayKey(submission.submittedAt) === selectedSubmissionDay)
     : submissions
+
+  function fetchLastPhotoMeta(submissionList, onDone) {
+    const toFetch = submissionList.filter((s) =>
+      submissionLastPhotoMeta[s.id] === undefined &&
+      Object.values(s.answers || {}).some((v) => isStorageImagePath(v))
+    )
+    if (toFetch.length === 0) { onDone?.(); return () => {} }
+    let cancelled = false
+    let pending = toFetch.length
+    toFetch.forEach((submission) => {
+      const paths = Object.values(submission.answers || {}).filter((v) => isStorageImagePath(v))
+      if (!paths.length) { if (--pending === 0) onDone?.(); return }
+      Promise.all(
+        paths.map((path) =>
+          getMetadata(ref(storage, path))
+            .then((meta) => (meta.timeCreated ? new Date(meta.timeCreated).getTime() : 0))
+            .catch(() => 0)
+        )
+      ).then((times) => {
+        if (cancelled) return
+        const latestMs = Math.max(...times)
+        const entry = latestMs
+          ? {
+              ms: latestMs,
+              display: new Date(latestMs).toLocaleString('en-GB', {
+                day: '2-digit', month: 'short',
+                hour: '2-digit', minute: '2-digit',
+              }),
+            }
+          : null
+        setSubmissionLastPhotoMeta((prev) => ({ ...prev, [submission.id]: entry }))
+        if (--pending === 0) onDone?.()
+      })
+    })
+    return () => { cancelled = true }
+  }
+
+  useEffect(() => {
+    if (!isSubmissionsView) return
+    return fetchLastPhotoMeta(visibleSubmissions, undefined)
+  }, [isSubmissionsView, visibleSubmissions])
   const reviewedSubmissionMonthlyStats = useMemo(() => {
     const statsByMonth = new Map()
 
@@ -7884,7 +8029,7 @@ function FormPage() {
       {isAdminShellView ? (
         <form action="/skjema" method="get">
           <button type="submit" className="admin-login-link">
-            Tilbake til hovedmeny
+            Back to main menu
           </button>
         </form>
       ) : !isStandalonePublicForm ? (
@@ -8916,6 +9061,14 @@ function FormPage() {
                     >
                       {testEmailState.sending ? 'Sending…' : 'Send test email'}
                     </button>
+                    <button
+                      type="button"
+                      className="submissions-action-button"
+                      onClick={onSendTestRejectionEmail}
+                      disabled={testEmailState.sending}
+                    >
+                      {testEmailState.sending ? 'Sending…' : 'Send test rejection email'}
+                    </button>
                     {testEmailState.message ? (
                       <span className="test-email-feedback test-email-feedback--ok">{testEmailState.message}</span>
                     ) : null}
@@ -8925,31 +9078,40 @@ function FormPage() {
                   </div>
                 </div>
                 {loadingSubmissions ? <p>Loading submissions...</p> : null}
-                {!loadingSubmissions && reviewedSubmissionMonthlyStats.length > 0 ? (
-                  <div className="reviewed-monthly-summary" aria-label="Reviewed submissions per month">
-                    <div className="reviewed-monthly-summary-header">
-                      <h4>Reviewed per month</h4>
-                      <p>Number of reviewed submissions and how many of them are flagged.</p>
+                {!loadingSubmissions && reviewedSubmissionMonthlyStats.length > 0 ? (() => {
+                  const currentMonthKey = getSubmissionMonthKey(new Date())
+                  const thisMonth = reviewedSubmissionMonthlyStats.find((m) => m.monthKey === currentMonthKey)
+                  const pastMonths = reviewedSubmissionMonthlyStats.filter((m) => m.monthKey !== currentMonthKey)
+                  return (
+                    <div className="reviewed-monthly-summary">
+                      <div className="reviewed-monthly-this-month">
+                        <span>
+                          Reviewed this month: <strong>{thisMonth?.reviewedCount ?? 0}</strong>
+                          {thisMonth?.flaggedCount > 0 ? <span className="reviewed-monthly-flagged-note"> ({thisMonth.flaggedCount} flagged)</span> : null}
+                        </span>
+                        {pastMonths.length > 0 ? (
+                          <button
+                            type="button"
+                            className="submissions-action-button submissions-action-button--small"
+                            onClick={() => setShowPastMonths((v) => !v)}
+                          >
+                            {showPastMonths ? 'Hide past months' : 'Past months'}
+                          </button>
+                        ) : null}
+                      </div>
+                      {showPastMonths && pastMonths.length > 0 ? (
+                        <div className="reviewed-monthly-past-popup">
+                          {pastMonths.map((month) => (
+                            <div key={month.monthKey} className="reviewed-monthly-past-row">
+                              <span>{formatSubmissionMonthLabel(month.monthKey)}</span>
+                              <span><strong>{month.reviewedCount}</strong> reviewed{month.flaggedCount > 0 ? `, ${month.flaggedCount} flagged` : ''}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
-                    <div className="reviewed-monthly-summary-grid">
-                      {reviewedSubmissionMonthlyStats.map((month) => (
-                        <article key={month.monthKey} className="reviewed-monthly-summary-card">
-                          <h5>{formatSubmissionMonthLabel(month.monthKey)}</h5>
-                          <div className="reviewed-monthly-summary-values">
-                            <p>
-                              <span>Reviewed</span>
-                              <strong>{month.reviewedCount}</strong>
-                            </p>
-                            <p>
-                              <span>Flagged</span>
-                              <strong>{month.flaggedCount}</strong>
-                            </p>
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
+                  )
+                })() : null}
                 {!loadingSubmissions && availableSubmissionDays.length > 0 ? (
                   <div className="submissions-filter-bar">
                     <label className="field-block" htmlFor="submission-day-filter">
@@ -8966,6 +9128,85 @@ function FormPage() {
                         ))}
                       </select>
                     </label>
+                    <button
+                      type="button"
+                      className="submissions-action-button"
+                      onClick={() => {
+                        setShowTimingIssues(true)
+                        setTimingIssuesFetching(true)
+                        fetchLastPhotoMeta(submissions, () => setTimingIssuesFetching(false))
+                      }}
+                    >
+                      Check timing
+                    </button>
+                  </div>
+                ) : null}
+
+                {showTimingIssues ? (
+                  <div
+                    className="submission-modal-backdrop"
+                    role="dialog"
+                    aria-modal="true"
+                    onClick={() => setShowTimingIssues(false)}
+                  >
+                    <div
+                      className="submission-modal timing-issues-modal"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="submission-modal-header">
+                        <h4>Timing issues (&gt;5 min difference)</h4>
+                        <button type="button" className="ghost" onClick={() => setShowTimingIssues(false)}>Close</button>
+                      </div>
+                      <div className="submission-modal-content">
+                        {timingIssuesFetching ? (
+                          <p style={{color:'var(--muted)'}}>Fetching photo times…</p>
+                        ) : (() => {
+                          const FIVE_MIN = 5 * 60 * 1000
+                          const issues = submissions.filter((s) => {
+                            const submittedMs = s.submittedAt?.seconds
+                              ? s.submittedAt.seconds * 1000
+                              : s.submittedAt instanceof Date ? s.submittedAt.getTime() : null
+                            const photoMs = submissionLastPhotoMeta[s.id]?.ms
+                            if (!submittedMs || !photoMs) return false
+                            return Math.abs(submittedMs - photoMs) > FIVE_MIN
+                          })
+                          if (issues.length === 0) return <p>No timing issues found.</p>
+                          return (
+                            <table className="submissions-table timing-issues-table">
+                              <thead>
+                                <tr>
+                                  <th>Name</th>
+                                  <th>Submitted</th>
+                                  <th>Last photo</th>
+                                  <th>Diff</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {issues.map((s) => {
+                                  const submittedMs = s.submittedAt?.seconds
+                                    ? s.submittedAt.seconds * 1000
+                                    : s.submittedAt instanceof Date ? s.submittedAt.getTime() : 0
+                                  const photoMs = submissionLastPhotoMeta[s.id]?.ms || 0
+                                  const diffMin = Math.round(Math.abs(submittedMs - photoMs) / 60000)
+                                  const fmtOpts = { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }
+                                  return (
+                                    <tr key={s.id}>
+                                      <td>
+                                        <div>{getSubmissionName(s.answers, formData.questions) || '—'}</div>
+                                        <small style={{color:'var(--muted)'}}>{getSubmissionLocation(s.answers, formData.questions)}</small>
+                                      </td>
+                                      <td>{new Date(submittedMs).toLocaleString('en-GB', fmtOpts)}</td>
+                                      <td>{submissionLastPhotoMeta[s.id]?.display || '—'}</td>
+                                      <td><strong>{diffMin} min</strong></td>
+                                    </tr>
+                                  )
+                                })}
+                              </tbody>
+                            </table>
+                          )
+                        })()}
+                      </div>
+                    </div>
                   </div>
                 ) : null}
                 {!loadingSubmissions && submissions.length === 0 ? (
@@ -8980,6 +9221,7 @@ function FormPage() {
                       <thead>
                         <tr>
                           <th>Submitted</th>
+                          <th>Last photo taken</th>
                           <th>Location</th>
                           <th>Name</th>
                           <th>Receipt</th>
@@ -9004,6 +9246,30 @@ function FormPage() {
                                     getSubmissionDayKey(submission.submittedAt),
                                   )}
                                 </small>
+                              </td>
+                              <td>
+                                {(() => {
+                                  const meta = submissionLastPhotoMeta[submission.id]
+                                  if (meta?.ms) {
+                                    const submittedMs = submission.submittedAt?.seconds
+                                      ? submission.submittedAt.seconds * 1000
+                                      : submission.submittedAt instanceof Date ? submission.submittedAt.getTime() : null
+                                    const isLate = submittedMs && Math.abs(submittedMs - meta.ms) > 5 * 60 * 1000
+                                    const d = new Date(meta.ms)
+                                    const time = d.toLocaleString('en-GB', { hour: '2-digit', minute: '2-digit' })
+                                    const date = d.toLocaleDateString('nb-NO')
+                                    return (
+                                      <span style={isLate ? { color: 'var(--accent)', fontWeight: 700 } : undefined}>
+                                        {time}<br /><small>{date}</small>
+                                      </span>
+                                    )
+                                  }
+                                  if (meta === null) return <span style={{color:'var(--muted)'}}>—</span>
+                                  const hasPaths = Object.values(submission.answers || {}).some((v) => isStorageImagePath(v))
+                                  return hasPaths
+                                    ? <span style={{color:'var(--muted)'}}>…</span>
+                                    : <span style={{color:'var(--muted)'}}>—</span>
+                                })()}
                               </td>
                               <td>{getSubmissionLocation(submission.answers, formData.questions)}</td>
                               <td>{getSubmissionName(submission.answers, formData.questions)}</td>
@@ -9642,20 +9908,6 @@ function FormPage() {
                         Back to submissions
                       </button>
                     </form>
-                    {selectedSubmission ? (
-                      <button
-                        type="button"
-                        className="cta"
-                        onClick={onOpenReviewPreview}
-                        disabled={
-                          reviewSubmissionState.saving ||
-                          selectedSubmissionAnswerEntries.length === 0 ||
-                          hasPendingReviewDecisions
-                        }
-                      >
-                        Set as reviewed
-                      </button>
-                    ) : null}
                   </div>
                 </div>
 
@@ -9767,11 +10019,13 @@ function FormPage() {
                                       loading="lazy"
                                     />
                                   ) : null}
-                                  {selectedSubmission.answers?.[answerKey + IMAGE_CAPTURED_AT_SUFFIX] ? (
-                                    <p className="review-answer-captured-at">
-                                      📷 {selectedSubmission.answers[answerKey + IMAGE_CAPTURED_AT_SUFFIX]}
-                                    </p>
-                                  ) : null}
+                                  <p className="review-answer-captured-at">
+                                    {
+                                      selectedSubmission.answers?.[answerKey + IMAGE_CAPTURED_AT_SUFFIX] ||
+                                      (selectedSubmissionImageMeta[value] ? `Uploaded ${selectedSubmissionImageMeta[value]}` : null) ||
+                                      'Time not available'
+                                    }
+                                  </p>
                                   {reviewImage.imageUrl ? (
                                     <p className="review-answer-value review-answer-file-link">
                                       <a
@@ -9933,6 +10187,96 @@ function FormPage() {
                     </div>
                   </>
                 ) : null}
+
+                {selectedSubmission && lastReviewCameraQuestion ? (
+                  <div className="review-planday-check">
+                    <p className="review-planday-check-question">
+                      Is the door lock photo time within 5 minutes of the employee&apos;s Planday check-out time?
+                      {(() => {
+                        const path = selectedSubmission.answers?.[lastReviewCameraQuestion.id]
+                        const capturedAt = selectedSubmission.answers?.[lastReviewCameraQuestion.id + IMAGE_CAPTURED_AT_SUFFIX]
+                        const uploadedAt = path ? selectedSubmissionImageMeta[path] : null
+                        const time = capturedAt || (uploadedAt ? `uploaded ${uploadedAt}` : null)
+                        return time ? <span className="review-planday-check-time"> ({time})</span> : ''
+                      })()}
+                    </p>
+                    <div className="review-planday-check-buttons">
+                      <button
+                        type="button"
+                        className={`review-status-button is-approve is-text ${plandayTimeConfirmed === true ? 'is-active' : ''}`}
+                        onClick={() => onPlandayTimeCheck(true)}
+                      >
+                        Yes
+                      </button>
+                      <button
+                        type="button"
+                        className={`review-status-button is-flag is-text ${plandayTimeConfirmed === false ? 'is-active' : ''}`}
+                        onClick={() => onPlandayTimeCheck(false)}
+                      >
+                        No
+                      </button>
+                    </div>
+                    {plandayTimeConfirmed === null && (
+                      <p className="review-planday-check-hint">Please answer before completing the review.</p>
+                    )}
+                    {plandayTimeConfirmed === false && (
+                      <p className="review-planday-check-flagged">Marked as flagged — time difference exceeds 5 minutes.</p>
+                    )}
+                  </div>
+                ) : null}
+
+                {selectedSubmission ? (
+                  <div className="review-general-feedback">
+                    {!reviewRejected ? (
+                      <label className="review-general-feedback-label">
+                        <span>General feedback to employee <span className="review-general-feedback-optional">(optional)</span></span>
+                        <textarea
+                          className="review-general-feedback-textarea"
+                          rows={3}
+                          value={reviewGeneralFeedback}
+                          onChange={(e) => setReviewGeneralFeedback(e.target.value)}
+                          placeholder="Write overall feedback shown at the top of the email…"
+                        />
+                      </label>
+                    ) : null}
+
+                    <label className="review-reject-label">
+                      <input
+                        type="checkbox"
+                        checked={reviewRejected}
+                        onChange={(e) => setReviewRejected(e.target.checked)}
+                      />
+                      <span>Reject this closing form</span>
+                    </label>
+                    {reviewRejected ? (
+                      <label className="review-general-feedback-label">
+                        <span>Rejection reason <span className="review-general-feedback-required">*</span></span>
+                        <textarea
+                          className="review-general-feedback-textarea"
+                          rows={3}
+                          value={reviewRejectionComment}
+                          onChange={(e) => setReviewRejectionComment(e.target.value)}
+                          placeholder="Explain why the form is being rejected…"
+                        />
+                      </label>
+                    ) : null}
+
+                    <div className="review-general-feedback-actions">
+                      <button
+                        type="button"
+                        className="cta"
+                        onClick={onOpenReviewPreview}
+                        disabled={
+                          reviewSubmissionState.saving ||
+                          selectedSubmissionAnswerEntries.length === 0 ||
+                          hasPendingReviewDecisions
+                        }
+                      >
+                        Set as reviewed
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : null}
         </section>
@@ -9993,19 +10337,35 @@ function FormPage() {
               </div>
 
               <div className="email-preview-body">
-                <h2 className="email-preview-title">Stengeskjemaet ditt har blitt gjennomgått</h2>
+                <h2 className="email-preview-title">
+                  {reviewEmailPreviewData.rejected ? 'Stengeskjemaet ditt ble avvist' : 'Stengeskjemaet ditt har blitt gjennomgått'}
+                </h2>
 
-                <div className="email-preview-count-bar">
-                  <span className="email-preview-count is-happy">
-                    <FaceHappy size={24} /> {reviewEmailPreviewData.reviewScoreSummary.happy}
-                  </span>
-                  <span className="email-preview-count is-neutral">
-                    <FaceNeutral size={24} /> {reviewEmailPreviewData.reviewScoreSummary.neutral}
-                  </span>
-                  <span className="email-preview-count is-sad">
-                    <FaceSad size={24} /> {reviewEmailPreviewData.reviewScoreSummary.sad}
-                  </span>
-                </div>
+                {reviewEmailPreviewData.rejected ? (
+                  <div className="email-preview-rejection">
+                    <strong>Avvist:</strong> {reviewEmailPreviewData.rejectionComment}
+                  </div>
+                ) : null}
+
+                {!reviewEmailPreviewData.rejected && reviewEmailPreviewData.generalFeedback ? (
+                  <div className="email-preview-general-feedback">
+                    {reviewEmailPreviewData.generalFeedback}
+                  </div>
+                ) : null}
+
+                {!reviewEmailPreviewData.rejected ? (
+                  <div className="email-preview-count-bar">
+                    <span className="email-preview-count is-happy">
+                      <FaceHappy size={24} /> {reviewEmailPreviewData.reviewScoreSummary.happy}
+                    </span>
+                    <span className="email-preview-count is-neutral">
+                      <FaceNeutral size={24} /> {reviewEmailPreviewData.reviewScoreSummary.neutral}
+                    </span>
+                    <span className="email-preview-count is-sad">
+                      <FaceSad size={24} /> {reviewEmailPreviewData.reviewScoreSummary.sad}
+                    </span>
+                  </div>
+                ) : null}
                 {reviewEmailPreviewData.reviewedBy ? (
                   <p className="email-preview-reviewer">
                     {(() => { const n = reviewEmailPreviewData.reviewedBy.replace(/@.*/, ''); return `Vurdert av: ${n.charAt(0).toUpperCase()}${n.slice(1)}`; })()}

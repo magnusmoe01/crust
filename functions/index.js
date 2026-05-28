@@ -549,7 +549,7 @@ function formatNorwegianDate(seconds) {
 
 const EMAIL_ITEM_LIMIT = 20;
 
-function buildReviewEmailHtml(formTitle, flaggedAnswers, approvedAnswers, reviewScoreSummary, submittedAtSeconds, reviewUrl, reviewedBy, isTest) {
+function buildReviewEmailHtml(formTitle, flaggedAnswers, approvedAnswers, reviewScoreSummary, submittedAtSeconds, reviewUrl, reviewedBy, isTest, { generalFeedback, rejected, rejectionComment } = {}) {
   const allFlags = Array.isArray(flaggedAnswers)  ? flaggedAnswers  : [];
   const approved = Array.isArray(approvedAnswers) ? approvedAnswers : [];
 
@@ -649,12 +649,34 @@ function buildReviewEmailHtml(formTitle, flaggedAnswers, approvedAnswers, review
       <a href="${reviewUrl}" style="display:inline-block;padding:12px 24px;background:#1f2937;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700;font-size:14px;">Se full gjennomgang</a>
     </div>` : "";
 
+  const generalFeedbackBlock = generalFeedback
+    ? `<div style="margin:0 0 20px;padding:14px 18px;background:#f0f4ff;border-left:4px solid #3b82f6;border-radius:0 8px 8px 0;">
+         <p style="margin:0;font-size:14px;color:#1e3a5f;line-height:1.6;">${generalFeedback}</p>
+       </div>`
+    : "";
+
+  if (rejected) {
+    return `
+      <html>
+        <body style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#1f2937">
+          <h2 style="margin:0 0 10px;color:#b91c1c;">Stengeskjemaet ditt ble avvist</h2>
+          ${intro}
+          ${reviewerLabel ? `<p style="margin:0 0 16px;font-size:13px;color:#6b7280;">Vurdert av: <strong style="color:#1f2937;">${reviewerLabel}</strong></p>` : ""}
+          <div style="margin:0 0 24px;padding:14px 18px;background:#fef2f2;border-left:4px solid #dc2626;border-radius:0 8px 8px 0;">
+            <p style="margin:0;font-size:14px;color:#7f1d1d;line-height:1.6;"><strong>Årsak:</strong> ${rejectionComment || ""}</p>
+          </div>
+          <p style="margin-top:36px;color:#6b7280;font-size:13px">— Crust</p>
+        </body>
+      </html>`;
+  }
+
   return `
     <html>
       <body style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#1f2937">
         <h2 style="margin:0 0 10px">Stengeskjemaet ditt har blitt gjennomgått</h2>
         ${intro}
         ${countBar}
+        ${generalFeedbackBlock}
         ${flaggedSection}
         ${approvedSection}
         ${moreButton}
@@ -674,7 +696,7 @@ exports.sendReviewEmail = onCall(
       throw new HttpsError("permission-denied", "Admin access required");
     }
 
-    const { submitterEmail, formTitle, flaggedAnswers, approvedAnswers, reviewScoreSummary, submittedAtSeconds, reviewUrl, testRecipient } = data || {};
+    const { submitterEmail, formTitle, flaggedAnswers, approvedAnswers, reviewScoreSummary, submittedAtSeconds, reviewUrl, testRecipient, generalFeedback, rejected, rejectionComment } = data || {};
     if (!submitterEmail) {
       throw new HttpsError("invalid-argument", "submitterEmail is required");
     }
@@ -684,9 +706,9 @@ exports.sendReviewEmail = onCall(
 
     const hasFlags = Array.isArray(flaggedAnswers) && flaggedAnswers.length > 0;
     const isTest   = Boolean(testRecipient);
-    const subject  = isTest
-      ? `[TEST] Ditt stengeskjema har blitt vurdert`
-      : `Ditt stengeskjema har blitt vurdert`;
+    const subject  = rejected
+      ? (isTest ? `[TEST] Stengeskjemaet ditt ble avvist` : `Stengeskjemaet ditt ble avvist`)
+      : (isTest ? `[TEST] Ditt stengeskjema har blitt vurdert` : `Ditt stengeskjema har blitt vurdert`);
 
     const toRecipients = isTest
       ? [{ emailAddress: { address: testRecipient } }]
@@ -702,7 +724,7 @@ exports.sendReviewEmail = onCall(
       subject,
       body: {
         contentType: "HTML",
-        content:     buildReviewEmailHtml(formTitle, flaggedAnswers, approvedAnswers, reviewScoreSummary, submittedAtSeconds, reviewUrl, data.reviewedBy, isTest),
+        content:     buildReviewEmailHtml(formTitle, flaggedAnswers, approvedAnswers, reviewScoreSummary, submittedAtSeconds, reviewUrl, data.reviewedBy, isTest, { generalFeedback, rejected, rejectionComment }),
       },
       toRecipients,
       ...(ccRecipients.length ? { ccRecipients } : {}),
@@ -1188,7 +1210,7 @@ exports.scheduledFeedbackSms = onSchedule(
 
 const AZURE_SECRETS_INVENTORY = ["AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_TENANT_ID"];
 const SELECT_OPTION_HISTORY_CATEGORIES = ["normal", "orange", "red"];
-const INVENTORY_EMAIL_RECIPIENTS = ["brandon@crust.no", "magnus@crust.no"];
+const INVENTORY_EMAIL_RECIPIENTS = ["magnus@crust.no"];
 
 function getSelectOptionHistoryCategory(question, selectedOption) {
   if (!selectedOption || question?.type !== "select") return "normal";
