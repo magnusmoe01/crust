@@ -718,6 +718,7 @@ function formatImageCapturedAtValue(date) {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
+    timeZone: 'Europe/Oslo',
   })
 }
 
@@ -1006,10 +1007,10 @@ function formatTime(timestamp) {
     return '-'
   }
   if (typeof timestamp.toDate === 'function') {
-    return timestamp.toDate().toLocaleString('nb-NO')
+    return timestamp.toDate().toLocaleString('nb-NO', { timeZone: 'Europe/Oslo' })
   }
   if (timestamp instanceof Date) {
-    return timestamp.toLocaleString('nb-NO')
+    return timestamp.toLocaleString('nb-NO', { timeZone: 'Europe/Oslo' })
   }
   return '-'
 }
@@ -1043,7 +1044,7 @@ function getDatePart(timestamp) {
   if (!date) {
     return '-'
   }
-  return date.toLocaleDateString('nb-NO')
+  return date.toLocaleDateString('nb-NO', { timeZone: 'Europe/Oslo' })
 }
 
 function getClockPart(timestamp) {
@@ -1051,7 +1052,7 @@ function getClockPart(timestamp) {
   if (!date) {
     return '-'
   }
-  return date.toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' })
+  return date.toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Oslo' })
 }
 
 function getSubmissionDayKey(timestamp) {
@@ -1062,11 +1063,8 @@ function getSubmissionDayKey(timestamp) {
   if (!(date instanceof Date)) {
     return ''
   }
-
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
+  // Use Oslo timezone so the day key is always correct regardless of viewer's locale
+  return date.toLocaleDateString('sv', { timeZone: 'Europe/Oslo' }) // gives "YYYY-MM-DD"
 }
 
 function getSubmissionMonthKey(timestamp) {
@@ -1078,9 +1076,8 @@ function getSubmissionMonthKey(timestamp) {
     return ''
   }
 
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  return `${year}-${month}`
+  const yyyyMM = date.toLocaleDateString('sv', { timeZone: 'Europe/Oslo' }).slice(0, 7) // "YYYY-MM"
+  return yyyyMM
 }
 
 function getTimestampSeconds(timestamp) {
@@ -3113,6 +3110,7 @@ function FormPage() {
           const formatted = d.toLocaleString('en-GB', {
             year: 'numeric', month: '2-digit', day: '2-digit',
             hour: '2-digit', minute: '2-digit', second: '2-digit',
+            timeZone: 'Europe/Oslo',
           })
           return [path, formatted]
         } catch {
@@ -3828,10 +3826,11 @@ function FormPage() {
 
       if (formData.includeSubmissionDateTime) {
         const submittedNow = new Date()
-        submissionAnswers[SUBMISSION_DATE_KEY] = submittedNow.toLocaleDateString('nb-NO')
+        submissionAnswers[SUBMISSION_DATE_KEY] = submittedNow.toLocaleDateString('nb-NO', { timeZone: 'Europe/Oslo' })
         submissionAnswers[SUBMISSION_TIME_KEY] = submittedNow.toLocaleTimeString('nb-NO', {
           hour: '2-digit',
           minute: '2-digit',
+          timeZone: 'Europe/Oslo',
         })
       }
 
@@ -6577,6 +6576,7 @@ function FormPage() {
               display: new Date(latestMs).toLocaleString('en-GB', {
                 day: '2-digit', month: 'short',
                 hour: '2-digit', minute: '2-digit',
+                timeZone: 'Europe/Oslo',
               }),
             }
           : null
@@ -8112,7 +8112,7 @@ function FormPage() {
                     <p>
                       <strong>{publicCopy.submittedLabel}:</strong>{' '}
                       {receiptSubmission.submittedAtIso
-                        ? new Date(receiptSubmission.submittedAtIso).toLocaleString('nb-NO')
+                        ? new Date(receiptSubmission.submittedAtIso).toLocaleString('nb-NO', { timeZone: 'Europe/Oslo' })
                         : '-'}
                     </p>
                     {receiptToken ? (
@@ -9188,7 +9188,7 @@ function FormPage() {
                                     : s.submittedAt instanceof Date ? s.submittedAt.getTime() : 0
                                   const photoMs = submissionLastPhotoMeta[s.id]?.ms || 0
                                   const diffMin = Math.round(Math.abs(submittedMs - photoMs) / 60000)
-                                  const fmtOpts = { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }
+                                  const fmtOpts = { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Oslo' }
                                   return (
                                     <tr key={s.id}>
                                       <td>
@@ -9256,8 +9256,8 @@ function FormPage() {
                                       : submission.submittedAt instanceof Date ? submission.submittedAt.getTime() : null
                                     const isLate = submittedMs && Math.abs(submittedMs - meta.ms) > 5 * 60 * 1000
                                     const d = new Date(meta.ms)
-                                    const time = d.toLocaleString('en-GB', { hour: '2-digit', minute: '2-digit' })
-                                    const date = d.toLocaleDateString('nb-NO')
+                                    const time = d.toLocaleString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Oslo' })
+                                    const date = d.toLocaleDateString('nb-NO', { timeZone: 'Europe/Oslo' })
                                     return (
                                       <span style={isLate ? { color: 'var(--accent)', fontWeight: 700 } : undefined}>
                                         {time}<br /><small>{date}</small>
