@@ -1266,7 +1266,7 @@ async function buildInventoryAlertData() {
 
   // Build alert data per location — only for locations active on /analyse
   const result = [];
-  for (const [location, submission] of Array.from(latestByLocation.entries()).sort((a, b) => a[0].localeCompare(b[0], "nb"))) {
+  for (const [location, submission] of latestByLocation.entries()) {
     if (!activeLocationNames.has(location)) continue;
     const redItems = [];
     const orangeItems = [];
@@ -1294,6 +1294,9 @@ async function buildInventoryAlertData() {
       result.push({ location, items: [...redItems, ...orangeItems], submittedAtSeconds });
     }
   }
+
+  // Sort by most recently submitted first; locations without a timestamp go last
+  result.sort((a, b) => (b.submittedAtSeconds || 0) - (a.submittedAtSeconds || 0));
 
   return result;
 }
@@ -1332,7 +1335,7 @@ function buildInventoryAlertEmailHtml(alertData, dateStr) {
       <div style="margin-bottom:28px;">
         <div style="display:flex;align-items:baseline;gap:10px;border-bottom:1px solid #e5e7eb;padding-bottom:6px;margin-bottom:10px;">
           <h3 style="margin:0;font-size:1rem;color:#374151;">📍 ${location}</h3>
-          ${submittedLabel ? `<span style="font-size:0.78rem;color:#9ca3af;">Siste skjema: ${submittedLabel}</span>` : ""}
+          ${submittedLabel ? `<span style="font-size:0.78rem;color:#9ca3af;">Siste skjema: <strong style="color:#374151;">${submittedLabel}</strong></span>` : ""}
         </div>
         ${rows}
       </div>`;

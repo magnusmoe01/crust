@@ -2033,6 +2033,7 @@ function FormPage() {
   const [reviewEmailOverride, setReviewEmailOverride] = useState('')
   const [reviewEmailSaving, setReviewEmailSaving] = useState(false)
   const [testEmailState, setTestEmailState] = useState({ sending: false, error: '', message: '' })
+  const [testEmailRecipient, setTestEmailRecipient] = useState('')
   const [inventoryAlertState, setInventoryAlertState] = useState({ sending: false, error: '', message: '' })
   const [inventoryTestState, setInventoryTestState] = useState({ sending: false, error: '', message: '' })
   const [historySubmissionLimit, setHistorySubmissionLimit] = useState('3')
@@ -4927,10 +4928,11 @@ function FormPage() {
   }
 
   async function onSendTestInventoryAlert() {
+    const recipient = testEmailRecipient.trim() || 'magnus@crust.no'
     setInventoryTestState({ sending: true, error: '', message: '' })
     try {
-      await httpsCallable(functions, 'sendInventoryAlertEmail')({ testRecipient: 'magnus@crust.no' })
-      setInventoryTestState({ sending: false, error: '', message: 'Test sendt til magnus@crust.no!' })
+      await httpsCallable(functions, 'sendInventoryAlertEmail')({ testRecipient: recipient })
+      setInventoryTestState({ sending: false, error: '', message: `Test sendt til ${recipient}!` })
       setTimeout(() => setInventoryTestState((s) => ({ ...s, message: '' })), 4000)
     } catch (error) {
       setInventoryTestState({ sending: false, error: `Feil: ${error.message}`, message: '' })
@@ -5010,6 +5012,7 @@ function FormPage() {
         }),
       ).then((results) => results.filter(Boolean))
 
+      const recipient = testEmailRecipient.trim() || 'magnus@crust.no'
       await httpsCallable(functions, 'sendReviewEmail')({
         submitterEmail: latestFlagged.submitterEmail || 'test@crust.no',
         formTitle: formData.title || activeFormSlug,
@@ -5018,10 +5021,10 @@ function FormPage() {
         reviewScoreSummary: latestFlagged.reviewScoreSummary || { happy: 0, neutral: 0, sad: 0 },
         submittedAtSeconds: latestFlagged.submittedAt?.seconds || null,
         reviewUrl: `https://crust.no/skjema/${activeFormSlug}/review/${latestFlagged.id}`,
-        testRecipient: 'magnus@crust.no',
+        testRecipient: recipient,
       })
 
-      setTestEmailState({ sending: false, error: '', message: 'Test email sent to magnus@crust.no' })
+      setTestEmailState({ sending: false, error: '', message: `Test email sent to ${recipient}` })
     } catch (error) {
       setTestEmailState({ sending: false, error: `Failed to send: ${error.message}`, message: '' })
     }
@@ -5034,6 +5037,7 @@ function FormPage() {
         .filter((s) => s.submittedAt)
         .sort((a, b) => (b.submittedAt?.seconds || 0) - (a.submittedAt?.seconds || 0))[0]
 
+      const recipient = testEmailRecipient.trim() || 'magnus@crust.no'
       await httpsCallable(functions, 'sendReviewEmail')({
         submitterEmail: latestSubmission?.submitterEmail || 'test@crust.no',
         formTitle: formData.title || activeFormSlug,
@@ -5045,9 +5049,9 @@ function FormPage() {
         reviewedBy: user?.email || null,
         rejected: true,
         rejectionComment: 'Dette er en test av avvisnings-e-post. Stengeskjemaet ble ikke godkjent.',
-        testRecipient: 'magnus@crust.no',
+        testRecipient: recipient,
       })
-      setTestEmailState({ sending: false, error: '', message: 'Test rejection email sent to magnus@crust.no' })
+      setTestEmailState({ sending: false, error: '', message: `Test rejection email sent to ${recipient}` })
     } catch (error) {
       setTestEmailState({ sending: false, error: `Failed to send: ${error.message}`, message: '' })
     }
@@ -9057,6 +9061,13 @@ function FormPage() {
                 <div className="submissions-section-header">
                   <h3>Submissions</h3>
                   <div className="submissions-section-actions">
+                    <input
+                      type="email"
+                      className="submissions-test-email-input"
+                      value={testEmailRecipient}
+                      onChange={(e) => setTestEmailRecipient(e.target.value)}
+                      placeholder="test@epost.no"
+                    />
                     <button
                       type="button"
                       className="submissions-action-button"
@@ -9491,7 +9502,7 @@ function FormPage() {
                         className="ghost"
                         onClick={onSendTestInventoryAlert}
                         disabled={inventoryTestState.sending}
-                        title="Send test-epost til magnus@crust.no"
+                        title={`Send test-epost til ${testEmailRecipient.trim() || 'magnus@crust.no'}`}
                       >
                         {inventoryTestState.sending ? 'Sender...' : '✉ Send test-epost'}
                       </button>

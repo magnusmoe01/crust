@@ -1023,6 +1023,24 @@
   cursor: not-allowed;
 }
 
+.submissions-test-email-input {
+  appearance: none;
+  padding: 7px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(19, 38, 53, 0.22);
+  background: rgba(255, 255, 255, 0.82);
+  color: #163042;
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1.2;
+  min-width: 180px;
+}
+
+.submissions-test-email-input:focus {
+  outline: 2px solid rgba(19, 38, 53, 0.4);
+  outline-offset: 1px;
+}
+
 .test-email-feedback {
   font-size: 13px;
 }
