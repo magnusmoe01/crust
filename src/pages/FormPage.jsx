@@ -4632,7 +4632,7 @@ function FormPage() {
   const selectedSubmissionAnswerEntries = selectedSubmission
     ? getOrderedAnswerEntries(selectedSubmission.answers || {}, reviewQuestions, {
         includeRemainingAnswers: false,
-      })
+      }).filter(([answerKey]) => !answerKey.endsWith(IMAGE_CAPTURED_AT_SUFFIX))
     : []
   const hasPendingReviewDecisions = selectedSubmissionAnswerEntries.some(
     ([answerKey]) => !String(reviewDraftStatuses[answerKey] || '').trim(),
@@ -4704,11 +4704,6 @@ function FormPage() {
 
     if (hasPendingDecisions) {
       alert('Select a rating for each question before marking the submission as reviewed.')
-      return
-    }
-
-    if (lastReviewCameraQuestion && plandayTimeConfirmed === null) {
-      alert('Please confirm whether the door lock photo time is within 5 minutes of the Planday check-out time.')
       return
     }
 
@@ -4966,25 +4961,34 @@ function FormPage() {
       const flaggedKeys = new Set((latestFlagged.flaggedAnswers || []).map((a) => a.answerKey))
 
       const flaggedAnswers = await Promise.all(
-        (latestFlagged.flaggedAnswers || []).map(async (item) => {
-          if (item.imageUrl) return item
-          if (isStorageImagePath(item.value)) {
-            try {
-              const imageUrl = await getDownloadURL(ref(storage, item.value))
-              return { ...item, imageUrl }
-            } catch {
-              return item
+        (latestFlagged.flaggedAnswers || [])
+          .filter((item) => {
+            const q = getQuestionForAnswerKey(item.answerKey, formData.questions)
+            return (q?.reviewType || 'rating') === 'rating'
+          })
+          .map(async (item) => {
+            if (item.imageUrl) return item
+            if (isStorageImagePath(item.value)) {
+              try {
+                const imageUrl = await getDownloadURL(ref(storage, item.value))
+                return { ...item, imageUrl }
+              } catch {
+                return item
+              }
             }
-          }
-          return item
-        }),
+            return item
+          }),
       )
 
       const approvedEntries = getOrderedAnswerEntries(
         latestFlagged.answers || {},
         reviewQuestions,
         { includeRemainingAnswers: false },
-      ).filter(([answerKey]) => !flaggedKeys.has(answerKey))
+      ).filter(([answerKey]) => {
+        if (flaggedKeys.has(answerKey)) return false
+        const q = getQuestionForAnswerKey(answerKey, formData.questions)
+        return (q?.reviewType || 'rating') === 'rating'
+      })
 
       const approvedAnswers = await Promise.all(
         approvedEntries.map(async ([answerKey, value]) => {
@@ -10019,13 +10023,6 @@ function FormPage() {
                                       loading="lazy"
                                     />
                                   ) : null}
-                                  <p className="review-answer-captured-at">
-                                    {
-                                      selectedSubmission.answers?.[answerKey + IMAGE_CAPTURED_AT_SUFFIX] ||
-                                      (selectedSubmissionImageMeta[value] ? `Uploaded ${selectedSubmissionImageMeta[value]}` : null) ||
-                                      'Time not available'
-                                    }
-                                  </p>
                                   {reviewImage.imageUrl ? (
                                     <p className="review-answer-value review-answer-file-link">
                                       <a
@@ -10188,42 +10185,6 @@ function FormPage() {
                   </>
                 ) : null}
 
-                {selectedSubmission && lastReviewCameraQuestion ? (
-                  <div className="review-planday-check">
-                    <p className="review-planday-check-question">
-                      Is the door lock photo time within 5 minutes of the employee&apos;s Planday check-out time?
-                      {(() => {
-                        const path = selectedSubmission.answers?.[lastReviewCameraQuestion.id]
-                        const capturedAt = selectedSubmission.answers?.[lastReviewCameraQuestion.id + IMAGE_CAPTURED_AT_SUFFIX]
-                        const uploadedAt = path ? selectedSubmissionImageMeta[path] : null
-                        const time = capturedAt || (uploadedAt ? `uploaded ${uploadedAt}` : null)
-                        return time ? <span className="review-planday-check-time"> ({time})</span> : ''
-                      })()}
-                    </p>
-                    <div className="review-planday-check-buttons">
-                      <button
-                        type="button"
-                        className={`review-status-button is-approve is-text ${plandayTimeConfirmed === true ? 'is-active' : ''}`}
-                        onClick={() => onPlandayTimeCheck(true)}
-                      >
-                        Yes
-                      </button>
-                      <button
-                        type="button"
-                        className={`review-status-button is-flag is-text ${plandayTimeConfirmed === false ? 'is-active' : ''}`}
-                        onClick={() => onPlandayTimeCheck(false)}
-                      >
-                        No
-                      </button>
-                    </div>
-                    {plandayTimeConfirmed === null && (
-                      <p className="review-planday-check-hint">Please answer before completing the review.</p>
-                    )}
-                    {plandayTimeConfirmed === false && (
-                      <p className="review-planday-check-flagged">Marked as flagged — time difference exceeds 5 minutes.</p>
-                    )}
-                  </div>
-                ) : null}
 
                 {selectedSubmission ? (
                   <div className="review-general-feedback">
