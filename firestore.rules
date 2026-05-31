@@ -112,5 +112,9 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    match /inventoryUpdates/{docId} {
+      allow read, write: if isCrustUser();
+    }
+
   }
 }

@@ -384,6 +384,7 @@ function App() {
         />
 
         <Route path="/sales" element={withPageLoader(<Sales />)} />
+        <Route path="/varebeholdning" element={withPageLoader(<RoutedFormPage />)} />
         <Route path="/skjema" element={withPageLoader(<Forms />)} />
         <Route
           path="/skjema/:formSlug/kvittering/:receiptToken"

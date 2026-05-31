@@ -1097,6 +1097,43 @@
   font-weight: 400;
 }
 
+.reviewed-monthly-missing {
+  color: #b45309;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.reviewed-monthly-ready {
+  color: #166534;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.phone-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.phone-edit-input {
+  width: 120px;
+  padding: 2px 6px;
+  font-size: 0.85rem;
+  border: 1px solid rgba(24, 44, 60, 0.3);
+  border-radius: 4px;
+}
+
+.phone-edit-trigger {
+  opacity: 0.4;
+  font-size: 0.8rem;
+  padding: 2px 4px;
+}
+
+.phone-edit-trigger:hover {
+  opacity: 1;
+}
+
 .reviewed-monthly-past-popup {
   margin-top: 6px;
   border: 1px solid rgba(24, 44, 60, 0.14);
@@ -1370,6 +1407,10 @@
   background: #fffbeb;
   border-color: #d97706;
 }
+.inventory-alert-item.is-updated {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
 .inventory-alert-item-label {
   font-size: 0.82rem;
   font-weight: 600;
@@ -1380,6 +1421,119 @@
   color: #6b7280;
   white-space: nowrap;
   flex-shrink: 0;
+}
+.inventory-alert-item.is-updated .inventory-alert-item-value {
+  color: #2563eb;
+  font-weight: 600;
+}
+
+/* ── Inventory update button ──────────────────────────────────────── */
+
+.inventory-update-top-bar {
+  padding: 6px 0 2px;
+}
+
+.inventory-update-btn {
+  align-self: flex-start;
+  font-size: 0.88rem;
+}
+
+/* ── Inventory update modal ───────────────────────────────────────── */
+
+.inventory-update-modal {
+  width: min(520px, 100%);
+}
+
+.inventory-update-steps {
+  display: grid;
+  gap: 16px;
+}
+
+.inventory-update-questions {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.inventory-update-row {
+  gap: 4px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(24, 44, 60, 0.08);
+}
+
+.inventory-update-row:last-child {
+  border-bottom: none;
+}
+
+.inventory-update-question-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.inventory-update-current {
+  color: #d97706;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.inventory-updated-value {
+  color: #2563eb;
+  font-weight: 600;
+}
+
+/* ── Blue inventory update value in history table ─────────────────── */
+
+.history-cell-inventory-update {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 8px;
+  font-weight: 700;
+  color: #2563eb;
+}
+
+.history-row-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.history-row-order-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+tr:hover .history-row-order-btns {
+  opacity: 1;
+}
+
+.history-row-order-btn {
+  font-size: 0.6rem;
+  padding: 0 3px;
+  line-height: 1.4;
+  min-width: 0;
+}
+
+.history-row-order-btn:disabled {
+  opacity: 0.2;
+}
+
+.history-cell-edit-btn {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.75rem;
+  padding: 1px 4px;
+  opacity: 0.25;
+  line-height: 1;
+}
+
+.history-cell:hover .history-cell-edit-btn,
+.history-cell-edit-btn:focus {
+  opacity: 1;
 }
 
 .history-days-field.history-days-inline {
@@ -2808,6 +2962,24 @@
 }
 
 .review-reject-label input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: #182c3c;
+  cursor: pointer;
+}
+
+.review-send-email-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #182c3c;
+  cursor: pointer;
+  margin-bottom: 4px;
+}
+
+.review-send-email-label input[type="checkbox"] {
   width: 14px;
   height: 14px;
   accent-color: #182c3c;

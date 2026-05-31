@@ -1940,7 +1940,8 @@ function FormPage() {
   const isRemarksView = location.pathname.endsWith('/remarks')
   const isRatingView = location.pathname.endsWith('/rating')
   const isHistoryView =
-    location.pathname.endsWith('/analyse') || location.pathname.endsWith('/historikk')
+    location.pathname.endsWith('/analyse') || location.pathname.endsWith('/historikk') ||
+    location.pathname === '/varebeholdning'
   const isEditPage = location.pathname.endsWith('/edit')
   const isReceiptPage = location.pathname.includes('/kvittering/')
   const isAdminShellView =
@@ -2029,6 +2030,7 @@ function FormPage() {
   const [reviewGeneralFeedback, setReviewGeneralFeedback] = useState('')
   const [reviewRejected, setReviewRejected] = useState(false)
   const [reviewRejectionComment, setReviewRejectionComment] = useState('')
+  const [reviewSendEmail, setReviewSendEmail] = useState(true)
   const [reviewEmailPreviewData, setReviewEmailPreviewData] = useState(null)
   const [reviewEmailOverride, setReviewEmailOverride] = useState('')
   const [reviewEmailSaving, setReviewEmailSaving] = useState(false)
@@ -2045,9 +2047,21 @@ function FormPage() {
   const [historyQuestionFilterOpen, setHistoryQuestionFilterOpen] = useState(false)
   const [historyShowAllQuestions, setHistoryShowAllQuestions] = useState(true)
   const [selectedHistoryQuestionIds, setSelectedHistoryQuestionIds] = useState([])
+  const [analysisRowOrder, setAnalysisRowOrder] = useState([])
+  const [analysisRowOrderSaving, setAnalysisRowOrderSaving] = useState(false)
   const [historyLocationFilterOpen, setHistoryLocationFilterOpen] = useState(false)
   const [historyShowAllLocations, setHistoryShowAllLocations] = useState(true)
   const [selectedHistoryLocations, setSelectedHistoryLocations] = useState([])
+  const [editPhoneSubmissionId, setEditPhoneSubmissionId] = useState('')
+  const [editPhoneDraft, setEditPhoneDraft] = useState('')
+  const [editPhoneState, setEditPhoneState] = useState({ saving: false, error: '' })
+  const [inventoryUpdates, setInventoryUpdates] = useState({})
+  const [showInventoryModal, setShowInventoryModal] = useState(false)
+  const [inventoryModalLocation, setInventoryModalLocation] = useState('')
+  const [inventoryModalQuestionId, setInventoryModalQuestionId] = useState('')
+  const [inventoryModalAnswers, setInventoryModalAnswers] = useState({})
+  const [inventoryModalSaving, setInventoryModalSaving] = useState(false)
+  const [inventoryModalError, setInventoryModalError] = useState('')
   const [receiptSubmission, setReceiptSubmission] = useState(null)
   const [loadingReceipt, setLoadingReceipt] = useState(false)
   const [receiptError, setReceiptError] = useState('')
@@ -4618,6 +4632,29 @@ function FormPage() {
     }
   }
 
+  async function onSavePhoneEdit(submissionId) {
+    const phoneQuestion = formData.questions.find((q) => q.type === 'phone')
+    if (!phoneQuestion?.id) return
+    const newPhone = editPhoneDraft.trim()
+    setEditPhoneState({ saving: true, error: '' })
+    try {
+      await updateDoc(doc(db, 'formSubmissions', submissionId), {
+        [`answers.${phoneQuestion.id}`]: newPhone,
+      })
+      setSubmissions((prev) =>
+        prev.map((s) =>
+          s.id === submissionId
+            ? { ...s, answers: { ...s.answers, [phoneQuestion.id]: newPhone } }
+            : s,
+        ),
+      )
+      setEditPhoneSubmissionId('')
+      setEditPhoneState({ saving: false, error: '' })
+    } catch (err) {
+      setEditPhoneState({ saving: false, error: `Could not save: ${err.message}` })
+    }
+  }
+
   function onViewSubmission(submissionId) {
     setSelectedSubmissionId(submissionId)
   }
@@ -4699,7 +4736,7 @@ function FormPage() {
   function onOpenReviewPreview() {
     if (!selectedSubmission) return
 
-    const hasPendingDecisions = selectedSubmissionAnswerEntries.some(
+    const hasPendingDecisions = !reviewRejected && selectedSubmissionAnswerEntries.some(
       ([answerKey]) => !String(reviewDraftStatuses[answerKey] || '').trim(),
     )
 
@@ -4772,7 +4809,7 @@ function FormPage() {
       return
     }
 
-    const hasPendingDecisions = selectedSubmissionAnswerEntries.some(
+    const hasPendingDecisions = !reviewRejected && selectedSubmissionAnswerEntries.some(
       ([answerKey]) => !String(reviewDraftStatuses[answerKey] || '').trim(),
     )
 
@@ -4861,7 +4898,7 @@ function FormPage() {
           .catch(() => {})
       }
 
-      if (submitterEmail) {
+      if (reviewSendEmail && submitterEmail) {
         const emailFlaggedAnswers = flaggedAnswers.filter(({ answerKey }) => {
           const q = getQuestionForAnswerKey(answerKey, formData.questions)
           return (q?.reviewType || 'rating') === 'rating'
@@ -4936,6 +4973,43 @@ function FormPage() {
       setTimeout(() => setInventoryTestState((s) => ({ ...s, message: '' })), 4000)
     } catch (error) {
       setInventoryTestState({ sending: false, error: `Feil: ${error.message}`, message: '' })
+    }
+  }
+
+  async function onSaveInventoryUpdate() {
+    if (!inventoryModalLocation) return
+    const nonEmpty = Object.fromEntries(
+      Object.entries(inventoryModalAnswers).filter(([, v]) => String(v || '').trim()),
+    )
+    if (Object.keys(nonEmpty).length === 0) return
+    setInventoryModalSaving(true)
+    setInventoryModalError('')
+    try {
+      const existingAnswers = inventoryUpdates[inventoryModalLocation]?.answers || {}
+      const mergedAnswers = { ...existingAnswers, ...nonEmpty }
+      const docId = `${STENGESKJEMA_ID}:${inventoryModalLocation}`
+      await setDoc(doc(db, 'inventoryUpdates', docId), {
+        formSlug: STENGESKJEMA_ID,
+        location: inventoryModalLocation,
+        answers: mergedAnswers,
+        updatedAt: serverTimestamp(),
+        updatedBy: user?.email || 'admin',
+      })
+      setInventoryUpdates((prev) => ({
+        ...prev,
+        [inventoryModalLocation]: {
+          answers: mergedAnswers,
+          updatedAt: new Date(),
+          updatedBy: user?.email || 'admin',
+        },
+      }))
+      setShowInventoryModal(false)
+      setInventoryModalLocation('')
+      setInventoryModalAnswers({})
+    } catch (err) {
+      setInventoryModalError(`Kunne ikke lagre: ${err.message}`)
+    } finally {
+      setInventoryModalSaving(false)
     }
   }
 
@@ -6175,6 +6249,22 @@ function FormPage() {
     }
   }
 
+  async function onSaveAnalysisRowOrder(order) {
+    setAnalysisRowOrderSaving(true)
+    try {
+      await setDoc(
+        doc(db, 'forms', formDocId || activeFormSlug),
+        { slug: activeFormSlug, analysisQuestionOrder: order, updatedAt: serverTimestamp() },
+        { merge: true },
+      )
+      setFormData((prev) => ({ ...prev, analysisQuestionOrder: order }))
+    } catch {
+      // silent — order stays in local state even if save fails
+    } finally {
+      setAnalysisRowOrderSaving(false)
+    }
+  }
+
   function renderQuestionInput(question) {
     const value = answers[question.id] || ''
 
@@ -6625,6 +6715,19 @@ function FormPage() {
     return Array.from(statsByMonth.values()).sort((a, b) => b.monthKey.localeCompare(a.monthKey))
   }, [submissions])
 
+  const missingReviewsByDay = useMemo(() => {
+    const currentMonthKey = getSubmissionMonthKey(new Date())
+    const byDay = {}
+    submissions.forEach((s) => {
+      if (getSubmissionMonthKey(s.submittedAt) !== currentMonthKey) return
+      if (String(s.status || '').trim().toLowerCase() === 'reviewed') return
+      const dayKey = getSubmissionDayKey(s.submittedAt)
+      if (!dayKey) return
+      byDay[dayKey] = (byDay[dayKey] || 0) + 1
+    })
+    return Object.entries(byDay).sort(([a], [b]) => a.localeCompare(b))
+  }, [submissions])
+
   const userScoreboard = useMemo(() => {
     const reviewQuestionCount = formData.questions.filter(
       (q) => !isSectionQuestion(q) && Boolean(q.includeInReview) && (q.reviewType || 'rating') === 'rating',
@@ -6935,9 +7038,19 @@ function FormPage() {
       return accumulator
     }, [])
     .sort((a, b) => a.location.localeCompare(b.location, 'nb'))
-  const analysisQuestions = formData.questions.filter(
-    (question) => !isSectionQuestion(question) && Boolean(question.includeInAnalysis),
-  )
+  const analysisQuestions = useMemo(() => {
+    const base = formData.questions.filter(
+      (question) => !isSectionQuestion(question) && Boolean(question.includeInAnalysis),
+    )
+    if (analysisRowOrder.length === 0) return base
+    return [...base].sort((a, b) => {
+      const ai = analysisRowOrder.indexOf(a.id)
+      const bi = analysisRowOrder.indexOf(b.id)
+      const aPos = ai === -1 ? base.indexOf(a) + analysisRowOrder.length : ai
+      const bPos = bi === -1 ? base.indexOf(b) + analysisRowOrder.length : bi
+      return aPos - bPos
+    })
+  }, [formData.questions, analysisRowOrder])
   const visibleHistoryQuestions =
     historyShowAllQuestions
       ? analysisQuestions
@@ -6974,6 +7087,34 @@ function FormPage() {
       return previous === nextValue ? previous : nextValue
     })
   }, [formData.analysisDefaultSubmissionLimit])
+
+  useEffect(() => {
+    const saved = Array.isArray(formData.analysisQuestionOrder) ? formData.analysisQuestionOrder : []
+    setAnalysisRowOrder(saved)
+  }, [formData.analysisQuestionOrder])
+
+  useEffect(() => {
+    if (!isHistoryView) return
+    let cancelled = false
+    getDocs(query(collection(db, 'inventoryUpdates'), where('formSlug', '==', STENGESKJEMA_ID)))
+      .then((snap) => {
+        if (cancelled) return
+        const updates = {}
+        snap.forEach((d) => {
+          const data = d.data()
+          if (data.location) {
+            updates[data.location] = {
+              answers: data.answers || {},
+              updatedAt: data.updatedAt?.toDate?.() || null,
+              updatedBy: data.updatedBy || '',
+            }
+          }
+        })
+        setInventoryUpdates(updates)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [isHistoryView])
 
   useEffect(() => {
     if (flaggedSubmissions.length === 0) {
@@ -8047,6 +8188,23 @@ function FormPage() {
           </button>
         </form>
       ) : null}
+      {isHistoryView ? (
+        <div className="inventory-update-top-bar">
+          <button
+            type="button"
+            className="ghost inventory-update-btn"
+            onClick={() => {
+              setInventoryModalLocation('')
+              setInventoryModalQuestionId('')
+              setInventoryModalAnswers({})
+              setInventoryModalError('')
+              setShowInventoryModal(true)
+            }}
+          >
+            ✏ Rediger varebeholdning
+          </button>
+        </div>
+      ) : null}
       {isReceiptPage && !isReceiptReady ? (
         <section className="form-entry">
           <p>{publicCopy.loadingReceipt}</p>
@@ -9104,6 +9262,19 @@ function FormPage() {
                           Reviewed this month: <strong>{thisMonth?.reviewedCount ?? 0}</strong>
                           {thisMonth?.flaggedCount > 0 ? <span className="reviewed-monthly-flagged-note"> ({thisMonth.flaggedCount} flagged)</span> : null}
                         </span>
+                        {missingReviewsByDay.map(([dayKey, count]) => {
+                          const todayKey = new Date().toLocaleDateString('sv', { timeZone: 'Europe/Oslo' })
+                          const isToday = dayKey === todayKey
+                          return isToday ? (
+                            <span key={dayKey} className="reviewed-monthly-ready">
+                              {count} submission{count !== 1 ? 's' : ''} ready to review
+                            </span>
+                          ) : (
+                            <span key={dayKey} className="reviewed-monthly-missing">
+                              ⚠ {count} missing review{count !== 1 ? 's' : ''} for {formatSubmissionDayLabel(dayKey)}
+                            </span>
+                          )
+                        })}
                         {pastMonths.length > 0 ? (
                           <button
                             type="button"
@@ -9238,7 +9409,7 @@ function FormPage() {
                           <th>Submitted</th>
                           <th>Last photo taken</th>
                           <th>Location</th>
-                          <th>Name</th>
+                          <th>Phone</th>
                           <th>Receipt</th>
                           <th>Status</th>
                           <th>Actions</th>
@@ -9287,7 +9458,57 @@ function FormPage() {
                                 })()}
                               </td>
                               <td>{getSubmissionLocation(submission.answers, formData.questions)}</td>
-                              <td>{getSubmissionName(submission.answers, formData.questions)}</td>
+                              <td>
+                                {editPhoneSubmissionId === submission.id ? (
+                                  <div className="phone-edit-row">
+                                    <input
+                                      type="tel"
+                                      className="phone-edit-input"
+                                      value={editPhoneDraft}
+                                      autoFocus
+                                      onChange={(e) => setEditPhoneDraft(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') onSavePhoneEdit(submission.id)
+                                        if (e.key === 'Escape') setEditPhoneSubmissionId('')
+                                      }}
+                                    />
+                                    <button
+                                      type="button"
+                                      className="ghost"
+                                      disabled={editPhoneState.saving}
+                                      onClick={() => onSavePhoneEdit(submission.id)}
+                                    >
+                                      {editPhoneState.saving ? '…' : '✓'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="ghost"
+                                      onClick={() => setEditPhoneSubmissionId('')}
+                                    >
+                                      ✕
+                                    </button>
+                                    {editPhoneState.error ? (
+                                      <small className="forms-error">{editPhoneState.error}</small>
+                                    ) : null}
+                                  </div>
+                                ) : (
+                                  <div className="phone-edit-row">
+                                    <span>{getSubmissionPhone(submission.answers, formData.questions) || '—'}</span>
+                                    <button
+                                      type="button"
+                                      className="ghost phone-edit-trigger"
+                                      title="Edit phone number"
+                                      onClick={() => {
+                                        setEditPhoneSubmissionId(submission.id)
+                                        setEditPhoneDraft(getSubmissionPhone(submission.answers, formData.questions) || '')
+                                        setEditPhoneState({ saving: false, error: '' })
+                                      }}
+                                    >
+                                      ✏
+                                    </button>
+                                  </div>
+                                )}
+                              </td>
                               <td>
                                 {submission.receiptToken ? (
                                   <a
@@ -9481,38 +9702,6 @@ function FormPage() {
                     </p>
                   </div>
                   <div className="history-controls">
-                    <div className="history-alert-email">
-                      <button
-                        type="button"
-                        className="ghost"
-                        onClick={onSendInventoryAlert}
-                        disabled={inventoryAlertState.sending}
-                        title="Send oransje og røde varer på e-post"
-                      >
-                        {inventoryAlertState.sending ? 'Sender...' : '✉ Send rapport'}
-                      </button>
-                      {inventoryAlertState.message ? (
-                        <span className="history-alert-msg">{inventoryAlertState.message}</span>
-                      ) : null}
-                      {inventoryAlertState.error ? (
-                        <span className="forms-error">{inventoryAlertState.error}</span>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="ghost"
-                        onClick={onSendTestInventoryAlert}
-                        disabled={inventoryTestState.sending}
-                        title={`Send test-epost til ${testEmailRecipient.trim() || 'magnus@crust.no'}`}
-                      >
-                        {inventoryTestState.sending ? 'Sender...' : '✉ Send test-epost'}
-                      </button>
-                      {inventoryTestState.message ? (
-                        <span className="history-alert-msg">{inventoryTestState.message}</span>
-                      ) : null}
-                      {inventoryTestState.error ? (
-                        <span className="forms-error">{inventoryTestState.error}</span>
-                      ) : null}
-                    </div>
                     <label className="field-block history-days-field history-days-inline" htmlFor="history-submission-limit">
                       <span>Vis siste innsendinger</span>
                       <input
@@ -9691,14 +9880,16 @@ function FormPage() {
                   const alertRows = historyRows.map((row) => {
                     const latest = row.items[0]
                     if (!latest) return null
+                    const locationUpdate = inventoryUpdates[row.location]
                     const items = analysisQuestions.flatMap((q) => {
                       if (q.excludeFromLocationStatus) return []
-                      if (hasAnalysisRefillAction(latest, q.id)) return []
-                      const value = String(latest.answers?.[q.id] || '').trim()
+                      const updatedValue = locationUpdate?.answers?.[q.id]
+                      if (!updatedValue && hasAnalysisRefillAction(latest, q.id)) return []
+                      const value = updatedValue || String(latest.answers?.[q.id] || '').trim()
                       if (!value) return []
                       const category = getSelectOptionBehavior(q, value).historyCategory
                       if (category !== 'orange' && category !== 'red') return []
-                      return [{ label: (q.analysisLabel || q.label || q.id).trim(), value, category }]
+                      return [{ label: (q.analysisLabel || q.label || q.id).trim(), value, category, isUpdated: Boolean(updatedValue) }]
                     })
                     if (items.length === 0) return null
                     const sortedItems = [...items].sort((a, b) =>
@@ -9729,7 +9920,7 @@ function FormPage() {
                           <div key={location} className="inventory-alert-location-card">
                             <p className="inventory-alert-location-name">📍 {location}</p>
                             {items.map((item, i) => (
-                              <div key={i} className={`inventory-alert-item is-${item.category}`}>
+                              <div key={i} className={`inventory-alert-item is-${item.category} ${item.isUpdated ? 'is-updated' : ''}`}>
                                 <span className="inventory-alert-item-label">{item.label}</span>
                                 <span className="inventory-alert-item-value">{item.value}</span>
                               </div>
@@ -9789,39 +9980,54 @@ function FormPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {visibleHistoryQuestions.map((question) => (
+                        {visibleHistoryQuestions.map((question, qIndex) => (
                           <tr key={`history-question-${question.id}`}>
-                            <th scope="row">{question.analysisLabel || question.label}</th>
+                            <th scope="row" className="history-row-header">
+                              <span>{question.analysisLabel || question.label}</span>
+                              <span className="history-row-order-btns">
+                                <button
+                                  type="button"
+                                  className="ghost history-row-order-btn"
+                                  title="Flytt opp"
+                                  disabled={qIndex === 0 || analysisRowOrderSaving}
+                                  onClick={() => {
+                                    const ids = analysisQuestions.map((q) => q.id)
+                                    const next = [...ids]
+                                    ;[next[qIndex - 1], next[qIndex]] = [next[qIndex], next[qIndex - 1]]
+                                    setAnalysisRowOrder(next)
+                                    onSaveAnalysisRowOrder(next)
+                                  }}
+                                >▲</button>
+                                <button
+                                  type="button"
+                                  className="ghost history-row-order-btn"
+                                  title="Flytt ned"
+                                  disabled={qIndex === visibleHistoryQuestions.length - 1 || analysisRowOrderSaving}
+                                  onClick={() => {
+                                    const ids = analysisQuestions.map((q) => q.id)
+                                    const next = [...ids]
+                                    ;[next[qIndex], next[qIndex + 1]] = [next[qIndex + 1], next[qIndex]]
+                                    setAnalysisRowOrder(next)
+                                    onSaveAnalysisRowOrder(next)
+                                  }}
+                                >▼</button>
+                              </span>
+                            </th>
                             {visibleHistoryRows.flatMap((row) =>
                               historySubmissionSlots.map((slotIndex) => {
                                 const submission = row.items[slotIndex]
                                 const values = submission
                                   ? getHistoryAnswerValues(submission, question)
                                   : []
+                                const inventoryUpdate = slotIndex === 0
+                                  ? (inventoryUpdates[row.location]?.answers?.[question.id] || '')
+                                  : ''
                                 const historyCellCategory = submission
                                   ? getHistoryCellCategory(question, submission)
                                   : ''
-                                const analysisStateKey =
-                                  submission?.id && question?.id
-                                    ? `${submission.id}:${question.id}`
-                                    : ''
-                                const analysisCellState = analysisStateKey
-                                  ? analysisActionState[analysisStateKey] || {
-                                      saving: false,
-                                      error: '',
-                                    }
-                                  : { saving: false, error: '' }
-                                const hasRefillAction = submission
-                                  ? hasAnalysisRefillAction(submission, question.id)
-                                  : false
-                                const showRefillAction =
-                                  Boolean(submission) &&
-                                  slotIndex === 0 &&
-                                  (
-                                    historyCellCategory === 'orange' ||
-                                    historyCellCategory === 'red' ||
-                                    hasRefillAction
-                                  )
+                                const effectiveCellCategory = inventoryUpdate
+                                  ? getSelectOptionBehavior(question, inventoryUpdate).historyCategory
+                                  : historyCellCategory
 
                                 return (
                                   <td
@@ -9829,13 +10035,17 @@ function FormPage() {
                                     className={`history-cell ${
                                       slotIndex === 0 ? 'history-current-column' : ''
                                     } ${
-                                      slotIndex === 0 && historyCellCategory === 'red'
+                                      slotIndex === 0 && effectiveCellCategory === 'red'
                                         ? 'history-current-column-red'
                                         : ''
                                     }`}
                                   >
                                     <div className="history-cell-content">
-                                      {values.length > 0 ? (
+                                      {inventoryUpdate ? (
+                                        <span className="history-cell-inventory-update" title="Manuelt oppdatert varebeholdning">
+                                          {inventoryUpdate}
+                                        </span>
+                                      ) : values.length > 0 ? (
                                         <span
                                           className={`history-cell-value ${
                                             historyCellCategory
@@ -9848,38 +10058,23 @@ function FormPage() {
                                       ) : (
                                         <span className="history-empty-cell">-</span>
                                       )}
-                                      {showRefillAction ? (
-                                        hasRefillAction ? (
-                                          <label
-                                            className="history-cell-checkbox-wrap"
-                                            aria-label="Nullstill påfylling"
-                                            title="Nullstill påfylling"
-                                          >
-                                            <input
-                                              type="checkbox"
-                                              className="history-cell-checkbox"
-                                              checked
-                                              disabled={analysisCellState.saving}
-                                              onChange={() => onResetAnalysisRefill(submission, question)}
-                                            />
-                                          </label>
-                                        ) : (
-                                          <button
-                                            type="button"
-                                            className="ghost history-cell-action"
-                                            onClick={() => onMarkAnalysisRefill(submission, question)}
-                                            disabled={analysisCellState.saving}
-                                            aria-label="Marker påfylling"
-                                            title="Marker påfylling"
-                                          >
-                                            {analysisCellState.saving ? '...' : '+'}
-                                          </button>
-                                        )
+                                      {slotIndex === 0 ? (
+                                        <button
+                                          type="button"
+                                          className="ghost history-cell-edit-btn"
+                                          title="Rediger varebeholdning"
+                                          onClick={() => {
+                                            setInventoryModalLocation(row.location)
+                                            setInventoryModalQuestionId(question.id)
+                                            setInventoryModalAnswers({})
+                                            setInventoryModalError('')
+                                            setShowInventoryModal(true)
+                                          }}
+                                        >
+                                          ✏
+                                        </button>
                                       ) : null}
                                     </div>
-                                    {analysisCellState.error ? (
-                                      <p className="history-cell-error">{analysisCellState.error}</p>
-                                    ) : null}
                                   </td>
                                 )
                               }),
@@ -9902,6 +10097,125 @@ function FormPage() {
                 visibleHistoryQuestions.length === 0 ? (
                   <p>Ingen spørsmål er valgt i filteret.</p>
                 ) : null}
+              </div>
+            ) : null}
+
+            {showInventoryModal ? (
+              <div
+                className="submission-modal-backdrop"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="inventory-update-modal-title"
+                onClick={() => setShowInventoryModal(false)}
+              >
+                <div
+                  className="submission-modal forms-admin-modal inventory-update-modal"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="submission-modal-header">
+                    <h4 id="inventory-update-modal-title">Rediger varebeholdning</h4>
+                    <button type="button" className="ghost" onClick={() => setShowInventoryModal(false)}>
+                      Lukk
+                    </button>
+                  </div>
+                  <div className="submission-modal-content">
+                    {(() => {
+                      const restockQuestions = analysisQuestions.filter((q) => q.shouldRestock)
+                      const selectedQuestion = restockQuestions.find((q) => q.id === inventoryModalQuestionId)
+                      const latestSubmission = inventoryModalLocation
+                        ? historyRows.find((r) => r.location === inventoryModalLocation)?.items[0]
+                        : null
+
+                      return (
+                        <div className="inventory-update-steps">
+                          {/* Step 1: Location */}
+                          <label className="field-block">
+                            <span>1. Velg sted</span>
+                            <select
+                              value={inventoryModalLocation}
+                              onChange={(e) => {
+                                setInventoryModalLocation(e.target.value)
+                                setInventoryModalQuestionId('')
+                                setInventoryModalAnswers({})
+                              }}
+                            >
+                              <option value="">Velg sted...</option>
+                              {historyRows.map((row) => (
+                                <option key={row.location} value={row.location}>{row.location}</option>
+                              ))}
+                            </select>
+                          </label>
+
+                          {/* Step 2: Product */}
+                          {inventoryModalLocation ? (
+                            <label className="field-block">
+                              <span>2. Velg produkt</span>
+                              <select
+                                value={inventoryModalQuestionId}
+                                onChange={(e) => {
+                                  setInventoryModalQuestionId(e.target.value)
+                                  setInventoryModalAnswers({})
+                                }}
+                              >
+                                <option value="">Velg produkt...</option>
+                                {restockQuestions.map((q) => (
+                                  <option key={q.id} value={q.id}>{q.analysisLabel || q.label}</option>
+                                ))}
+                              </select>
+                            </label>
+                          ) : null}
+
+                          {/* Step 3: New value */}
+                          {inventoryModalLocation && selectedQuestion ? (() => {
+                            const currentValue = String(latestSubmission?.answers?.[selectedQuestion.id] || '').trim()
+                            const existingUpdate = inventoryUpdates[inventoryModalLocation]?.answers?.[selectedQuestion.id]
+                            return (
+                              <label className="field-block">
+                                <span>3. Ny beholdning</span>
+                                {(currentValue || existingUpdate) ? (
+                                  <small className="field-help inventory-update-current">
+                                    {existingUpdate
+                                      ? <>Forrige oppdatering: <span className="inventory-updated-value">{existingUpdate}</span></>
+                                      : <>Siste skjema: {currentValue}</>
+                                    }
+                                  </small>
+                                ) : null}
+                                <select
+                                  value={inventoryModalAnswers[selectedQuestion.id] || ''}
+                                  onChange={(e) => setInventoryModalAnswers({ [selectedQuestion.id]: e.target.value })}
+                                >
+                                  <option value="">Velg ny verdi...</option>
+                                  {(selectedQuestion.options || []).map((option) => (
+                                    <option key={option} value={option}>{option}</option>
+                                  ))}
+                                </select>
+                              </label>
+                            )
+                          })() : null}
+                        </div>
+                      )
+                    })()}
+                    {inventoryModalError ? <p className="forms-error">{inventoryModalError}</p> : null}
+                  </div>
+                  <div className="submission-modal-actions" style={{ padding: '10px 14px', borderTop: '1px solid rgba(24,44,60,0.12)', justifyContent: 'flex-end' }}>
+                    <button type="button" className="ghost" onClick={() => setShowInventoryModal(false)}>
+                      Avbryt
+                    </button>
+                    <button
+                      type="button"
+                      className="cta"
+                      disabled={
+                        !inventoryModalLocation ||
+                        !inventoryModalQuestionId ||
+                        inventoryModalSaving ||
+                        Object.values(inventoryModalAnswers).every((v) => !String(v || '').trim())
+                      }
+                      onClick={onSaveInventoryUpdate}
+                    >
+                      {inventoryModalSaving ? 'Lagrer...' : 'Lagre'}
+                    </button>
+                  </div>
+                </div>
               </div>
             ) : null}
 
@@ -10034,6 +10348,12 @@ function FormPage() {
                                       loading="lazy"
                                     />
                                   ) : null}
+                                  {(() => {
+                                    const capturedAt = String(selectedSubmission.answers?.[getImageCapturedAtAnswerKey(answerKey)] || '').trim()
+                                    return capturedAt ? (
+                                      <p className="review-answer-captured-at">Tatt: {capturedAt}</p>
+                                    ) : null
+                                  })()}
                                   {reviewImage.imageUrl ? (
                                     <p className="review-answer-value review-answer-file-link">
                                       <a
@@ -10233,6 +10553,15 @@ function FormPage() {
                       </label>
                     ) : null}
 
+                    <label className="review-send-email-label">
+                      <input
+                        type="checkbox"
+                        checked={reviewSendEmail}
+                        onChange={(e) => setReviewSendEmail(e.target.checked)}
+                      />
+                      <span>Send review to user on email</span>
+                    </label>
+
                     <div className="review-general-feedback-actions">
                       <button
                         type="button"
@@ -10241,7 +10570,7 @@ function FormPage() {
                         disabled={
                           reviewSubmissionState.saving ||
                           selectedSubmissionAnswerEntries.length === 0 ||
-                          hasPendingReviewDecisions
+                          (!reviewRejected && hasPendingReviewDecisions)
                         }
                       >
                         Set as reviewed
