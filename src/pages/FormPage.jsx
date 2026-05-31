@@ -6720,7 +6720,8 @@ function FormPage() {
     const byDay = {}
     submissions.forEach((s) => {
       if (getSubmissionMonthKey(s.submittedAt) !== currentMonthKey) return
-      if (String(s.status || '').trim().toLowerCase() === 'reviewed') return
+      const status = String(s.status || '').trim().toLowerCase()
+      if (status === 'reviewed' || status === 'rejected') return
       const dayKey = getSubmissionDayKey(s.submittedAt)
       if (!dayKey) return
       byDay[dayKey] = (byDay[dayKey] || 0) + 1
