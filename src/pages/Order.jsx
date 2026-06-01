@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { doc, getDoc, getDocs, collection } from 'firebase/firestore'
+import { doc, getDoc, getDocs, collection, query, where, onSnapshot } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { db, functions } from '../firebase'
 import vippsLogo from '../assets/vipps-logo.svg'
@@ -45,6 +45,10 @@ export default function Order() {
   const [submitting, setSubmitting] = useState(false)
   const [confirmedOrder, setConfirmedOrder] = useState(null)
   const [comboPick, setComboPick] = useState(null)
+  const [customerNote, setCustomerNote] = useState('')
+  const [pizzaBakeTime, setPizzaBakeTime] = useState(3.5)
+  const [queuePizzas, setQueuePizzas] = useState(null)
+  const [confirmQueuePizzas, setConfirmQueuePizzas] = useState(null)
 
   useEffect(() => {
     document.body.classList.add('order-bg')
@@ -56,30 +60,36 @@ export default function Order() {
   }, [])
 
   useEffect(() => {
-    Promise.allSettled([
-      getDoc(doc(db, 'orderConfig', 'default')),
-      getDocs(collection(db, 'locations')),
-    ])
-      .then(([configResult, locsResult]) => {
-        if (configResult.status === 'fulfilled' && configResult.value.exists()) {
-          const cfg = configResult.value.data()
-          setProducts(cfg.products || [])
-          setProductTypes(cfg.productTypes || [])
-          setCombos(cfg.combos || [])
-          setLocationSettings(cfg.locationSettings || {})
-        }
-        if (locsResult.status === 'fulfilled') {
-          const locs = locsResult.value.docs
-            .map((d) => ({ id: d.id, ...d.data() }))
-            .sort((a, b) => {
-              const oa = typeof a.order === 'number' ? a.order : Infinity
-              const ob = typeof b.order === 'number' ? b.order : Infinity
-              return oa - ob || String(a.name || '').localeCompare(String(b.name || ''), 'nb')
-            })
-          setLocations(locs)
-        }
+    let configReady = false
+    let locsReady = false
+    const checkDone = () => { if (configReady && locsReady) setLoading(false) }
+
+    const unsubConfig = onSnapshot(doc(db, 'orderConfig', 'default'), (snap) => {
+      if (snap.exists()) {
+        const cfg = snap.data()
+        setProducts(cfg.products || [])
+        setProductTypes(cfg.productTypes || [])
+        setCombos(cfg.combos || [])
+        setLocationSettings(cfg.locationSettings || {})
+        setPizzaBakeTime(typeof cfg.pizzaBakeTimeMinutes === 'number' ? cfg.pizzaBakeTimeMinutes : 3.5)
+      }
+      if (!configReady) { configReady = true; checkDone() }
+    }, () => { if (!configReady) { configReady = true; checkDone() } })
+
+    getDocs(collection(db, 'locations'))
+      .then((snap) => {
+        const locs = snap.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => {
+            const oa = typeof a.order === 'number' ? a.order : Infinity
+            const ob = typeof b.order === 'number' ? b.order : Infinity
+            return oa - ob || String(a.name || '').localeCompare(String(b.name || ''), 'nb')
+          })
+        setLocations(locs)
       })
-      .finally(() => setLoading(false))
+      .finally(() => { locsReady = true; checkDone() })
+
+    return () => unsubConfig()
   }, [])
 
   useEffect(() => {
@@ -183,7 +193,7 @@ export default function Order() {
         const short = needed - have
         if (short > 0) {
           const cheapest = products
-            .filter((p) => p.available && p.typeId === tid)
+            .filter((p) => p.available !== false && p.typeId === tid)
             .sort((a, b) => a.price - b.price)[0]
           for (let i = 0; i < short; i++) missingSlots.push({ typeId: tid, product: cheapest })
         }
@@ -192,6 +202,45 @@ export default function Order() {
     }
     return null
   })()
+
+  useEffect(() => {
+    if (step !== 'success') return
+    const locId = confirmedOrder?.locationId || selectedLocation?.id
+    const ownOrderId = confirmedOrder?.orderId || null
+    if (!locId) return
+    getDocs(
+      query(
+        collection(db, 'orders'),
+        where('locationId', '==', locId),
+        where('status', 'in', ['paid', 'confirmed']),
+      )
+    ).then((snap) => {
+      const total = snap.docs.reduce((sum, d) => {
+        if (ownOrderId && d.id === ownOrderId) return sum
+        const items = d.data().items || []
+        return sum + items.reduce((s, item) => s + (item.quantity || 1), 0)
+      }, 0)
+      setConfirmQueuePizzas(total)
+    }).catch(() => setConfirmQueuePizzas(0))
+  }, [step])
+
+  useEffect(() => {
+    if (formStep !== 3 || !selectedLocation) return
+    setQueuePizzas(null)
+    getDocs(
+      query(
+        collection(db, 'orders'),
+        where('locationId', '==', selectedLocation.id),
+        where('status', 'in', ['paid', 'confirmed']),
+      )
+    ).then((snap) => {
+      const total = snap.docs.reduce((sum, d) => {
+        const items = d.data().items || []
+        return sum + items.reduce((s, item) => s + (item.quantity || 1), 0)
+      }, 0)
+      setQueuePizzas(total)
+    }).catch(() => setQueuePizzas(0))
+  }, [formStep, selectedLocation])
 
   function setQty(productId, delta) {
     setCart((prev) => ({
@@ -208,7 +257,7 @@ export default function Order() {
     }
     const slots = Object.entries(byType).map(([typeId, count]) => {
       const typeName = productTypes.find((t) => t.id === typeId)?.name || typeId
-      const availableProducts = products.filter((p) => p.available && p.typeId === typeId)
+      const availableProducts = products.filter((p) => p.available !== false && p.typeId === typeId)
       return { typeId, typeName, count, availableProducts, selectedProductId: availableProducts[0]?.id || null }
     })
     setComboPick(slots)
@@ -237,6 +286,7 @@ export default function Order() {
         total: cartTotal,
         customerPhone,
         customerName,
+        customerNote: customerNote.trim() || null,
       })
       window.location.href = data.redirectUrl
     } catch (err) {
@@ -288,6 +338,25 @@ export default function Order() {
               </div>
             </div>
           ) : null}
+
+          {confirmQueuePizzas !== null ? (() => {
+            const myPizzas = items.reduce((s, i) => s + (i.quantity || 1), 0)
+            const waitMin = Math.ceil((confirmQueuePizzas + myPizzas) * pizzaBakeTime)
+            const readyAt = new Date(Date.now() + waitMin * 60 * 1000)
+            const readyTime = readyAt.toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' })
+            return (
+              <div className="order-confirm-wait">
+                <span className="order-confirm-wait-label">Forventet ventetid</span>
+                <span className="order-confirm-wait-time">{waitMin} min</span>
+                <span className="order-confirm-wait-clock">Klar ca. {readyTime}</span>
+                <span className="order-confirm-wait-queue">
+                  {confirmQueuePizzas === 0
+                    ? 'Ingen pizzaer foran deg i køen'
+                    : `Det er ${confirmQueuePizzas} pizza${confirmQueuePizzas !== 1 ? 'er' : ''} foran deg i køen`}
+                </span>
+              </div>
+            )
+          })() : null}
 
           <div className="order-confirm-meta">
             {locName ? <div className="order-confirm-meta-row"><span className="order-confirm-meta-icon">📍</span>{locName}</div> : null}
@@ -353,21 +422,29 @@ export default function Order() {
     </div>
   )
 
+  const selectedLocationPaused = selectedLocation
+    ? Boolean(locationSettings[selectedLocation.id]?.paused)
+    : false
+
   return (
     <div className="order-page">
       <div className="order-hero">
         <h1>Bestill pizza 🍕</h1>
       </div>
 
-      {availableLocations.length === 0 ? (
-        <div className="order-closed-box">
-          <h2>Ingen lokasjoner åpne nå</h2>
-          <p className="order-closed-sub">Bestilling er ikke tilgjengelig akkurat nå.</p>
+      {selectedLocationPaused && formStep > 1 ? (
+        <div className="order-paused-overlay">
+          <div className="order-paused-box">
+            <p className="order-paused-icon">⏸</p>
+            <h2>Bestillinger er midlertidig pauset</h2>
+            <p>Vi tar ikke imot bestillinger akkurat nå. Prøv igjen om litt.</p>
+          </div>
         </div>
-      ) : (
-        <>
+      ) : null}
+
+      <>
           <div className="order-progress">
-            {[['Produkter', 1], ['Sted', 2], ['Info', 3]].map(([label, s]) => (
+            {[['Sted', 1], ['Produkter', 2], ['Info', 3]].map(([label, s]) => (
               <div key={s} className={`order-progress-step${formStep === s ? ' is-active' : formStep > s ? ' is-done' : ''}`}>
                 <div className="order-progress-circle">{formStep > s ? '✓' : s}</div>
                 <span className="order-progress-label">{label}</span>
@@ -380,7 +457,56 @@ export default function Order() {
             {formStep === 1 ? (
               <>
                 <section className="order-section">
-                  {products.filter((p) => p.available).length === 0 ? (
+                  <h2 className="order-section-title">Velg sted</h2>
+                  <div className="order-location-grid">
+                    {[...enabledLocations]
+                      .sort((a, b) => {
+                        const aOpen = Boolean(getLocationOpen(locationSettings[a.id]) && !locationSettings[a.id]?.paused)
+                        const bOpen = Boolean(getLocationOpen(locationSettings[b.id]) && !locationSettings[b.id]?.paused)
+                        if (aOpen !== bOpen) return aOpen ? -1 : 1
+                        return 0
+                      })
+                      .map((loc) => {
+                        const win = getLocationOpen(locationSettings[loc.id])
+                        const isOpen = Boolean(win && !locationSettings[loc.id]?.paused)
+                        return (
+                          <button
+                            key={loc.id}
+                            type="button"
+                            className={`order-location-card${selectedLocation?.id === loc.id ? ' is-selected' : ''}${!isOpen ? ' is-closed' : ''}`}
+                            onClick={() => isOpen ? setSelectedLocation(loc) : undefined}
+                            disabled={!isOpen}
+                          >
+                            <div className="order-location-left">
+                              <span className="order-location-name">{loc.name}</span>
+                              {isOpen && win && !win.forced ? (
+                                <span className="order-location-time">Åpent til {win.close}</span>
+                              ) : null}
+                            </div>
+                            <span className={`order-location-status-badge${isOpen ? ' is-open' : ' is-closed'}`}>
+                              {isOpen ? 'Åpen' : 'Stengt'}
+                            </span>
+                          </button>
+                        )
+                      })}
+                  </div>
+                </section>
+
+                <div className="order-step-nav">
+                  <button
+                    type="button"
+                    className="order-btn order-step-next"
+                    disabled={!selectedLocation}
+                    onClick={() => setFormStep(2)}
+                  >Neste →</button>
+                </div>
+              </>
+            ) : null}
+
+            {formStep === 2 ? (
+              <>
+                <section className="order-section">
+                  {products.filter((p) => p.available !== false).length === 0 ? (
                     <p className="order-empty">Ingen produkter tilgjengelig.</p>
                   ) : (
                     <ProductList
@@ -409,48 +535,11 @@ export default function Order() {
                 {cartItems.length > 0 ? <CartSummary /> : null}
 
                 <div className="order-step-nav">
-                  <button
-                    type="button"
-                    className="order-btn order-step-next"
-                    disabled={cartItems.length === 0}
-                    onClick={() => setFormStep(2)}
-                  >Neste →</button>
-                </div>
-              </>
-            ) : null}
-
-            {formStep === 2 ? (
-              <>
-                {cartItems.length > 0 ? <CartSummary /> : null}
-
-                <section className="order-section">
-                  <h2 className="order-section-title">Velg sted</h2>
-                  <div className="order-location-grid">
-                    {availableLocations.map((loc) => {
-                      const win = getLocationOpen(locationSettings[loc.id])
-                      return (
-                        <button
-                          key={loc.id}
-                          type="button"
-                          className={`order-location-card${selectedLocation?.id === loc.id ? ' is-selected' : ''}`}
-                          onClick={() => setSelectedLocation(loc)}
-                        >
-                          <span className="order-location-name">{loc.name}</span>
-                          {win && !win.forced ? (
-                            <span className="order-location-time">Åpent til {win.close}</span>
-                          ) : null}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </section>
-
-                <div className="order-step-nav">
                   <button type="button" className="order-step-back ghost" onClick={() => setFormStep(1)}>← Tilbake</button>
                   <button
                     type="button"
                     className="order-btn order-step-next"
-                    disabled={!selectedLocation}
+                    disabled={cartItems.length === 0}
                     onClick={() => setFormStep(3)}
                   >Neste →</button>
                 </div>
@@ -460,6 +549,21 @@ export default function Order() {
             {formStep === 3 ? (
               <>
                 <CartSummary />
+
+                {(() => {
+                  if (queuePizzas === null) return null
+                  const myPizzas = cartItems.reduce((s, item) => s + item.quantity, 0)
+                  const totalMinutes = (queuePizzas + myPizzas) * pizzaBakeTime
+                  const waitMin = Math.ceil(totalMinutes)
+                  return (
+                    <div className="order-wait-banner">
+                      <span className="order-wait-label">Forventet ventetid</span>
+                      <span className="order-wait-time">{waitMin} min</span>
+                      <span className="order-wait-sub">Vi bruker {pizzaBakeTime} min per pizza.</span>
+                      <span className="order-wait-sub">Det er {queuePizzas} pizza{queuePizzas !== 1 ? 'er' : ''} foran deg i stekekø.</span>
+                    </div>
+                  )
+                })()}
 
                 <section className="order-section">
                   <h2 className="order-section-title">Kontaktinfo</h2>
@@ -486,6 +590,16 @@ export default function Order() {
                         inputMode="tel"
                       />
                     </label>
+                    <label className="order-field">
+                      <span>Spesifikasjoner (valgfritt)</span>
+                      <textarea
+                        value={customerNote}
+                        onChange={(e) => setCustomerNote(e.target.value)}
+                        placeholder="f.eks. ekstra saus, allergi, annet..."
+                        rows={3}
+                        className="order-note-textarea"
+                      />
+                    </label>
                   </div>
                 </section>
 
@@ -507,8 +621,7 @@ export default function Order() {
             ) : null}
 
           </form>
-        </>
-      )}
+      </>
 
       {comboPick ? (
         <div className="order-combo-modal-overlay" onClick={() => setComboPick(null)}>
@@ -589,7 +702,7 @@ function ProductRow({ product, cart, setQty }) {
 }
 
 function ProductList({ products, productTypes, cart, setQty }) {
-  const available = products.filter((p) => p.available)
+  const available = products.filter((p) => p.available !== false)
 
   if (productTypes.length === 0) {
     return (

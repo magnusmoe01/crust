@@ -32,6 +32,7 @@ export default function OrderAdmin() {
   const [newCombo, setNewCombo] = useState({ name: '', typeIds: [], totalPrice: '' })
   const [smsTest, setSmsTest] = useState({ phone: '', sending: false, message: '', error: '' })
   const [smsTexts, setSmsTexts] = useState({ confirmation: '', ready: '', feedback: '', feedbackLink: '' })
+  const [pizzaBakeTime, setPizzaBakeTime] = useState('3.5')
 
   useEffect(() => {
     if (!isAdmin) return
@@ -46,6 +47,7 @@ export default function OrderAdmin() {
         setCombos(cfg.combos || [])
         setLocationSettings(cfg.locationSettings || {})
         setSmsTexts({ confirmation: '', ready: '', feedback: '', feedbackLink: '', ...(cfg.smsTexts || {}) })
+        setPizzaBakeTime(String(cfg.pizzaBakeTimeMinutes ?? 3.5))
         const locs = locsSnap.docs
           .map((d) => ({ id: d.id, ...d.data() }))
           .filter((l) => l.orderEnabled)
@@ -72,6 +74,7 @@ export default function OrderAdmin() {
         combos: cms,
         locationSettings: updatedLocationSettings,
         smsTexts: texts,
+        pizzaBakeTimeMinutes: parseFloat(pizzaBakeTime) || 3.5,
         updatedAt: serverTimestamp(),
       })
       setProducts(updatedProducts)
@@ -748,6 +751,26 @@ export default function OrderAdmin() {
             </table>
           </div>
         )}
+      </section>
+
+      {/* ── Bake time ── */}
+      <section className="order-admin-section">
+        <h2>Steketid</h2>
+        <p className="order-admin-section-desc">
+          Brukes til å beregne forventet ventetid for kunden på bestillingssiden.
+        </p>
+        <label className="order-field" style={{ maxWidth: 240 }}>
+          <span>Minutter per pizza</span>
+          <input
+            type="number"
+            min="0.5"
+            max="30"
+            step="0.5"
+            value={pizzaBakeTime}
+            onChange={(e) => setPizzaBakeTime(e.target.value)}
+            onBlur={() => save(products, locationSettings)}
+          />
+        </label>
       </section>
 
       {/* ── SMS texts ── */}

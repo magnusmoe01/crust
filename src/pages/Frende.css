@@ -14,9 +14,7 @@
 }
 
 .back-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  display: block;
   color: var(--accent-dark);
   font-weight: 500;
   text-decoration: underline;
@@ -25,6 +23,14 @@
 
 .back-link:hover {
   text-decoration: underline;
+}
+
+.frende-hero .lead {
+  color: var(--ink);
+}
+
+.frende-hero .eyebrow {
+  margin-top: 8px;
 }
 
 .frende-hero h1 {
@@ -52,10 +58,26 @@
   object-fit: contain;
 }
 
+.gilde-page .frende-card img {
+  max-width: 420px;
+}
+
 .frende-body {
   display: grid;
   gap: 16px;
   max-width: 900px;
+}
+
+.frende-card--text {
+  align-content: start;
+}
+
+.frende-card-partner-name {
+  font-family: "Fraunces", serif;
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--accent-dark);
+  margin: 0;
 }
 
 .frende-body a {

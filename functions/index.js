@@ -846,12 +846,13 @@ exports.initiateVippsOrder = onCall(
     secrets: ["VIPPS_CLIENT_ID", "VIPPS_CLIENT_SECRET", "VIPPS_SUBSCRIPTION_KEY", "VIPPS_MSN"],
   },
   async ({ data }) => {
-    const { locationId, locationName, items, total, customerPhone, customerName } = data || {};
+    const { locationId, locationName, items, total, customerPhone, customerName, customerNote } = data || {};
     if (!locationId || !Array.isArray(items) || items.length === 0 || !customerPhone || !customerName) {
       throw new HttpsError("invalid-argument", "Missing required order fields");
     }
 
     const smsPhone = formatPhoneForSms(customerPhone);
+    const noteValue = typeof customerNote === "string" && customerNote.trim() ? customerNote.trim() : null;
 
     const orderRef = await admin.firestore().collection("orders").add({
       locationId,
@@ -860,6 +861,7 @@ exports.initiateVippsOrder = onCall(
       total: Number(total) || 0,
       customerPhone: smsPhone,
       customerName,
+      ...(noteValue ? { customerNote: noteValue } : {}),
       status:     "pending_payment",
       alertSent:  false,
       createdAt:  admin.firestore.FieldValue.serverTimestamp(),
@@ -993,7 +995,7 @@ exports.checkVippsOrder = onCall(
 
     // Already paid — return early
     if (order.status === "paid" || order.status === "confirmed" || order.status === "ready") {
-      return { status: order.status, customerName: order.customerName, customerPhone: order.customerPhone, total: order.total };
+      return { status: order.status, customerName: order.customerName, customerPhone: order.customerPhone, total: order.total, locationId: order.locationId, locationName: order.locationName, items: order.items || [], orderId };
     }
 
     // Fallback: check Vipps API directly
@@ -1046,7 +1048,7 @@ exports.checkVippsOrder = onCall(
             logger.error("Fallback SMS failed", { orderId, error: err?.message });
           }
         }
-        return { status: "paid", customerName: order.customerName, customerPhone: order.customerPhone, total: order.total };
+        return { status: "paid", customerName: order.customerName, customerPhone: order.customerPhone, total: order.total, locationId: order.locationId, locationName: order.locationName, items: order.items || [], orderId };
       }
     } catch (err) {
       logger.error("Vipps status check failed", { orderId, error: err?.message });
@@ -1151,20 +1153,23 @@ exports.sendOrderReadySms = onCall(
 
     const order    = snap.data();
     const name     = capitalizeFirst(order.customerName || "");
+    const phone    = String(order.customerPhone || "").trim();
     const template = config.smsTexts?.ready || SMS_DEFAULTS.ready;
 
-    await sendElksSms(
-      order.customerPhone,
-      renderSmsTemplate(template, { name, location: order.locationName || "" }),
-    );
+    if (phone) {
+      await sendElksSms(
+        phone,
+        renderSmsTemplate(template, { name, location: order.locationName || "" }),
+      );
+    }
 
     await orderRef.update({
       status:          "ready",
       readyAt:         admin.firestore.FieldValue.serverTimestamp(),
-      feedbackSmsSent: false,
+      feedbackSmsSent: !phone,
     });
 
-    return { sent: true };
+    return { sent: Boolean(phone) };
   },
 );
 
@@ -1223,10 +1228,11 @@ function getSelectOptionHistoryCategory(question, selectedOption) {
 async function buildInventoryAlertData() {
   const db = admin.firestore();
 
-  // Load stengeskjema form definition and active locations in parallel
-  const [formsSnap, locationsSnap] = await Promise.all([
+  // Load stengeskjema form definition, active locations, and manual edits in parallel
+  const [formsSnap, locationsSnap, inventoryUpdatesSnap] = await Promise.all([
     db.collection("forms").where("slug", "==", "stengeskjema").limit(1).get(),
     db.collection("locations").get(),
+    db.collection("inventoryUpdates").where("formSlug", "==", "stengeskjema").get(),
   ]);
   if (formsSnap.empty) throw new Error("stengeskjema form not found");
 
@@ -1235,6 +1241,18 @@ async function buildInventoryAlertData() {
       .map((d) => String(d.data().name || "").trim())
       .filter(Boolean),
   );
+
+  // Build map of manual inventory edits per location
+  const inventoryUpdatesByLocation = new Map();
+  inventoryUpdatesSnap.forEach((d) => {
+    const data = d.data();
+    if (data.location) {
+      inventoryUpdatesByLocation.set(String(data.location).trim(), {
+        answers: data.answers || {},
+        updatedAt: data.updatedAt?.toDate?.() || null,
+      });
+    }
+  });
 
   const formDoc = formsSnap.docs[0].data();
   const allQuestions = Array.isArray(formDoc.questions) ? formDoc.questions : [];
@@ -1271,6 +1289,10 @@ async function buildInventoryAlertData() {
     const redItems = [];
     const orangeItems = [];
 
+    const manualUpdate = inventoryUpdatesByLocation.get(location);
+    const submissionDate = submission.submittedAt?.toDate?.()
+      || (submission.submittedAt?.seconds ? new Date(submission.submittedAt.seconds * 1000) : null);
+
     for (const question of analysisQuestions) {
       if (question.excludeFromLocationStatus) continue;
       // Skip if a refill/ordered action already exists
@@ -1278,12 +1300,21 @@ async function buildInventoryAlertData() {
       const actionType = String(action?.type || "").toLowerCase();
       if (actionType === "refill" || actionType === "ordered") continue;
 
-      const value = String(submission.answers?.[question.id] || "").trim();
+      const submissionValue = String(submission.answers?.[question.id] || "").trim();
+      const manualValue = String(manualUpdate?.answers?.[question.id] || "").trim();
+
+      // Use manual edit if it exists and is newer than the latest submission
+      const manualIsNewer = manualValue && manualUpdate?.updatedAt
+        ? (submissionDate ? manualUpdate.updatedAt > submissionDate : true)
+        : false;
+
+      const value = manualIsNewer ? manualValue : submissionValue;
+      const adminEdited = manualIsNewer;
       if (!value) continue;
 
       const category = getSelectOptionHistoryCategory(question, value);
       const label = (question.analysisLabel || question.label || question.id).trim();
-      const item = { label, value, category };
+      const item = { label, value, category, adminEdited };
 
       if (category === "red") redItems.push(item);
       else if (category === "orange") orangeItems.push(item);
@@ -1311,14 +1342,15 @@ function buildInventoryAlertEmailHtml(alertData, dateStr) {
   }
 
   const sections = alertData.map(({ location, items, submittedAtSeconds }) => {
-    const rows = items.map(({ label, value, category }) => {
+    const rows = items.map(({ label, value, category, adminEdited }) => {
       const isRed = category === "red";
       const borderColor = isRed ? "#dc2626" : "#d97706";
       const bgColor     = isRed ? "#fef2f2"  : "#fffbeb";
-      const textColor   = isRed ? "#7f1d1d"  : "#78350f";
+      const labelColor  = isRed ? "#7f1d1d" : "#78350f";
+      const valueColor  = adminEdited ? "#1d4ed8" : labelColor;
       return `
-        <div style="border-left:4px solid ${borderColor};background:${bgColor};color:${textColor};padding:10px 14px;margin-bottom:8px;border-radius:0 6px 6px 0;">
-          <strong>${label}</strong>: ${value}
+        <div style="border-left:4px solid ${borderColor};background:${bgColor};padding:10px 14px;margin-bottom:8px;border-radius:0 6px 6px 0;">
+          <strong style="color:${labelColor};">${label}</strong><span style="color:${valueColor};">: ${value}</span>
         </div>`;
     }).join("");
 
@@ -1333,9 +1365,9 @@ function buildInventoryAlertEmailHtml(alertData, dateStr) {
 
     return `
       <div style="margin-bottom:28px;">
-        <div style="display:flex;align-items:baseline;gap:10px;border-bottom:1px solid #e5e7eb;padding-bottom:6px;margin-bottom:10px;">
+        <div style="border-bottom:1px solid #e5e7eb;padding-bottom:6px;margin-bottom:10px;">
           <h3 style="margin:0;font-size:1rem;color:#374151;">📍 ${location}</h3>
-          ${submittedLabel ? `<span style="font-size:0.78rem;color:#9ca3af;">Siste skjema: <strong style="color:#374151;">${submittedLabel}</strong></span>` : ""}
+          ${submittedLabel ? `<span style="display:block;margin-top:4px;font-size:0.78rem;color:#9ca3af;">Siste skjema: <strong style="color:#374151;">${submittedLabel}</strong></span>` : ""}
         </div>
         ${rows}
       </div>`;
@@ -1343,7 +1375,7 @@ function buildInventoryAlertEmailHtml(alertData, dateStr) {
 
   return `
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#1f2937;">
-      <h2 style="margin:0 0 4px;">🔴 Varebeholdning – ${dateStr}</h2>
+      <h2 style="margin:0 0 4px;">Varebeholdning – ${dateStr}</h2>
       <p style="color:#6b7280;margin:0 0 24px;font-size:0.9rem;">
         Rød og oransje status per lokasjon, basert på siste stengeskjema.
         Rød er øverst per lokasjon.

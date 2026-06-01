@@ -1397,7 +1397,7 @@
   padding: 5px 8px;
   border-radius: 6px;
   margin-bottom: 4px;
-  border-left: 3px solid;
+  border-left: 4px solid;
 }
 .inventory-alert-item.is-red {
   background: #fef2f2;
@@ -1406,10 +1406,6 @@
 .inventory-alert-item.is-orange {
   background: #fffbeb;
   border-color: #d97706;
-}
-.inventory-alert-item.is-updated {
-  border-color: #2563eb;
-  background: #eff6ff;
 }
 .inventory-alert-item-label {
   font-size: 0.82rem;
@@ -1423,7 +1419,7 @@
   flex-shrink: 0;
 }
 .inventory-alert-item.is-updated .inventory-alert-item-value {
-  color: #2563eb;
+  color: #1d4ed8;
   font-weight: 600;
 }
 
@@ -1555,6 +1551,37 @@ tr:hover .history-row-order-btns {
   position: relative;
   display: grid;
   gap: 8px;
+}
+
+.history-filter-top-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.analyse-email-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.analyse-email-input {
+  appearance: none;
+  padding: 6px 11px;
+  border-radius: 10px;
+  border: 1px solid rgba(19, 38, 53, 0.22);
+  background: rgba(255, 255, 255, 0.82);
+  color: #163042;
+  font: inherit;
+  font-size: 0.88rem;
+  min-width: 200px;
+}
+
+.analyse-email-input:focus {
+  outline: 2px solid rgba(19, 38, 53, 0.4);
+  outline-offset: 1px;
 }
 
 .history-title-block {

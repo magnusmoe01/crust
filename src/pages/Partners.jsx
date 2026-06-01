@@ -6,6 +6,7 @@ import navLogo from "../assets/optimized/nav-logo-1200.png";
 import varigLogo from "../assets/varig-hadeland.webp";
 import opsahlLogo from "../assets/Opsahl-gruppen.webp";
 import osloKommuneLogo from "../assets/oslo-kommune.png";
+import gildeLogo from "../assets/optimized/gilde.png";
 import "./Partners.css";
 
 function Partners() {
@@ -24,6 +25,12 @@ function Partners() {
       focus:
         "Med for første gang i 2026, \nog deler 1 vogn med Frende i Gjøvik.",
       logo: varigLogo,
+    },
+    {
+      name: "Gilde",
+      focus:
+        "Leverandør av kjøttprodukter til Crusts pizzavogner, \nog partner for meningsfull ungdomssysselsetting.",
+      logo: gildeLogo,
     },
     {
       name: "Opsahl Eiendom",
@@ -49,6 +56,7 @@ function Partners() {
   const linkMap = {
     "Frende Forsikring": "/frende",
     "Varig Hadeland Forsikring": "/varig-hadeland",
+    "Gilde": "/gilde",
   };
 
   return (

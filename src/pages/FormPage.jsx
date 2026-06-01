@@ -2038,6 +2038,9 @@ function FormPage() {
   const [testEmailRecipient, setTestEmailRecipient] = useState('')
   const [inventoryAlertState, setInventoryAlertState] = useState({ sending: false, error: '', message: '' })
   const [inventoryTestState, setInventoryTestState] = useState({ sending: false, error: '', message: '' })
+  const [analyseEmailOpen, setAnalyseEmailOpen] = useState(false)
+  const [analyseEmailRecipient, setAnalyseEmailRecipient] = useState('')
+  const [analyseEmailState, setAnalyseEmailState] = useState({ sending: false, error: '', message: '' })
   const [historySubmissionLimit, setHistorySubmissionLimit] = useState('3')
   const [historyDefaultState, setHistoryDefaultState] = useState({
     saving: false,
@@ -4973,6 +4976,21 @@ function FormPage() {
       setTimeout(() => setInventoryTestState((s) => ({ ...s, message: '' })), 4000)
     } catch (error) {
       setInventoryTestState({ sending: false, error: `Feil: ${error.message}`, message: '' })
+    }
+  }
+
+  async function onSendAnalyseEmail(event) {
+    event.preventDefault()
+    const recipient = analyseEmailRecipient.trim()
+    if (!recipient) return
+    setAnalyseEmailState({ sending: true, error: '', message: '' })
+    try {
+      await httpsCallable(functions, 'sendInventoryAlertEmail')({ testRecipient: recipient })
+      setAnalyseEmailState({ sending: false, error: '', message: `Sendt til ${recipient}!` })
+      setAnalyseEmailRecipient('')
+      setTimeout(() => setAnalyseEmailState((s) => ({ ...s, message: '' })), 4000)
+    } catch (error) {
+      setAnalyseEmailState({ sending: false, error: `Feil: ${error.message}`, message: '' })
     }
   }
 
@@ -9799,18 +9817,55 @@ function FormPage() {
                     ) : null}
                     {analysisQuestions.length > 0 ? (
                       <div className="history-filter-bar">
-                        <button
-                          type="button"
-                          className="ghost"
-                          onClick={() => setHistoryQuestionFilterOpen((previous) => !previous)}
-                          aria-expanded={historyQuestionFilterOpen}
-                          aria-controls="history-question-filter"
-                        >
-                          Filtrer spørsmål
-                          {!historyShowAllQuestions && selectedHistoryQuestionIds.length > 0
-                            ? ` (${selectedHistoryQuestionIds.length})`
-                            : ''}
-                        </button>
+                        <div className="history-filter-top-row">
+                          <button
+                            type="button"
+                            className="ghost"
+                            onClick={() => setHistoryQuestionFilterOpen((previous) => !previous)}
+                            aria-expanded={historyQuestionFilterOpen}
+                            aria-controls="history-question-filter"
+                          >
+                            Filtrer spørsmål
+                            {!historyShowAllQuestions && selectedHistoryQuestionIds.length > 0
+                              ? ` (${selectedHistoryQuestionIds.length})`
+                              : ''}
+                          </button>
+                          <button
+                            type="button"
+                            className="ghost"
+                            onClick={() => {
+                              setAnalyseEmailOpen((prev) => !prev)
+                              setAnalyseEmailState({ sending: false, error: '', message: '' })
+                            }}
+                          >
+                            ✉ Send oversikt på epost
+                          </button>
+                        </div>
+                        {analyseEmailOpen ? (
+                          <form className="analyse-email-form" onSubmit={onSendAnalyseEmail}>
+                            <input
+                              type="email"
+                              className="analyse-email-input"
+                              value={analyseEmailRecipient}
+                              onChange={(e) => setAnalyseEmailRecipient(e.target.value)}
+                              placeholder="epost@eksempel.no"
+                              autoFocus
+                            />
+                            <button
+                              type="submit"
+                              className="ghost"
+                              disabled={analyseEmailState.sending || !analyseEmailRecipient.trim()}
+                            >
+                              {analyseEmailState.sending ? 'Sender...' : 'Send'}
+                            </button>
+                            {analyseEmailState.message ? (
+                              <span className="history-alert-msg">{analyseEmailState.message}</span>
+                            ) : null}
+                            {analyseEmailState.error ? (
+                              <span className="forms-error">{analyseEmailState.error}</span>
+                            ) : null}
+                          </form>
+                        ) : null}
                         {historyQuestionFilterOpen ? (
                           <div className="history-filter-panel" id="history-question-filter">
                             <div className="history-filter-actions">

@@ -38,6 +38,7 @@ const Contact = lazy(() => import("./pages/Contact"));
 const Forms = lazy(() => import("./pages/Forms"));
 const FormPage = lazy(() => import("./pages/FormPage"));
 const VarigHadeland = lazy(() => import("./pages/VarigHadeland"));
+const Gilde = lazy(() => import("./pages/Gilde"));
 const Obos = lazy(() => import("./pages/Obos"));
 const Admin = lazy(() => import("./pages/Admin"));
 const AdminLocations = lazy(() => import("./pages/AdminLocations"));
@@ -326,6 +327,7 @@ function App() {
         <Route path="/omtale" element={withPageLoader(<Publications />)} />
         <Route path="/varsling" element={withPageLoader(<Varsling />)} />
         <Route path="/varig-hadeland" element={withPageLoader(<VarigHadeland />)} />
+        <Route path="/gilde" element={withPageLoader(<Gilde />)} />
         <Route path="/obos" element={withPageLoader(<Obos />)} />
         <Route path="/admin" element={withPageLoader(<Admin />)} />
 
