@@ -10176,17 +10176,14 @@ function FormPage() {
                   </div>
                   <div className="submission-modal-content">
                     {(() => {
-                      const restockQuestions = analysisQuestions.filter((q) => q.shouldRestock)
-                      const selectedQuestion = restockQuestions.find((q) => q.id === inventoryModalQuestionId)
+                      const editableQuestions = formData.questions.filter((q) => !isSectionQuestion(q))
                       const latestSubmission = inventoryModalLocation
                         ? historyRows.find((r) => r.location === inventoryModalLocation)?.items[0]
                         : null
-
                       return (
                         <div className="inventory-update-steps">
-                          {/* Step 1: Location */}
                           <label className="field-block">
-                            <span>1. Velg sted</span>
+                            <span>Velg sted</span>
                             <select
                               value={inventoryModalLocation}
                               onChange={(e) => {
@@ -10202,52 +10199,47 @@ function FormPage() {
                             </select>
                           </label>
 
-                          {/* Step 2: Product */}
                           {inventoryModalLocation ? (
-                            <label className="field-block">
-                              <span>2. Velg produkt</span>
-                              <select
-                                value={inventoryModalQuestionId}
-                                onChange={(e) => {
-                                  setInventoryModalQuestionId(e.target.value)
-                                  setInventoryModalAnswers({})
-                                }}
-                              >
-                                <option value="">Velg produkt...</option>
-                                {restockQuestions.map((q) => (
-                                  <option key={q.id} value={q.id}>{q.analysisLabel || q.label}</option>
-                                ))}
-                              </select>
-                            </label>
+                            <div className="inventory-update-questions">
+                              {editableQuestions.map((q) => {
+                                const currentValue = String(latestSubmission?.answers?.[q.id] || '').trim()
+                                const existingUpdate = inventoryUpdates[inventoryModalLocation]?.answers?.[q.id]
+                                const draftValue = inventoryModalAnswers[q.id]
+                                const displayValue = draftValue !== undefined ? draftValue : (existingUpdate || currentValue || '')
+                                return (
+                                  <label key={q.id} className="field-block">
+                                    <span>{q.analysisLabel || q.label}</span>
+                                    {(currentValue || existingUpdate) ? (
+                                      <small className="field-help inventory-update-current">
+                                        {existingUpdate
+                                          ? <>Forrige oppdatering: <span className="inventory-updated-value">{existingUpdate}</span></>
+                                          : <>Siste skjema: {currentValue}</>
+                                        }
+                                      </small>
+                                    ) : null}
+                                    {q.type === 'select' && Array.isArray(q.options) ? (
+                                      <select
+                                        value={inventoryModalAnswers[q.id] || ''}
+                                        onChange={(e) => setInventoryModalAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                                      >
+                                        <option value="">— uendret —</option>
+                                        {q.options.map((opt) => (
+                                          <option key={opt} value={opt}>{opt}</option>
+                                        ))}
+                                      </select>
+                                    ) : (
+                                      <input
+                                        type={q.type === 'date' ? 'date' : 'text'}
+                                        placeholder="— uendret —"
+                                        value={inventoryModalAnswers[q.id] || ''}
+                                        onChange={(e) => setInventoryModalAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                                      />
+                                    )}
+                                  </label>
+                                )
+                              })}
+                            </div>
                           ) : null}
-
-                          {/* Step 3: New value */}
-                          {inventoryModalLocation && selectedQuestion ? (() => {
-                            const currentValue = String(latestSubmission?.answers?.[selectedQuestion.id] || '').trim()
-                            const existingUpdate = inventoryUpdates[inventoryModalLocation]?.answers?.[selectedQuestion.id]
-                            return (
-                              <label className="field-block">
-                                <span>3. Ny beholdning</span>
-                                {(currentValue || existingUpdate) ? (
-                                  <small className="field-help inventory-update-current">
-                                    {existingUpdate
-                                      ? <>Forrige oppdatering: <span className="inventory-updated-value">{existingUpdate}</span></>
-                                      : <>Siste skjema: {currentValue}</>
-                                    }
-                                  </small>
-                                ) : null}
-                                <select
-                                  value={inventoryModalAnswers[selectedQuestion.id] || ''}
-                                  onChange={(e) => setInventoryModalAnswers({ [selectedQuestion.id]: e.target.value })}
-                                >
-                                  <option value="">Velg ny verdi...</option>
-                                  {(selectedQuestion.options || []).map((option) => (
-                                    <option key={option} value={option}>{option}</option>
-                                  ))}
-                                </select>
-                              </label>
-                            )
-                          })() : null}
                         </div>
                       )
                     })()}
@@ -10262,7 +10254,6 @@ function FormPage() {
                       className="cta"
                       disabled={
                         !inventoryModalLocation ||
-                        !inventoryModalQuestionId ||
                         inventoryModalSaving ||
                         Object.values(inventoryModalAnswers).every((v) => !String(v || '').trim())
                       }
