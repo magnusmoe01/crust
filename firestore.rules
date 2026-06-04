@@ -116,5 +116,10 @@ service cloud.firestore {
       allow read, write: if isCrustUser();
     }
 
+    match /phoneEmails/{docId} {
+      allow create, update: if true;
+      allow read, delete: if isCrustUser();
+    }
+
   }
 }
