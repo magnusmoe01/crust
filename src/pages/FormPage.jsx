@@ -2009,6 +2009,8 @@ function FormPage() {
   const [saveState, setSaveState] = useState({ saving: false, message: '', error: '' })
 
   const [submissions, setSubmissions] = useState([])
+  const [submissionErrors, setSubmissionErrors] = useState([])
+  const [loadingErrors, setLoadingErrors] = useState(false)
   const [manualRemarks, setManualRemarks] = useState([])
   const [loadingSubmissions, setLoadingSubmissions] = useState(false)
   const [loadingManualRemarks, setLoadingManualRemarks] = useState(false)
@@ -2828,7 +2830,27 @@ function FormPage() {
       }
     }
 
+    async function loadErrors() {
+      setLoadingErrors(true)
+      try {
+        const snap = await getDocs(query(
+          collection(db, 'submissionErrors'),
+          where('formSlug', '==', activeFormSlug),
+        ))
+        if (cancelled) return
+        setSubmissionErrors(
+          snap.docs
+            .map((d) => ({ id: d.id, ...d.data() }))
+            .sort((a, b) => (b.occurredAt?.seconds || 0) - (a.occurredAt?.seconds || 0))
+        )
+      } catch {
+      } finally {
+        if (!cancelled) setLoadingErrors(false)
+      }
+    }
+
     loadSubmissions()
+    loadErrors()
 
     return () => {
       cancelled = true
@@ -3321,7 +3343,7 @@ function FormPage() {
         capturedAt: capturedAtDate,
       })
       await uploadBytes(ref(storage, path), nextFile, {
-        contentType: nextFile.type,
+        contentType: nextFile.type || 'image/jpeg',
       })
       const previewUrl = await getDownloadURL(ref(storage, path))
 
@@ -3490,7 +3512,7 @@ function FormPage() {
         capturedAt: capturedAtDate,
       })
       await uploadBytes(ref(storage, path), nextFile, {
-        contentType: nextFile.type,
+        contentType: nextFile.type || 'image/jpeg',
       })
       const previewUrl = await getDownloadURL(ref(storage, path))
 
@@ -3872,7 +3894,7 @@ function FormPage() {
           const fileName = sanitizeFileName(file.name)
           const path = `forms/images/${activeFormSlug}/${submissionRef.id}-${question.id}-${fileName}`
           await uploadBytes(ref(storage, path), file, {
-            contentType: file.type,
+            contentType: file.type || 'image/jpeg',
           })
           const downloadUrl = await getDownloadURL(ref(storage, path))
           imagePaths.push(path)
@@ -3901,7 +3923,7 @@ function FormPage() {
           const fileName = sanitizeFileName(file.name)
           const path = `forms/images/${activeFormSlug}/${submissionRef.id}-${question.id}-detail-${fileName}`
           await uploadBytes(ref(storage, path), file, {
-            contentType: file.type,
+            contentType: file.type || 'image/jpeg',
           })
           submissionAnswers[getSelectDetailAnswerKey(question.id)] = path
           receiptImageMap[path] = await getDownloadURL(ref(storage, path))
@@ -4036,14 +4058,20 @@ function FormPage() {
       })
     } catch (error) {
       receiptWindow?.close()
-      console.error('Failed to submit form', {
+      const errorCode = error?.code || 'unknown'
+      const errorMessage = error?.message || 'No message'
+      console.error('Failed to submit form', { formSlug: activeFormSlug, error })
+      addDoc(collection(db, 'submissionErrors'), {
         formSlug: activeFormSlug,
-        error,
-      })
+        errorCode,
+        errorMessage,
+        occurredAt: serverTimestamp(),
+        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+      }).catch(() => {})
       setSubmitState({
         submitting: false,
         message: '',
-        error: getSubmitErrorMessage(error),
+        error: `${getSubmitErrorMessage(error)} (kode: ${errorCode})`,
       })
     }
   }
@@ -6043,7 +6071,7 @@ function FormPage() {
           const fileName = sanitizeFileName(file.name)
           const path = `forms/remarks/${activeFormSlug}/${remarkRef.id}-${uploadStartedAt}-${index}-${fileName}`
           await uploadBytes(ref(storage, path), file, {
-            contentType: file.type,
+            contentType: file.type || 'image/jpeg',
           })
           const downloadUrl = await getDownloadURL(ref(storage, path))
 
@@ -9589,6 +9617,40 @@ function FormPage() {
                   </div>
                 ) : null}
 
+              </div>
+            ) : null}
+
+            {isSubmissionsView && isAdmin && (submissionErrors.length > 0 || loadingErrors) ? (
+              <div className="responses-box submissions-overview">
+                <h3>Innsendingsfeil</h3>
+                {loadingErrors ? <p>Laster...</p> : null}
+                {!loadingErrors && submissionErrors.length > 0 ? (
+                  <table className="submissions-table" style={{ fontSize: '0.82rem' }}>
+                    <thead>
+                      <tr>
+                        <th>Tidspunkt</th>
+                        <th>Feilkode</th>
+                        <th>Melding</th>
+                        <th>Enhet</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {submissionErrors.map((e) => {
+                        const d = e.occurredAt?.toDate?.()
+                        const time = d ? d.toLocaleString('nb-NO', { timeZone: 'Europe/Oslo', dateStyle: 'short', timeStyle: 'short' }) : '—'
+                        const ua = String(e.userAgent || '').slice(0, 60)
+                        return (
+                          <tr key={e.id}>
+                            <td style={{ whiteSpace: 'nowrap' }}>{time}</td>
+                            <td><code>{e.errorCode}</code></td>
+                            <td style={{ maxWidth: 260, wordBreak: 'break-word' }}>{e.errorMessage}</td>
+                            <td style={{ color: '#6b7280', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={e.userAgent}>{ua}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                ) : null}
               </div>
             ) : null}
 

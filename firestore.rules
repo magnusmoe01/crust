@@ -121,5 +121,10 @@ service cloud.firestore {
       allow read, delete: if isCrustUser();
     }
 
+    match /submissionErrors/{docId} {
+      allow create: if true;
+      allow read, delete: if isCrustUser();
+    }
+
   }
 }
