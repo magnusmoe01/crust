@@ -1249,6 +1249,7 @@ async function buildInventoryAlertData() {
     if (data.location) {
       inventoryUpdatesByLocation.set(String(data.location).trim(), {
         answers: data.answers || {},
+        answerLogs: data.answerLogs || {},
         updatedAt: data.updatedAt?.toDate?.() || null,
       });
     }
@@ -1303,9 +1304,15 @@ async function buildInventoryAlertData() {
       const submissionValue = String(submission.answers?.[question.id] || "").trim();
       const manualValue = String(manualUpdate?.answers?.[question.id] || "").trim();
 
-      // Use manual edit if it exists and is newer than the latest submission
-      const manualIsNewer = manualValue && manualUpdate?.updatedAt
-        ? (submissionDate ? manualUpdate.updatedAt > submissionDate : true)
+      // Use per-answer log timestamp if available, fall back to doc-level updatedAt
+      const answerLog = manualUpdate?.answerLogs?.[question.id];
+      const manualTs = answerLog?.[0]?.updatedAt
+        ? new Date(answerLog[0].updatedAt)
+        : (manualUpdate?.updatedAt || null);
+
+      // Use manual edit only if it exists and is newer than the latest submission
+      const manualIsNewer = manualValue && manualTs
+        ? (submissionDate ? manualTs > submissionDate : true)
         : false;
 
       const value = manualIsNewer ? manualValue : submissionValue;

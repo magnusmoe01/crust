@@ -1548,6 +1548,22 @@ function getFlaggedStatusLabel(status) {
   return String(status || '').trim().toLowerCase() === 'complete' ? 'Complete' : 'Open'
 }
 
+function getEffectiveInventoryValue(questionId, locationUpdate, latestSubmittedAt) {
+  if (!locationUpdate) return ''
+  const manualValue = locationUpdate.answers?.[questionId]
+  if (!manualValue) return ''
+  const logs = locationUpdate.answerLogs?.[questionId]
+  const manualTs = logs?.[0]?.updatedAt
+    ? new Date(logs[0].updatedAt)
+    : locationUpdate.updatedAt instanceof Date
+      ? locationUpdate.updatedAt
+      : null
+  if (!manualTs) return manualValue
+  const submittedTs = latestSubmittedAt instanceof Date ? latestSubmittedAt : null
+  if (submittedTs && submittedTs > manualTs) return ''
+  return manualValue
+}
+
 function getHistoryAnswerValues(submission, question) {
   const mainValue = submission.answers?.[question.id]
   const detailValue = submission.answers?.[getSelectDetailAnswerKey(question.id)]
@@ -2061,6 +2077,7 @@ function FormPage() {
   const [editPhoneDraft, setEditPhoneDraft] = useState('')
   const [editPhoneState, setEditPhoneState] = useState({ saving: false, error: '' })
   const [inventoryUpdates, setInventoryUpdates] = useState({})
+  const [hideUpdatedValues, setHideUpdatedValues] = useState(false)
   const [showInventoryModal, setShowInventoryModal] = useState(false)
   const [inventoryModalLocation, setInventoryModalLocation] = useState('')
   const [inventoryModalQuestionId, setInventoryModalQuestionId] = useState('')
@@ -5033,20 +5050,34 @@ function FormPage() {
     try {
       const existingAnswers = inventoryUpdates[inventoryModalLocation]?.answers || {}
       const mergedAnswers = { ...existingAnswers, ...nonEmpty }
+      const existingLogs = inventoryUpdates[inventoryModalLocation]?.answerLogs || {}
+      const now = new Date()
+      const newLogs = { ...existingLogs }
+      const updatedBy = user?.email || 'admin'
+      for (const [qId, val] of Object.entries(nonEmpty)) {
+        const prev = existingAnswers[qId]
+        if (prev === val) continue
+        newLogs[qId] = [
+          { value: val, updatedAt: now.toISOString(), updatedBy },
+          ...(existingLogs[qId] || []),
+        ].slice(0, 20)
+      }
       const docId = `${STENGESKJEMA_ID}:${inventoryModalLocation}`
       await setDoc(doc(db, 'inventoryUpdates', docId), {
         formSlug: STENGESKJEMA_ID,
         location: inventoryModalLocation,
         answers: mergedAnswers,
+        answerLogs: newLogs,
         updatedAt: serverTimestamp(),
-        updatedBy: user?.email || 'admin',
+        updatedBy,
       })
       setInventoryUpdates((prev) => ({
         ...prev,
         [inventoryModalLocation]: {
           answers: mergedAnswers,
-          updatedAt: new Date(),
-          updatedBy: user?.email || 'admin',
+          answerLogs: newLogs,
+          updatedAt: now,
+          updatedBy,
         },
       }))
       setShowInventoryModal(false)
@@ -7152,6 +7183,7 @@ function FormPage() {
           if (data.location) {
             updates[data.location] = {
               answers: data.answers || {},
+              answerLogs: data.answerLogs || {},
               updatedAt: data.updatedAt?.toDate?.() || null,
               updatedBy: data.updatedBy || '',
             }
@@ -9892,6 +9924,14 @@ function FormPage() {
                               ? ` (${selectedHistoryQuestionIds.length})`
                               : ''}
                           </button>
+                          <label className="checkbox-inline analyse-hide-updated-label">
+                            <input
+                              type="checkbox"
+                              checked={hideUpdatedValues}
+                              onChange={(e) => setHideUpdatedValues(e.target.checked)}
+                            />
+                            Skjul oppdaterte verdier
+                          </label>
                           <button
                             type="button"
                             className="ghost"
@@ -10001,7 +10041,7 @@ function FormPage() {
                     const locationUpdate = inventoryUpdates[row.location]
                     const items = analysisQuestions.flatMap((q) => {
                       if (q.excludeFromLocationStatus) return []
-                      const updatedValue = locationUpdate?.answers?.[q.id]
+                      const updatedValue = getEffectiveInventoryValue(q.id, locationUpdate, latest.submittedAt)
                       if (!updatedValue && hasAnalysisRefillAction(latest, q.id)) return []
                       const value = updatedValue || String(latest.answers?.[q.id] || '').trim()
                       if (!value) return []
@@ -10137,8 +10177,8 @@ function FormPage() {
                                 const values = submission
                                   ? getHistoryAnswerValues(submission, question)
                                   : []
-                                const inventoryUpdate = slotIndex === 0
-                                  ? (inventoryUpdates[row.location]?.answers?.[question.id] || '')
+                                const inventoryUpdate = slotIndex === 0 && !hideUpdatedValues
+                                  ? getEffectiveInventoryValue(question.id, inventoryUpdates[row.location], submission?.submittedAt)
                                   : ''
                                 const historyCellCategory = submission
                                   ? getHistoryCellCategory(question, submission)
@@ -10215,6 +10255,63 @@ function FormPage() {
                 visibleHistoryQuestions.length === 0 ? (
                   <p>Ingen spørsmål er valgt i filteret.</p>
                 ) : null}
+
+                {!loadingSubmissions && (() => {
+                  const logEntries = []
+                  for (const [location, upd] of Object.entries(inventoryUpdates)) {
+                    for (const [qId, entries] of Object.entries(upd.answerLogs || {})) {
+                      const question = analysisQuestions.find((q) => q.id === qId)
+                      const label = question?.analysisLabel || question?.label || qId
+                      for (const entry of entries) {
+                        logEntries.push({
+                          location,
+                          label,
+                          value: entry.value,
+                          updatedAt: entry.updatedAt ? new Date(entry.updatedAt) : null,
+                          updatedBy: entry.updatedBy || '',
+                        })
+                      }
+                    }
+                  }
+                  logEntries.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+                  if (logEntries.length === 0) return null
+                  return (
+                    <div className="inventory-update-log">
+                      <h4 className="inventory-update-log-title">Logg – manuelle oppdateringer</h4>
+                      <table className="inventory-update-log-table">
+                        <thead>
+                          <tr>
+                            <th>Tidspunkt</th>
+                            <th>Lokasjon</th>
+                            <th>Produkt</th>
+                            <th>Verdi</th>
+                            <th>Av</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {logEntries.map((entry, i) => (
+                            <tr key={i}>
+                              <td className="inventory-log-time">
+                                {entry.updatedAt
+                                  ? entry.updatedAt.toLocaleString('no-NO', {
+                                      day: '2-digit',
+                                      month: 'short',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })
+                                  : '–'}
+                              </td>
+                              <td>{entry.location}</td>
+                              <td>{entry.label}</td>
+                              <td className="inventory-log-value">{entry.value}</td>
+                              <td className="inventory-log-by">{entry.updatedBy}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                })()}
               </div>
             ) : null}
 
