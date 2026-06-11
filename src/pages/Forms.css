@@ -1299,11 +1299,11 @@
 
 .history-table-wrap {
   width: 100%;
-  display: flex;
-  justify-content: flex-start;
+  display: block;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain;
+  border-radius: 8px;
 }
 
 .history-header {
@@ -1992,16 +1992,50 @@ tr:hover .history-row-order-btns {
   padding-bottom: 6px;
 }
 
+.history-table thead th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: rgba(255, 247, 238, 0.98);
+  box-shadow: 2px 0 4px -1px rgba(24, 44, 60, 0.14);
+}
+
 .history-table tbody th {
   color: #182c3c;
   min-width: 160px;
   max-width: 220px;
   background: rgba(255, 247, 238, 0.98);
-  border-right: 1px solid rgba(24, 44, 60, 0.18);
+  border-right: none;
+  box-shadow: 2px 0 4px -1px rgba(24, 44, 60, 0.14);
   font-weight: 700;
   position: sticky;
   left: 0;
-  z-index: 1;
+  z-index: 2;
+}
+
+@media (max-width: 700px) {
+  .history-table tbody th {
+    min-width: 120px;
+    max-width: 150px;
+    font-size: 0.82rem;
+    padding: 8px 7px;
+  }
+
+  .history-table th,
+  .history-table td {
+    padding: 8px 7px;
+    font-size: 0.85rem;
+    max-width: 110px;
+  }
+
+  .history-cell-meta strong,
+  .history-cell-meta small {
+    font-size: 0.78rem;
+  }
+
+  .history-table thead .history-location-heading {
+    font-size: 0.88rem;
+  }
 }
 
 .history-cell {
@@ -2420,6 +2454,33 @@ tr:hover .history-row-order-btns {
 .review-email-override-input:focus {
   outline: none;
   border-color: #182c3c;
+}
+
+.review-email-suggestion {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 0;
+  font-size: 0.82rem;
+  color: rgba(24,44,60,0.55);
+}
+
+.review-email-suggestion strong {
+  color: rgba(24,44,60,0.75);
+}
+
+.review-email-suggestion-btn {
+  font-size: 0.78rem;
+  padding: 1px 8px;
+  border: 1px solid rgba(24,44,60,0.2);
+  border-radius: 4px;
+  color: rgba(24,44,60,0.65);
+  cursor: pointer;
+  background: none;
+}
+
+.review-email-suggestion-btn:hover {
+  background: rgba(24,44,60,0.06);
 }
 
 .email-preview-body {

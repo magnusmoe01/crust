@@ -2051,6 +2051,7 @@ function FormPage() {
   const [reviewSendEmail, setReviewSendEmail] = useState(true)
   const [reviewEmailPreviewData, setReviewEmailPreviewData] = useState(null)
   const [reviewEmailOverride, setReviewEmailOverride] = useState('')
+  const [reviewEmailSuggestion, setReviewEmailSuggestion] = useState('')
   const [reviewEmailSaving, setReviewEmailSaving] = useState(false)
   const [testEmailState, setTestEmailState] = useState({ sending: false, error: '', message: '' })
   const [testEmailRecipient, setTestEmailRecipient] = useState('')
@@ -3212,28 +3213,37 @@ function FormPage() {
   useEffect(() => {
     if (!selectedSubmissionId || !isReviewView) {
       setReviewEmailOverride('')
+      setReviewEmailSuggestion('')
       return
     }
     const sub = submissions.find((s) => s.id === selectedSubmissionId)
     if (!sub) {
       setReviewEmailOverride('')
+      setReviewEmailSuggestion('')
       return
     }
     const directEmail =
       sub.submitterEmail ||
       getSubmissionEmail(sub.answers, formData.questions)
+    const phone = getSubmissionPhone(sub.answers, formData.questions)
     if (directEmail) {
       setReviewEmailOverride(directEmail)
-      return
     }
-    const phone = getSubmissionPhone(sub.answers, formData.questions)
     if (!phone) {
-      setReviewEmailOverride('')
+      if (!directEmail) setReviewEmailOverride('')
+      setReviewEmailSuggestion('')
       return
     }
     getDoc(doc(db, 'phoneEmails', phone))
-      .then((snap) => setReviewEmailOverride(snap.exists() ? (snap.data().email || '') : ''))
-      .catch(() => setReviewEmailOverride(''))
+      .then((snap) => {
+        const saved = snap.exists() ? (snap.data().email || '') : ''
+        setReviewEmailSuggestion(saved)
+        if (!directEmail) setReviewEmailOverride(saved)
+      })
+      .catch(() => {
+        setReviewEmailSuggestion('')
+        if (!directEmail) setReviewEmailOverride('')
+      })
   }, [selectedSubmissionId, isReviewView, submissions])
 
   function onAnswerChange(questionId, value) {
@@ -10849,6 +10859,18 @@ function FormPage() {
                       onChange={(e) => setReviewEmailOverride(e.target.value)}
                     />
                   </label>
+                  {reviewEmailSuggestion && reviewEmailSuggestion !== reviewEmailOverride ? (
+                    <p className="review-email-suggestion">
+                      Sist sendt til: <strong>{reviewEmailSuggestion}</strong>
+                      <button
+                        type="button"
+                        className="ghost review-email-suggestion-btn"
+                        onClick={() => setReviewEmailOverride(reviewEmailSuggestion)}
+                      >
+                        Bruk
+                      </button>
+                    </p>
+                  ) : null}
                   <span><strong>CC:</strong> brandon@crust.no, magnus@crust.no</span>
                   {!reviewEmailOverride ? (
                     <p className="email-preview-no-email">Ingen e-post — e-post sendes ikke til innsender.</p>
