@@ -7316,6 +7316,7 @@ function FormPage() {
     (_, index) => index,
   )
   const receiptAnswerEntries = getOrderedAnswerEntries(receiptSubmission?.answers || {}, formData.questions)
+    .filter(([key]) => !key.endsWith(IMAGE_CAPTURED_AT_SUFFIX))
   const receiptEditState = getReceiptEditState(receiptSubmission?.submittedAtIso)
   const heroEyebrow = isReceiptPage ? publicCopy.receiptEyebrow : publicCopy.formEyebrow
   const localizedFormTitle = translateText(formData.title)
