@@ -4038,6 +4038,17 @@ function FormPage() {
         )
       }
 
+      const submittedLocation = getSubmissionLocation(submissionAnswers, formData.questions)
+      if (submittedLocation) {
+        const inventoryDocId = `${activeFormSlug}:${submittedLocation}`
+        deleteDoc(doc(db, 'inventoryUpdates', inventoryDocId)).catch(() => {})
+        setInventoryUpdates((prev) => {
+          const next = { ...prev }
+          delete next[submittedLocation]
+          return next
+        })
+      }
+
       if (receiptTokenValue) {
         const receiptUrl = `${window.location.origin}/skjema/${activeFormSlug}/kvittering/${receiptTokenValue}`
         receiptWindow?.location.replace(
