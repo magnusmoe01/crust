@@ -576,9 +576,7 @@ function buildReviewEmailHtml(formTitle, flaggedAnswers, approvedAnswers, review
   const svgSad     = `<span style="display:inline-block;font-size:22px;line-height:1;vertical-align:middle;">&#128577;</span>`;
 
   // ── Count bar ──────────────────────────────────────────────────────────────
-  const rawName = reviewedBy ? reviewedBy.replace(/@.*/, "") : null;
-  const reviewerName = rawName ? rawName.charAt(0).toUpperCase() + rawName.slice(1) : null;
-  const reviewerLabel = isTest ? "TEST" : (reviewerName || null);
+  const reviewerLabel = isTest ? "TEST" : (reviewedBy || null);
   const countBar = `
     <div style="display:flex;align-items:center;padding:14px 18px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:8px;">
       <span style="display:inline-flex;align-items:center;gap:8px;color:#166534;font-weight:700;font-size:18px;margin-right:32px;">${svgHappy}&nbsp;${happyCount}</span>
@@ -649,6 +647,13 @@ function buildReviewEmailHtml(formTitle, flaggedAnswers, approvedAnswers, review
       <a href="${reviewUrl}" style="display:inline-block;padding:12px 24px;background:#1f2937;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700;font-size:14px;">Se full gjennomgang</a>
     </div>` : "";
 
+  const needsConfirm = (neutralCount > 0 || sadCount > 0 || Boolean(generalFeedback)) && reviewUrl;
+  const confirmBlock = needsConfirm ? `
+    <div style="margin:20px 0 0;padding:16px 20px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;">
+      <p style="margin:0 0 12px;font-size:14px;color:#78350f;line-height:1.5;">Du har fått en eller flere tilbakemeldinger. Bekreft at du har lest dem.</p>
+      <a href="${reviewUrl}" style="display:block;width:100%;box-sizing:border-box;padding:12px 20px;background:#d97706;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:700;font-size:14px;text-align:center;">Bekreft at du har lest tilbakemeldingen →</a>
+    </div>` : "";
+
   const generalFeedbackBlock = generalFeedback
     ? `<div style="margin:0 0 20px;padding:14px 18px;background:#f0f4ff;border-left:4px solid #3b82f6;border-radius:0 8px 8px 0;">
          <p style="margin:0;font-size:14px;color:#1e3a5f;line-height:1.6;">${generalFeedback}</p>
@@ -676,6 +681,7 @@ function buildReviewEmailHtml(formTitle, flaggedAnswers, approvedAnswers, review
         <h2 style="margin:0 0 10px">Stengeskjemaet ditt har blitt gjennomgått</h2>
         ${intro}
         ${countBar}
+        ${confirmBlock}
         ${generalFeedbackBlock}
         ${flaggedSection}
         ${approvedSection}
@@ -1339,8 +1345,26 @@ async function buildInventoryAlertData() {
   return result;
 }
 
-function buildInventoryAlertEmailHtml(alertData, dateStr) {
-  if (alertData.length === 0) {
+function buildInventoryAlertEmailHtml(alertData, dateStr, overdueFeedback = []) {
+  const overdueSectionHtml = overdueFeedback.length > 0 ? `
+    <div style="margin-bottom:28px;padding:16px 20px;background:#fef9c3;border-left:4px solid #ca8a04;border-radius:0 6px 6px 0;">
+      <h3 style="margin:0 0 12px;font-size:1rem;color:#713f12;">⚠️ Tilbakemeldinger ikke bekreftet lest (${overdueFeedback.length})</h3>
+      ${overdueFeedback.map(f => `
+        <div style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #fde68a;">
+          <div style="font-size:0.88rem;color:#713f12;">
+            <strong>Vurdert:</strong> ${f.reviewedStr} (${f.hoursAgo}t siden)
+            ${f.neutral > 0 ? `&nbsp;· <span style="color:#b45309;">🟡 ${f.neutral} nøytral</span>` : ""}
+            ${f.sad > 0 ? `&nbsp;· <span style="color:#991b1b;">🔴 ${f.sad} surmunn</span>` : ""}
+          </div>
+          ${f.generalFeedback ? `<div style="font-size:0.85rem;color:#78350f;margin-top:4px;font-style:italic;">"${f.generalFeedback}"</div>` : ""}
+          ${f.receiptToken ? `<div style="margin-top:6px;"><a href="https://crust.no/skjema/stengeskjema/kvittering/${f.receiptToken}" style="font-size:0.82rem;color:#1d4ed8;">Åpne kvittering →</a></div>` : ""}
+        </div>`).join("")}
+      <div style="margin-top:8px;">
+        <a href="https://crust.no/skjema/stengeskjema/submissions" style="font-size:0.82rem;color:#1d4ed8;">Registrer oppfølging gjort på /submissions →</a>
+      </div>
+    </div>` : "";
+
+  if (alertData.length === 0 && overdueFeedback.length === 0) {
     return `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#1f2937;">
         <h2 style="margin:0 0 8px;">Varebeholdning – ${dateStr}</h2>
@@ -1387,6 +1411,7 @@ function buildInventoryAlertEmailHtml(alertData, dateStr) {
         Rød og oransje status per lokasjon, basert på siste stengeskjema.
         Rød er øverst per lokasjon.
       </p>
+      ${overdueSectionHtml}
       ${sections}
       <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0 16px;" />
       <p style="font-size:0.8rem;color:#9ca3af;margin:0;">
@@ -1396,16 +1421,55 @@ function buildInventoryAlertEmailHtml(alertData, dateStr) {
     </div>`;
 }
 
+async function buildOverdueFeedbackData() {
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const snap = await db.collection("formSubmissions")
+    .where("formSlug", "==", "stengeskjema")
+    .where("status", "==", "reviewed")
+    .get();
+  const overdue = [];
+  for (const d of snap.docs) {
+    const data = d.data();
+    if (data.rejected) continue;
+    if (data.feedbackReadConfirmed) continue;
+    if (data.followUpDone) continue;
+    const neutral = data.reviewScoreSummary?.neutral || 0;
+    const sad = data.reviewScoreSummary?.sad || 0;
+    if (neutral === 0 && sad === 0 && !data.generalFeedback) continue;
+    const reviewedAt = data.reviewedAt?.toDate?.();
+    if (!reviewedAt || reviewedAt > cutoff) continue;
+    const days2 = ["søn","man","tir","ons","tor","fre","lør"];
+    const pad = (n) => String(n).padStart(2, "0");
+    const reviewedStr = `${days2[reviewedAt.getDay()]} ${reviewedAt.getDate()}. kl. ${pad(reviewedAt.getHours())}:${pad(reviewedAt.getMinutes())}`;
+    const hoursAgo = Math.floor((Date.now() - reviewedAt.getTime()) / 3600000);
+    overdue.push({
+      id: d.id,
+      receiptToken: data.receiptToken || "",
+      name: data.answers ? Object.values(data.answers).find(v => typeof v === "string" && v.length > 1 && v.length < 60) || "" : "",
+      neutral,
+      sad,
+      generalFeedback: data.generalFeedback || "",
+      reviewedStr,
+      hoursAgo,
+    });
+  }
+  overdue.sort((a, b) => b.hoursAgo - a.hoursAgo);
+  return overdue;
+}
+
 async function doSendInventoryAlert(testRecipient) {
   const days    = ["søndag","mandag","tirsdag","onsdag","torsdag","fredag","lørdag"];
   const months  = ["januar","februar","mars","april","mai","juni","juli","august","september","oktober","november","desember"];
   const now     = new Date();
   const dateStr = `${days[now.getDay()]} ${now.getDate()}. ${months[now.getMonth()]} ${now.getFullYear()}`;
 
-  const alertData = await buildInventoryAlertData();
-  const html      = buildInventoryAlertEmailHtml(alertData, dateStr);
-  const subject   = alertData.length > 0
-    ? `Varebeholdning ${now.getDate()}. ${months[now.getMonth()]}: ${alertData.reduce((s, l) => s + l.items.filter(i => i.category === "red").length, 0)} røde, ${alertData.reduce((s, l) => s + l.items.filter(i => i.category === "orange").length, 0)} oransje`
+  const [alertData, overdueFeedback] = await Promise.all([
+    buildInventoryAlertData(),
+    buildOverdueFeedbackData(),
+  ]);
+  const html = buildInventoryAlertEmailHtml(alertData, dateStr, overdueFeedback);
+  const subject   = alertData.length > 0 || overdueFeedback.length > 0
+    ? `Varebeholdning ${now.getDate()}. ${months[now.getMonth()]}: ${alertData.reduce((s, l) => s + l.items.filter(i => i.category === "red").length, 0)} røde, ${alertData.reduce((s, l) => s + l.items.filter(i => i.category === "orange").length, 0)} oransje${overdueFeedback.length > 0 ? `, ${overdueFeedback.length} ubekreftet tilbakemelding` : ""}`
     : `Varebeholdning ${now.getDate()}. ${months[now.getMonth()]}: Alt OK`;
 
   const toRecipients = testRecipient
@@ -1436,6 +1500,57 @@ exports.sendInventoryAlertEmail = onCall(
   async (req) => {
     const testRecipient = typeof req.data?.testRecipient === "string" ? req.data.testRecipient.trim() : null;
     return doSendInventoryAlert(testRecipient || null);
+  },
+);
+
+// Confirm that staff has read their feedback on a reviewed closing form
+exports.confirmFeedbackRead = onCall(
+  { region: "europe-west1", invoker: "public" },
+  async ({ data }) => {
+    const { receiptToken } = data || {};
+    if (!receiptToken || typeof receiptToken !== "string") {
+      throw new HttpsError("invalid-argument", "receiptToken required");
+    }
+    const receiptSnap = await db.collection("formSubmissionReceipts").doc(receiptToken).get();
+    if (!receiptSnap.exists) throw new HttpsError("not-found", "Receipt not found");
+    const { submissionId } = receiptSnap.data() || {};
+    if (!submissionId) throw new HttpsError("failed-precondition", "Receipt has no submissionId");
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    await Promise.all([
+      db.collection("formSubmissions").doc(submissionId).update({
+        feedbackReadConfirmed: true,
+        feedbackReadAt: now,
+      }),
+      db.collection("formSubmissionReceipts").doc(receiptToken).update({
+        feedbackReadConfirmed: true,
+      }),
+    ]);
+    return { confirmed: true };
+  },
+);
+
+// Return review data for a receipt (bypasses auth since receipt token is the secret)
+exports.getReceiptReviewData = onCall(
+  { region: "europe-west1", invoker: "public" },
+  async ({ data }) => {
+    const { receiptToken } = data || {};
+    if (!receiptToken || typeof receiptToken !== "string") {
+      throw new HttpsError("invalid-argument", "receiptToken required");
+    }
+    const receiptSnap = await db.collection("formSubmissionReceipts").doc(receiptToken).get();
+    if (!receiptSnap.exists) return null;
+    const { submissionId } = receiptSnap.data() || {};
+    if (!submissionId) return null;
+    const subSnap = await db.collection("formSubmissions").doc(submissionId).get();
+    if (!subSnap.exists) return null;
+    const sub = subSnap.data();
+    return {
+      status: sub.status || null,
+      rejected: sub.rejected || false,
+      reviewScoreSummary: sub.reviewScoreSummary || null,
+      generalFeedback: sub.generalFeedback || null,
+      feedbackReadConfirmed: sub.feedbackReadConfirmed || false,
+    };
   },
 );
 

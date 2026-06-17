@@ -2089,6 +2089,11 @@ function FormPage() {
   const [loadingReceipt, setLoadingReceipt] = useState(false)
   const [receiptError, setReceiptError] = useState('')
   const [receiptImageUrls, setReceiptImageUrls] = useState({})
+  const [receiptReviewData, setReceiptReviewData] = useState(null)
+  const [feedbackConfirmSaving, setFeedbackConfirmSaving] = useState(false)
+  const [feedbackConfirmDone, setFeedbackConfirmDone] = useState(false)
+  const [followUpSavingId, setFollowUpSavingId] = useState('')
+  const [confirmedFeedbackDays, setConfirmedFeedbackDays] = useState(3)
   const [flaggedImageUrls, setFlaggedImageUrls] = useState({})
   const [flaggedReviewOpenId, setFlaggedReviewOpenId] = useState('')
   const [showPastMonths, setShowPastMonths] = useState(false)
@@ -2934,6 +2939,7 @@ function FormPage() {
   useEffect(() => {
     if (!activeReceiptLookupToken) {
       setReceiptSubmission(null)
+      setReceiptReviewData(null)
       setReceiptError('')
       setLoadingReceipt(false)
       return
@@ -2965,8 +2971,20 @@ function FormPage() {
           return
         }
 
+        const receiptBase = { id: snapshot.id, ...data }
         if (!cancelled) {
-          setReceiptSubmission({ id: snapshot.id, ...data })
+          setReceiptSubmission(receiptBase)
+        }
+        // Fetch review data from formSubmissions (not readable publicly) via CF
+        if (snapshot.id) {
+          httpsCallable(functions, 'getReceiptReviewData')({ receiptToken: snapshot.id })
+            .then(({ data: reviewData }) => {
+              if (!cancelled && reviewData) {
+                setReceiptReviewData(reviewData)
+                if (reviewData.feedbackReadConfirmed) setFeedbackConfirmDone(true)
+              }
+            })
+            .catch(() => {})
         }
       } catch {
         if (!cancelled) {
@@ -2987,13 +3005,19 @@ function FormPage() {
     }
   }, [activeFormSlug, activeReceiptLookupToken])
 
+  const receiptImageLoadedForRef = useRef(null)
   useEffect(() => {
     if (!receiptSubmission) {
       setReceiptImageUrls({})
+      receiptImageLoadedForRef.current = null
       return
     }
 
-    let cancelled = false
+    // Deduplicate: in React StrictMode effects fire twice per mount.
+    // Skip if we already started loading for this exact submission object.
+    if (receiptImageLoadedForRef.current === receiptSubmission) return
+    receiptImageLoadedForRef.current = receiptSubmission
+
     const imagePaths = Array.from(
       new Set([
         ...(Array.isArray(receiptSubmission.imagePaths) ? receiptSubmission.imagePaths : []),
@@ -3016,18 +3040,11 @@ function FormPage() {
         }
       }),
     ).then((pairs) => {
-      if (cancelled) {
-        return
-      }
-
+      if (receiptImageLoadedForRef.current !== receiptSubmission) return
       setReceiptImageUrls(
         Object.fromEntries(pairs.filter(([, url]) => Boolean(url))),
       )
     })
-
-    return () => {
-      cancelled = true
-    }
   }, [receiptSubmission])
 
   useEffect(() => {
@@ -4939,6 +4956,17 @@ function FormPage() {
         ...(reviewRejected ? { rejected: true, rejectionComment: reviewRejectionComment.trim() } : { rejected: false }),
       })
 
+      if (selectedSubmission.receiptToken) {
+        updateDoc(doc(db, 'formSubmissionReceipts', selectedSubmission.receiptToken), {
+          reviewScoreSummary,
+          generalFeedback: reviewGeneralFeedback.trim() || null,
+          status: reviewRejected ? 'rejected' : 'reviewed',
+          rejected: reviewRejected || false,
+          reviewedAt: serverTimestamp(),
+          feedbackReadConfirmed: false,
+        }).catch(() => {})
+      }
+
       setSubmissions((previous) =>
         previous.map((submission) =>
           submission.id === selectedSubmission.id
@@ -5159,6 +5187,7 @@ function FormPage() {
         reviewQuestions,
         { includeRemainingAnswers: false },
       ).filter(([answerKey]) => {
+        if (answerKey.endsWith(IMAGE_CAPTURED_AT_SUFFIX)) return false
         if (flaggedKeys.has(answerKey)) return false
         const q = getQuestionForAnswerKey(answerKey, formData.questions)
         return (q?.reviewType || 'rating') === 'rating'
@@ -5192,7 +5221,10 @@ function FormPage() {
         approvedAnswers,
         reviewScoreSummary: latestFlagged.reviewScoreSummary || { happy: 0, neutral: 0, sad: 0 },
         submittedAtSeconds: latestFlagged.submittedAt?.seconds || null,
-        reviewUrl: `https://crust.no/skjema/${activeFormSlug}/review/${latestFlagged.id}`,
+        reviewUrl: latestFlagged.receiptToken
+          ? `https://crust.no/skjema/${activeFormSlug}/kvittering/${latestFlagged.receiptToken}`
+          : null,
+        generalFeedback: latestFlagged.generalFeedback || null,
         testRecipient: recipient,
       })
 
@@ -6742,8 +6774,9 @@ function FormPage() {
   const availableSubmissionDays = Array.from(
     new Set(submissions.map((submission) => getSubmissionDayKey(submission.submittedAt)).filter(Boolean)),
   )
-  const visibleSubmissions = selectedSubmissionDay
-    ? submissions.filter((submission) => getSubmissionDayKey(submission.submittedAt) === selectedSubmissionDay)
+  const effectiveSubmissionDay = selectedSubmissionDay || availableSubmissionDays[0] || ''
+  const visibleSubmissions = effectiveSubmissionDay
+    ? submissions.filter((submission) => getSubmissionDayKey(submission.submittedAt) === effectiveSubmissionDay)
     : submissions
 
   function fetchLastPhotoMeta(submissionList, onDone) {
@@ -7694,50 +7727,8 @@ function FormPage() {
                         </div>
                       </div>
                     ) : null}
-                    {ratingItems.length > 0 ? (
-                      <div className="flagged-content-section">
-                        <h4>Vurdert</h4>
-                        <div className="flagged-answer-list">
-                          {ratingItems.map((item) => (
-                            <article key={`${submission.id}-${item.answerKey}-rating`} className={`flagged-answer-row flagged-answer-row--rated ${item.reviewStatus === 'flagged_sad' ? 'is-sad' : 'is-neutral'}`}>
-                              <p className="review-answer-label">
-                                {item.label}
-                              </p>
-                              {item.comment ? (
-                                <p className="flagged-answer-comment">
-                                  <strong>Kommentar:</strong> {item.comment}
-                                </p>
-                              ) : null}
-                              {(() => {
-                                const hasImagePath = isStorageImagePath(item.value)
-                                const imageUrl = hasImagePath
-                                  ? String(item.imageUrl || flaggedImageUrls[item.value] || '')
-                                  : undefined
-                                return hasImagePath ? (
-                                  imageUrl ? (
-                                    <img className="flagged-answer-image" src={imageUrl} alt={item.label} loading="lazy" />
-                                  ) : typeof item.imageUrl === 'string' || typeof flaggedImageUrls[item.value] !== 'undefined' ? (
-                                    <p className="review-answer-value">Kunne ikke laste bilde.</p>
-                                  ) : (
-                                    <p className="review-answer-value">Laster bilde...</p>
-                                  )
-                                ) : (
-                                  <p className="review-answer-value">{String(item.value || '-')}</p>
-                                )
-                              })()}
-                            </article>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-                    {flaggingItems.length === 0 && ratingItems.length === 0 && (submission.reviewScoreSummary?.neutral || 0) + (submission.reviewScoreSummary?.sad || 0) > 0 ? (
-                      <div className="flagged-content-section">
-                        <h4>Vurdert</h4>
-                        <p className="review-answer-value">
-                          {submission.reviewScoreSummary?.neutral > 0 ? <><FaceNeutral size={15} /> {submission.reviewScoreSummary.neutral} nøytral </> : null}
-                          {submission.reviewScoreSummary?.sad > 0 ? <><FaceSad size={15} /> {submission.reviewScoreSummary.sad} surmunn</> : null}
-                        </p>
-                      </div>
+                    {flaggingItems.length === 0 ? (
+                      <p className="review-answer-value flagged-no-items-note">Ingen flaggede spørsmål.</p>
                     ) : null}
                   </>
                 )
@@ -8369,6 +8360,12 @@ function FormPage() {
 
           {isReceiptPage ? (
             <section className="form-entry receipt-entry">
+              {feedbackConfirmDone ? (
+                <div className="receipt-confirm-thanks">
+                  <span className="receipt-confirm-thanks-icon">✓</span>
+                  Takk for bekreftelsen!
+                </div>
+              ) : null}
               {receiptError ? <p className="forms-error">{receiptError}</p> : null}
               {!receiptError && receiptSubmission ? (
                 <>
@@ -8455,6 +8452,61 @@ function FormPage() {
                       )
                     })}
                   </div>
+
+                  {(() => {
+                    const rd = receiptReviewData
+                    if (!rd || rd.status !== 'reviewed' || rd.rejected) return null
+                    const neutral = rd.reviewScoreSummary?.neutral || 0
+                    const sad = rd.reviewScoreSummary?.sad || 0
+                    const hasFeedback = neutral > 0 || sad > 0 || Boolean(rd.generalFeedback)
+                    if (!hasFeedback) return null
+                    const alreadyConfirmed = rd.feedbackReadConfirmed || feedbackConfirmDone
+                    return (
+                      <div className="receipt-feedback-section">
+                        <h4 className="receipt-feedback-title">Tilbakemelding fra gjennomgang</h4>
+                        <div className="receipt-feedback-scores">
+                          {(rd.reviewScoreSummary?.happy || 0) > 0 ? (
+                            <span className="receipt-feedback-score is-happy">
+                              <FaceHappy size={18} /> {rd.reviewScoreSummary.happy}
+                            </span>
+                          ) : null}
+                          {neutral > 0 ? (
+                            <span className="receipt-feedback-score is-neutral">
+                              <FaceNeutral size={18} /> {neutral}
+                            </span>
+                          ) : null}
+                          {sad > 0 ? (
+                            <span className="receipt-feedback-score is-sad">
+                              <FaceSad size={18} /> {sad}
+                            </span>
+                          ) : null}
+                        </div>
+                        {rd.generalFeedback ? (
+                          <p className="receipt-feedback-general">{rd.generalFeedback}</p>
+                        ) : null}
+                        {alreadyConfirmed ? (
+                          <p className="receipt-feedback-confirmed">✓ Du har bekreftet at du har lest tilbakemeldingen</p>
+                        ) : (
+                          <button
+                            type="button"
+                            className="cta receipt-feedback-confirm-btn"
+                            disabled={feedbackConfirmSaving}
+                            onClick={async () => {
+                              setFeedbackConfirmSaving(true)
+                              try {
+                                await httpsCallable(functions, 'confirmFeedbackRead')({ receiptToken })
+                                setFeedbackConfirmDone(true)
+                                setReceiptReviewData((prev) => prev ? { ...prev, feedbackReadConfirmed: true } : prev)
+                              } catch {}
+                              setFeedbackConfirmSaving(false)
+                            }}
+                          >
+                            {feedbackConfirmSaving ? 'Bekrefter...' : 'Bekreft at du har lest tilbakemeldingen'}
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </>
               ) : null}
             </section>
@@ -9405,7 +9457,7 @@ function FormPage() {
                       <span>Day</span>
                       <select
                         id="submission-day-filter"
-                        value={selectedSubmissionDay}
+                        value={effectiveSubmissionDay}
                         onChange={(event) => setSelectedSubmissionDay(event.target.value)}
                       >
                         {availableSubmissionDays.map((dayKey) => (
@@ -9707,6 +9759,187 @@ function FormPage() {
                 ) : null}
               </div>
             ) : null}
+
+            {isSubmissionsView && isAdmin && !loadingSubmissions ? (() => {
+              const cutoff = Date.now() - 24 * 60 * 60 * 1000
+              const june17Ts = new Date('2026-06-17T00:00:00+02:00').getTime()
+              const pending = submissions.filter((sub) => {
+                if (sub.status !== 'reviewed' || sub.rejected || sub.feedbackReadConfirmed || sub.followUpDone) return false
+                const neutral = sub.reviewScoreSummary?.neutral || 0
+                const sad = sub.reviewScoreSummary?.sad || 0
+                if (neutral === 0 && sad === 0 && !sub.generalFeedback) return false
+                const reviewedTs = sub.reviewedAt?.seconds
+                  ? sub.reviewedAt.seconds * 1000
+                  : sub.reviewedAt instanceof Date
+                    ? sub.reviewedAt.getTime()
+                    : null
+                return reviewedTs && reviewedTs < cutoff && reviewedTs >= june17Ts
+              })
+              if (pending.length === 0) return null
+              return (
+                <div className="responses-box submissions-overview">
+                  <h3>Feedback not confirmed read ({pending.length})</h3>
+                  <p style={{ margin: '0 0 12px', fontSize: '0.85rem', color: 'rgba(24,44,60,0.55)' }}>
+                    These forms were reviewed more than 24 hours ago without the employee confirming they have read the feedback.
+                  </p>
+                  <table className="submissions-table" style={{ fontSize: '0.85rem' }}>
+                    <thead>
+                      <tr>
+                        <th>Reviewed</th>
+                        <th>Score</th>
+                        <th>General feedback</th>
+                        <th>Receipt</th>
+                        <th>Follow-up</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pending.map((sub) => {
+                        const reviewedAt = sub.reviewedAt?.seconds
+                          ? new Date(sub.reviewedAt.seconds * 1000)
+                          : sub.reviewedAt instanceof Date ? sub.reviewedAt : null
+                        const timeStr = reviewedAt
+                          ? reviewedAt.toLocaleString('nb-NO', { timeZone: 'Europe/Oslo', dateStyle: 'short', timeStyle: 'short' })
+                          : '—'
+                        return (
+                          <tr key={sub.id}>
+                            <td style={{ whiteSpace: 'nowrap' }}>{timeStr}</td>
+                            <td style={{ whiteSpace: 'nowrap' }}>
+                              {(sub.reviewScoreSummary?.happy || 0) > 0 ? <><FaceHappy size={14} /> {sub.reviewScoreSummary.happy} </> : null}
+                              {(sub.reviewScoreSummary?.neutral || 0) > 0 ? <><FaceNeutral size={14} /> {sub.reviewScoreSummary.neutral} </> : null}
+                              {(sub.reviewScoreSummary?.sad || 0) > 0 ? <><FaceSad size={14} /> {sub.reviewScoreSummary.sad}</> : null}
+                            </td>
+                            <td style={{ maxWidth: 220, color: 'rgba(24,44,60,0.7)' }}>{sub.generalFeedback || '—'}</td>
+                            <td>
+                              {sub.receiptToken ? (
+                                <a
+                                  href={`/skjema/${activeFormSlug}/kvittering/${sub.receiptToken}`}
+                                  className="ghost"
+                                  style={{ fontSize: '0.8rem', padding: '2px 8px' }}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  Open
+                                </a>
+                              ) : '—'}
+                            </td>
+                            <td>
+                              <button
+                                type="button"
+                                className="ghost"
+                                style={{ fontSize: '0.8rem' }}
+                                disabled={followUpSavingId === sub.id}
+                                onClick={async () => {
+                                  setFollowUpSavingId(sub.id)
+                                  try {
+                                    await updateDoc(doc(db, 'formSubmissions', sub.id), {
+                                      followUpDone: true,
+                                      followUpDoneAt: serverTimestamp(),
+                                      followUpDoneBy: user?.email || 'admin',
+                                    })
+                                    setSubmissions((prev) => prev.map((s) => s.id === sub.id ? { ...s, followUpDone: true } : s))
+                                  } catch {}
+                                  setFollowUpSavingId('')
+                                }}
+                              >
+                                {followUpSavingId === sub.id ? 'Saving...' : 'Mark follow-up done'}
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            })() : null}
+
+            {isSubmissionsView && isAdmin && !loadingSubmissions ? (() => {
+              const windowMs = confirmedFeedbackDays * 24 * 60 * 60 * 1000
+              const cutoffTs = Date.now() - windowMs
+              const confirmed = submissions.filter((sub) => {
+                if (!sub.feedbackReadConfirmed) return false
+                const neutral = sub.reviewScoreSummary?.neutral || 0
+                const sad = sub.reviewScoreSummary?.sad || 0
+                if (neutral === 0 && sad === 0 && !sub.generalFeedback) return false
+                const readTs = sub.feedbackReadAt?.seconds
+                  ? sub.feedbackReadAt.seconds * 1000
+                  : sub.reviewedAt?.seconds
+                    ? sub.reviewedAt.seconds * 1000
+                    : null
+                return readTs && readTs >= cutoffTs
+              }).sort((a, b) => {
+                const aTs = (a.feedbackReadAt?.seconds || a.reviewedAt?.seconds || 0)
+                const bTs = (b.feedbackReadAt?.seconds || b.reviewedAt?.seconds || 0)
+                return bTs - aTs
+              })
+              if (confirmed.length === 0) return null
+              return (
+                <div className="responses-box submissions-overview">
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                    <h3 style={{ margin: 0 }}>Feedback confirmed by employee ({confirmed.length})</h3>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      {[3, 7, 30].map((d) => (
+                        <button
+                          key={d}
+                          type="button"
+                          className="ghost"
+                          style={{ fontSize: '0.78rem', padding: '2px 10px', fontWeight: confirmedFeedbackDays === d ? 700 : 400, opacity: confirmedFeedbackDays === d ? 1 : 0.55 }}
+                          onClick={() => setConfirmedFeedbackDays(d)}
+                        >
+                          {d}d
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <table className="submissions-table" style={{ fontSize: '0.85rem' }}>
+                    <thead>
+                      <tr>
+                        <th>Confirmed read</th>
+                        <th>Score</th>
+                        <th>General feedback</th>
+                        <th>Receipt</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {confirmed.map((sub) => {
+                        const readAt = sub.feedbackReadAt?.seconds
+                          ? new Date(sub.feedbackReadAt.seconds * 1000)
+                          : sub.reviewedAt?.seconds
+                            ? new Date(sub.reviewedAt.seconds * 1000)
+                            : null
+                        const timeStr = readAt
+                          ? readAt.toLocaleString('nb-NO', { timeZone: 'Europe/Oslo', dateStyle: 'short', timeStyle: 'short' })
+                          : '—'
+                        return (
+                          <tr key={sub.id}>
+                            <td style={{ whiteSpace: 'nowrap' }}>{timeStr}</td>
+                            <td style={{ whiteSpace: 'nowrap' }}>
+                              {(sub.reviewScoreSummary?.happy || 0) > 0 ? <><FaceHappy size={14} /> {sub.reviewScoreSummary.happy} </> : null}
+                              {(sub.reviewScoreSummary?.neutral || 0) > 0 ? <><FaceNeutral size={14} /> {sub.reviewScoreSummary.neutral} </> : null}
+                              {(sub.reviewScoreSummary?.sad || 0) > 0 ? <><FaceSad size={14} /> {sub.reviewScoreSummary.sad}</> : null}
+                            </td>
+                            <td style={{ maxWidth: 220, color: 'rgba(24,44,60,0.7)' }}>{sub.generalFeedback || '—'}</td>
+                            <td>
+                              {sub.receiptToken ? (
+                                <a
+                                  href={`/skjema/${activeFormSlug}/kvittering/${sub.receiptToken}`}
+                                  className="ghost"
+                                  style={{ fontSize: '0.8rem', padding: '2px 8px' }}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  Open
+                                </a>
+                              ) : '—'}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            })() : null}
 
             {isFlaggedView ? (
               <div className="responses-box submissions-overview" id="flagged-section">
@@ -10071,11 +10304,18 @@ function FormPage() {
                       if (category !== 'orange' && category !== 'red') return []
                       return [{ label: (q.analysisLabel || q.label || q.id).trim(), value, category, isUpdated: Boolean(updatedValue) }]
                     })
-                    if (items.length === 0) return null
+                    const incidentNotes = analysisQuestions.flatMap((q) => {
+                      if (q.type !== 'text' && q.type !== 'textarea') return []
+                      if (q.excludeFromLocationStatus) return []
+                      const value = String(latest.answers?.[q.id] || '').trim()
+                      if (!value) return []
+                      return [{ label: (q.analysisLabel || q.label || q.id).trim(), value }]
+                    })
+                    if (items.length === 0 && incidentNotes.length === 0) return null
                     const sortedItems = [...items].sort((a, b) =>
                       (a.category === 'red' ? 0 : 1) - (b.category === 'red' ? 0 : 1)
                     )
-                    return { location: row.location, items: sortedItems }
+                    return { location: row.location, items: sortedItems, incidentNotes }
                   }).filter(Boolean).sort((a, b) => {
                     const aRed = a.items.some((i) => i.category === 'red') ? 0 : 1
                     const bRed = b.items.some((i) => i.category === 'red') ? 0 : 1
@@ -10096,9 +10336,15 @@ function FormPage() {
                         <span className="inventory-alert-summary-note">Sendes daglig kl. 08:00</span>
                       </p>
                       <div className="inventory-alert-location-grid">
-                        {alertRows.map(({ location, items }) => (
+                        {alertRows.map(({ location, items, incidentNotes }) => (
                           <div key={location} className="inventory-alert-location-card">
                             <p className="inventory-alert-location-name">📍 {location}</p>
+                            {incidentNotes.map((note, i) => (
+                              <div key={i} className="inventory-alert-incident-note">
+                                <span className="inventory-alert-incident-label">{note.label}</span>
+                                <span className="inventory-alert-incident-text">{note.value}</span>
+                              </div>
+                            ))}
                             {items.map((item, i) => (
                               <div key={i} className={`inventory-alert-item is-${item.category} ${item.isUpdated ? 'is-updated' : ''}`}>
                                 <span className="inventory-alert-item-label">{item.label}</span>
@@ -10922,7 +11168,7 @@ function FormPage() {
                 ) : null}
                 {reviewEmailPreviewData.reviewedBy ? (
                   <p className="email-preview-reviewer">
-                    {(() => { const n = reviewEmailPreviewData.reviewedBy.replace(/@.*/, ''); return `Vurdert av: ${n.charAt(0).toUpperCase()}${n.slice(1)}`; })()}
+                    {`Vurdert av: ${reviewEmailPreviewData.reviewedBy}`}
                   </p>
                 ) : null}
 

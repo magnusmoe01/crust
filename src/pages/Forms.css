@@ -544,6 +544,81 @@
   background: #ffffff;
 }
 
+.receipt-feedback-section {
+  margin-top: 24px;
+  padding: 20px;
+  background: #f8fafc;
+  border: 1px solid rgba(24,44,60,0.1);
+  border-radius: 10px;
+  display: grid;
+  gap: 12px;
+}
+
+.receipt-feedback-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #182c3c;
+}
+
+.receipt-feedback-scores {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.receipt-feedback-score {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.receipt-feedback-score.is-happy { color: #16a34a; }
+.receipt-feedback-score.is-neutral { color: #b45309; }
+.receipt-feedback-score.is-sad { color: #dc2626; }
+
+.receipt-feedback-general {
+  margin: 0;
+  font-size: 0.88rem;
+  color: rgba(24,44,60,0.7);
+  font-style: italic;
+  line-height: 1.5;
+}
+
+.receipt-feedback-confirmed {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #16a34a;
+  font-weight: 500;
+}
+
+.receipt-feedback-confirm-btn {
+  justify-self: start;
+}
+
+.receipt-confirm-thanks {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: #16a34a;
+  color: #fff;
+  font-size: 1.6rem;
+  font-weight: 700;
+  font-family: "Fraunces", serif;
+  padding: 28px 24px;
+  border-radius: 12px;
+  margin-bottom: 24px;
+  text-align: center;
+}
+
+.receipt-confirm-thanks-icon {
+  font-size: 2rem;
+  line-height: 1;
+}
+
 .question-help {
   display: block;
 }
@@ -1421,6 +1496,30 @@
 .inventory-alert-item.is-updated .inventory-alert-item-value {
   color: #1d4ed8;
   font-weight: 600;
+}
+
+.inventory-alert-incident-note {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  border-radius: 6px;
+  background: #f0f9ff;
+  border-left: 4px solid #0284c7;
+}
+.inventory-alert-incident-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #0369a1;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.inventory-alert-incident-text {
+  font-size: 0.82rem;
+  color: #1e3a5f;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* ── Inventory update button ──────────────────────────────────────── */
