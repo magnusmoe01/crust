@@ -189,10 +189,13 @@ function Layout() {
                   <span className="nav-label">Søk jobb</span>
                 </Link>
               </nav>
+              {/* HIDDEN: re-enable by removing the false && guard */}
+              {false && (
               <Link to="/bestilling" className="nav-order-cta" aria-label="Bestill pizza">
                 <span>Bestill pizza nå!</span>
                 <FontAwesomeIcon icon={faPizzaSlice} />
               </Link>
+              )}
             </div>
           </header>
         </>
