@@ -3,30 +3,28 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../firebase";
 import "./PizzaMenu.css";
 
+import margheritaImg from "../assets/pizza.jpeg";
+import pepperoniImg from "../assets/pizza2.jpeg";
+import bbqChickenImg from "../assets/Crust-pizza.jpeg";
+
 const DEFAULT_PIZZAS = [
   {
     id: "margherita",
     name: "Margherita",
     description: "Tomatbunn, mozzarella og fersk basilikum.",
-    image: "",
+    image: margheritaImg,
   },
   {
     id: "pepperoni",
     name: "Pepperoni",
     description: "Tomatbunn, mozzarella og pepperoni.",
-    image: "",
+    image: pepperoniImg,
   },
   {
     id: "bbq-chicken",
     name: "BBQ Chicken",
     description: "BBQ-saus, kylling, mozzarella og rødløk.",
-    image: "",
-  },
-  {
-    id: "veggie",
-    name: "Veggie",
-    description: "Tomatbunn, mozzarella, paprika, sopp og oliven.",
-    image: "",
+    image: bbqChickenImg,
   },
 ];
 
