@@ -616,6 +616,7 @@ function Admin() {
                 <Link className="admin-button admin-button-secondary" to="/worker">Worker Dashboard</Link>
                 <Link className="admin-button admin-button-secondary" to="/sales">Open sales</Link>
                 <Link className="admin-button admin-button-secondary" to="/admin/financial-report">Financial report</Link>
+                <Link className="admin-button admin-button-secondary" to="/admin/sms">Send SMS</Link>
                 <button type="button" className="admin-button admin-button-secondary" onClick={signOutAdmin}>Log out</button>
               </div>
             </>

@@ -13,7 +13,7 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore'
-import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage'
+import { deleteObject, getDownloadURL, getMetadata, ref, uploadBytes } from 'firebase/storage'
 import { httpsCallable } from 'firebase/functions'
 import { db, functions, storage } from '../firebase'
 import { STENGESKJEMA_ID, defaultStengeskjema } from '../forms/defaultForms'
@@ -261,10 +261,34 @@ function sanitizeFileName(name) {
     .replace(/-+/g, '-')
 }
 
+function formatDateForFilename(date) {
+  const d = date instanceof Date ? date : new Date(date)
+  if (isNaN(d.getTime())) return ''
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  const hh = String(d.getHours()).padStart(2, '0')
+  const min = String(d.getMinutes()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}_${hh}${min}`
+}
+
+async function readImageCapturedAtDate(file) {
+  if (!file) return null
+  try {
+    const exifDate = extractExifCapturedAt(await file.arrayBuffer())
+    if (exifDate) return exifDate
+  } catch {}
+  if (Number.isFinite(file.lastModified) && file.lastModified > 0) {
+    return new Date(file.lastModified)
+  }
+  return null
+}
+
 function createTemporaryImageUploadPath(formSlug, questionId, fileName, options = {}) {
   const detailSuffix = options.detail ? '-detail' : ''
   const uniqueId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-  return `forms/images/${formSlug}/${questionId}${detailSuffix}-${uniqueId}-${sanitizeFileName(fileName)}`
+  const capturedAtPart = options.capturedAt ? `${formatDateForFilename(options.capturedAt)}-` : ''
+  return `forms/images/${formSlug}/${questionId}${detailSuffix}-${capturedAtPart}${uniqueId}-${sanitizeFileName(fileName)}`
 }
 
 function normalizeNorwegianPhoneNumber(value) {
@@ -694,6 +718,7 @@ function formatImageCapturedAtValue(date) {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
+    timeZone: 'Europe/Oslo',
   })
 }
 
@@ -982,10 +1007,10 @@ function formatTime(timestamp) {
     return '-'
   }
   if (typeof timestamp.toDate === 'function') {
-    return timestamp.toDate().toLocaleString('nb-NO')
+    return timestamp.toDate().toLocaleString('nb-NO', { timeZone: 'Europe/Oslo' })
   }
   if (timestamp instanceof Date) {
-    return timestamp.toLocaleString('nb-NO')
+    return timestamp.toLocaleString('nb-NO', { timeZone: 'Europe/Oslo' })
   }
   return '-'
 }
@@ -1019,7 +1044,7 @@ function getDatePart(timestamp) {
   if (!date) {
     return '-'
   }
-  return date.toLocaleDateString('nb-NO')
+  return date.toLocaleDateString('nb-NO', { timeZone: 'Europe/Oslo' })
 }
 
 function getClockPart(timestamp) {
@@ -1027,7 +1052,7 @@ function getClockPart(timestamp) {
   if (!date) {
     return '-'
   }
-  return date.toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' })
+  return date.toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Oslo' })
 }
 
 function getSubmissionDayKey(timestamp) {
@@ -1038,11 +1063,8 @@ function getSubmissionDayKey(timestamp) {
   if (!(date instanceof Date)) {
     return ''
   }
-
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
+  // Use Oslo timezone so the day key is always correct regardless of viewer's locale
+  return date.toLocaleDateString('sv', { timeZone: 'Europe/Oslo' }) // gives "YYYY-MM-DD"
 }
 
 function getSubmissionMonthKey(timestamp) {
@@ -1054,9 +1076,8 @@ function getSubmissionMonthKey(timestamp) {
     return ''
   }
 
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  return `${year}-${month}`
+  const yyyyMM = date.toLocaleDateString('sv', { timeZone: 'Europe/Oslo' }).slice(0, 7) // "YYYY-MM"
+  return yyyyMM
 }
 
 function getTimestampSeconds(timestamp) {
@@ -1095,7 +1116,7 @@ function formatSubmissionDayLabel(dayKey) {
 
 function formatSubmissionMonthLabel(monthKey) {
   if (!monthKey) {
-    return 'Ukjent måned'
+    return 'Unknown month'
   }
 
   const [year, month] = monthKey.split('-').map((value) => Number(value))
@@ -1103,7 +1124,7 @@ function formatSubmissionMonthLabel(monthKey) {
     return monthKey
   }
 
-  const label = new Date(year, month - 1, 1).toLocaleDateString('nb-NO', {
+  const label = new Date(year, month - 1, 1).toLocaleDateString('en-GB', {
     month: 'long',
     year: 'numeric',
   })
@@ -1527,6 +1548,22 @@ function getFlaggedStatusLabel(status) {
   return String(status || '').trim().toLowerCase() === 'complete' ? 'Complete' : 'Open'
 }
 
+function getEffectiveInventoryValue(questionId, locationUpdate, latestSubmittedAt) {
+  if (!locationUpdate) return ''
+  const manualValue = locationUpdate.answers?.[questionId]
+  if (!manualValue) return ''
+  const logs = locationUpdate.answerLogs?.[questionId]
+  const manualTs = logs?.[0]?.updatedAt
+    ? new Date(logs[0].updatedAt)
+    : locationUpdate.updatedAt instanceof Date
+      ? locationUpdate.updatedAt
+      : null
+  if (!manualTs) return manualValue
+  const submittedTs = latestSubmittedAt instanceof Date ? latestSubmittedAt : null
+  if (submittedTs && submittedTs > manualTs) return ''
+  return manualValue
+}
+
 function getHistoryAnswerValues(submission, question) {
   const mainValue = submission.answers?.[question.id]
   const detailValue = submission.answers?.[getSelectDetailAnswerKey(question.id)]
@@ -1919,7 +1956,8 @@ function FormPage() {
   const isRemarksView = location.pathname.endsWith('/remarks')
   const isRatingView = location.pathname.endsWith('/rating')
   const isHistoryView =
-    location.pathname.endsWith('/analyse') || location.pathname.endsWith('/historikk')
+    location.pathname.endsWith('/analyse') || location.pathname.endsWith('/historikk') ||
+    location.pathname === '/varebeholdning'
   const isEditPage = location.pathname.endsWith('/edit')
   const isReceiptPage = location.pathname.includes('/kvittering/')
   const isAdminShellView =
@@ -1987,6 +2025,8 @@ function FormPage() {
   const [saveState, setSaveState] = useState({ saving: false, message: '', error: '' })
 
   const [submissions, setSubmissions] = useState([])
+  const [submissionErrors, setSubmissionErrors] = useState([])
+  const [loadingErrors, setLoadingErrors] = useState(false)
   const [manualRemarks, setManualRemarks] = useState([])
   const [loadingSubmissions, setLoadingSubmissions] = useState(false)
   const [loadingManualRemarks, setLoadingManualRemarks] = useState(false)
@@ -1995,17 +2035,31 @@ function FormPage() {
   const [selectedSubmissionId, setSelectedSubmissionId] = useState('')
   const [selectedSubmissionImageUrls, setSelectedSubmissionImageUrls] = useState({})
   const [selectedSubmissionImagesLoading, setSelectedSubmissionImagesLoading] = useState(false)
+  const [selectedSubmissionImageMeta, setSelectedSubmissionImageMeta] = useState({})
+  const [submissionLastPhotoMeta, setSubmissionLastPhotoMeta] = useState({})
+  const [showTimingIssues, setShowTimingIssues] = useState(false)
+  const [timingIssuesFetching, setTimingIssuesFetching] = useState(false)
   const [selectedSubmissionDay, setSelectedSubmissionDay] = useState('')
   const [reviewDraftStatuses, setReviewDraftStatuses] = useState({})
   const [reviewDraftComments, setReviewDraftComments] = useState({})
   const [reviewDraftRatings, setReviewDraftRatings] = useState({})
   const [reviewSubmissionState, setReviewSubmissionState] = useState({ saving: false, error: '' })
+  const [plandayTimeConfirmed, setPlandayTimeConfirmed] = useState(null)
+  const [reviewGeneralFeedback, setReviewGeneralFeedback] = useState('')
+  const [reviewRejected, setReviewRejected] = useState(false)
+  const [reviewRejectionComment, setReviewRejectionComment] = useState('')
+  const [reviewSendEmail, setReviewSendEmail] = useState(true)
   const [reviewEmailPreviewData, setReviewEmailPreviewData] = useState(null)
   const [reviewEmailOverride, setReviewEmailOverride] = useState('')
+  const [reviewEmailSuggestion, setReviewEmailSuggestion] = useState('')
   const [reviewEmailSaving, setReviewEmailSaving] = useState(false)
   const [testEmailState, setTestEmailState] = useState({ sending: false, error: '', message: '' })
+  const [testEmailRecipient, setTestEmailRecipient] = useState('')
   const [inventoryAlertState, setInventoryAlertState] = useState({ sending: false, error: '', message: '' })
   const [inventoryTestState, setInventoryTestState] = useState({ sending: false, error: '', message: '' })
+  const [analyseEmailOpen, setAnalyseEmailOpen] = useState(false)
+  const [analyseEmailRecipient, setAnalyseEmailRecipient] = useState('')
+  const [analyseEmailState, setAnalyseEmailState] = useState({ sending: false, error: '', message: '' })
   const [historySubmissionLimit, setHistorySubmissionLimit] = useState('3')
   const [historyDefaultState, setHistoryDefaultState] = useState({
     saving: false,
@@ -2015,15 +2069,34 @@ function FormPage() {
   const [historyQuestionFilterOpen, setHistoryQuestionFilterOpen] = useState(false)
   const [historyShowAllQuestions, setHistoryShowAllQuestions] = useState(true)
   const [selectedHistoryQuestionIds, setSelectedHistoryQuestionIds] = useState([])
+  const [analysisRowOrder, setAnalysisRowOrder] = useState([])
+  const [analysisRowOrderSaving, setAnalysisRowOrderSaving] = useState(false)
   const [historyLocationFilterOpen, setHistoryLocationFilterOpen] = useState(false)
   const [historyShowAllLocations, setHistoryShowAllLocations] = useState(true)
   const [selectedHistoryLocations, setSelectedHistoryLocations] = useState([])
+  const [editPhoneSubmissionId, setEditPhoneSubmissionId] = useState('')
+  const [editPhoneDraft, setEditPhoneDraft] = useState('')
+  const [editPhoneState, setEditPhoneState] = useState({ saving: false, error: '' })
+  const [inventoryUpdates, setInventoryUpdates] = useState({})
+  const [hideUpdatedValues, setHideUpdatedValues] = useState(false)
+  const [showInventoryModal, setShowInventoryModal] = useState(false)
+  const [inventoryModalLocation, setInventoryModalLocation] = useState('')
+  const [inventoryModalQuestionId, setInventoryModalQuestionId] = useState('')
+  const [inventoryModalAnswers, setInventoryModalAnswers] = useState({})
+  const [inventoryModalSaving, setInventoryModalSaving] = useState(false)
+  const [inventoryModalError, setInventoryModalError] = useState('')
   const [receiptSubmission, setReceiptSubmission] = useState(null)
   const [loadingReceipt, setLoadingReceipt] = useState(false)
   const [receiptError, setReceiptError] = useState('')
   const [receiptImageUrls, setReceiptImageUrls] = useState({})
+  const [receiptReviewData, setReceiptReviewData] = useState(null)
+  const [feedbackConfirmSaving, setFeedbackConfirmSaving] = useState(false)
+  const [feedbackConfirmDone, setFeedbackConfirmDone] = useState(false)
+  const [followUpSavingId, setFollowUpSavingId] = useState('')
+  const [confirmedFeedbackDays, setConfirmedFeedbackDays] = useState(3)
   const [flaggedImageUrls, setFlaggedImageUrls] = useState({})
   const [flaggedReviewOpenId, setFlaggedReviewOpenId] = useState('')
+  const [showPastMonths, setShowPastMonths] = useState(false)
   const [flaggedActionDrafts, setFlaggedActionDrafts] = useState({})
   const [flaggedWarningDrafts, setFlaggedWarningDrafts] = useState({})
   const [newWarningCategoryDrafts, setNewWarningCategoryDrafts] = useState({})
@@ -2780,7 +2853,27 @@ function FormPage() {
       }
     }
 
+    async function loadErrors() {
+      setLoadingErrors(true)
+      try {
+        const snap = await getDocs(query(
+          collection(db, 'submissionErrors'),
+          where('formSlug', '==', activeFormSlug),
+        ))
+        if (cancelled) return
+        setSubmissionErrors(
+          snap.docs
+            .map((d) => ({ id: d.id, ...d.data() }))
+            .sort((a, b) => (b.occurredAt?.seconds || 0) - (a.occurredAt?.seconds || 0))
+        )
+      } catch {
+      } finally {
+        if (!cancelled) setLoadingErrors(false)
+      }
+    }
+
     loadSubmissions()
+    loadErrors()
 
     return () => {
       cancelled = true
@@ -2846,6 +2939,7 @@ function FormPage() {
   useEffect(() => {
     if (!activeReceiptLookupToken) {
       setReceiptSubmission(null)
+      setReceiptReviewData(null)
       setReceiptError('')
       setLoadingReceipt(false)
       return
@@ -2877,8 +2971,20 @@ function FormPage() {
           return
         }
 
+        const receiptBase = { id: snapshot.id, ...data }
         if (!cancelled) {
-          setReceiptSubmission({ id: snapshot.id, ...data })
+          setReceiptSubmission(receiptBase)
+        }
+        // Fetch review data from formSubmissions (not readable publicly) via CF
+        if (snapshot.id) {
+          httpsCallable(functions, 'getReceiptReviewData')({ receiptToken: snapshot.id })
+            .then(({ data: reviewData }) => {
+              if (!cancelled && reviewData) {
+                setReceiptReviewData(reviewData)
+                if (reviewData.feedbackReadConfirmed) setFeedbackConfirmDone(true)
+              }
+            })
+            .catch(() => {})
         }
       } catch {
         if (!cancelled) {
@@ -2899,13 +3005,19 @@ function FormPage() {
     }
   }, [activeFormSlug, activeReceiptLookupToken])
 
+  const receiptImageLoadedForRef = useRef(null)
   useEffect(() => {
     if (!receiptSubmission) {
       setReceiptImageUrls({})
+      receiptImageLoadedForRef.current = null
       return
     }
 
-    let cancelled = false
+    // Deduplicate: in React StrictMode effects fire twice per mount.
+    // Skip if we already started loading for this exact submission object.
+    if (receiptImageLoadedForRef.current === receiptSubmission) return
+    receiptImageLoadedForRef.current = receiptSubmission
+
     const imagePaths = Array.from(
       new Set([
         ...(Array.isArray(receiptSubmission.imagePaths) ? receiptSubmission.imagePaths : []),
@@ -2928,18 +3040,11 @@ function FormPage() {
         }
       }),
     ).then((pairs) => {
-      if (cancelled) {
-        return
-      }
-
+      if (receiptImageLoadedForRef.current !== receiptSubmission) return
       setReceiptImageUrls(
         Object.fromEntries(pairs.filter(([, url]) => Boolean(url))),
       )
     })
-
-    return () => {
-      cancelled = true
-    }
   }, [receiptSubmission])
 
   useEffect(() => {
@@ -2975,9 +3080,14 @@ function FormPage() {
     if (!selectedSubmissionId) {
       setSelectedSubmissionImageUrls({})
       setSelectedSubmissionImagesLoading(false)
+      setSelectedSubmissionImageMeta({})
       setReviewDraftStatuses({})
       setReviewDraftComments({})
       setReviewSubmissionState({ saving: false, error: '' })
+      setPlandayTimeConfirmed(null)
+      setReviewGeneralFeedback('')
+      setReviewRejected(false)
+      setReviewRejectionComment('')
       return
     }
 
@@ -2985,9 +3095,14 @@ function FormPage() {
     if (!selectedSubmission) {
       setSelectedSubmissionImageUrls({})
       setSelectedSubmissionImagesLoading(false)
+      setSelectedSubmissionImageMeta({})
       setReviewDraftStatuses({})
       setReviewDraftComments({})
       setReviewSubmissionState({ saving: false, error: '' })
+      setPlandayTimeConfirmed(null)
+      setReviewGeneralFeedback('')
+      setReviewRejected(false)
+      setReviewRejectionComment('')
       return
     }
 
@@ -3059,6 +3174,31 @@ function FormPage() {
         }
       })
 
+    setSelectedSubmissionImageMeta({})
+    Promise.all(
+      uniquePaths.map(async (path) => {
+        try {
+          const meta = await getMetadata(ref(storage, path))
+          const t = meta.timeCreated
+          if (!t) return null
+          const d = new Date(t)
+          const formatted = d.toLocaleString('en-GB', {
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit',
+            timeZone: 'Europe/Oslo',
+          })
+          return [path, formatted]
+        } catch {
+          return null
+        }
+      }),
+    ).then((pairs) => {
+      if (cancelled) return
+      setSelectedSubmissionImageMeta(
+        Object.fromEntries(pairs.filter(Boolean)),
+      )
+    })
+
     return () => {
       cancelled = true
     }
@@ -3090,28 +3230,37 @@ function FormPage() {
   useEffect(() => {
     if (!selectedSubmissionId || !isReviewView) {
       setReviewEmailOverride('')
+      setReviewEmailSuggestion('')
       return
     }
     const sub = submissions.find((s) => s.id === selectedSubmissionId)
     if (!sub) {
       setReviewEmailOverride('')
+      setReviewEmailSuggestion('')
       return
     }
     const directEmail =
       sub.submitterEmail ||
       getSubmissionEmail(sub.answers, formData.questions)
+    const phone = getSubmissionPhone(sub.answers, formData.questions)
     if (directEmail) {
       setReviewEmailOverride(directEmail)
-      return
     }
-    const phone = getSubmissionPhone(sub.answers, formData.questions)
     if (!phone) {
-      setReviewEmailOverride('')
+      if (!directEmail) setReviewEmailOverride('')
+      setReviewEmailSuggestion('')
       return
     }
     getDoc(doc(db, 'phoneEmails', phone))
-      .then((snap) => setReviewEmailOverride(snap.exists() ? (snap.data().email || '') : ''))
-      .catch(() => setReviewEmailOverride(''))
+      .then((snap) => {
+        const saved = snap.exists() ? (snap.data().email || '') : ''
+        setReviewEmailSuggestion(saved)
+        if (!directEmail) setReviewEmailOverride(saved)
+      })
+      .catch(() => {
+        setReviewEmailSuggestion('')
+        if (!directEmail) setReviewEmailOverride('')
+      })
   }, [selectedSubmissionId, isReviewView, submissions])
 
   function onAnswerChange(questionId, value) {
@@ -3171,7 +3320,7 @@ function FormPage() {
       })
 
       const capturedAtValue =
-        isAdmin && activeFormSlug === STENGESKJEMA_ID ? await readImageCapturedAtValue(file) : ''
+        activeFormSlug === STENGESKJEMA_ID ? await readImageCapturedAtValue(file) : ''
       const nextFile = await compressUploadedImage(file)
 
       setCameraFiles((previous) => ({
@@ -3179,11 +3328,12 @@ function FormPage() {
         [questionId]: nextFile,
       }))
       setCameraCapturedAt((previous) => {
-        if (typeof previous[questionId] === 'undefined') {
-          return previous
-        }
         const next = { ...previous }
-        delete next[questionId]
+        if (capturedAtValue) {
+          next[questionId] = capturedAtValue
+        } else {
+          delete next[questionId]
+        }
         return next
       })
 
@@ -3222,8 +3372,10 @@ function FormPage() {
       [questionId]: { uploading: true, error: '' },
     }))
 
-    const capturedAtValue =
-      isAdmin && activeFormSlug === STENGESKJEMA_ID ? await readImageCapturedAtValue(file) : ''
+    const isStengeskjema = activeFormSlug === STENGESKJEMA_ID
+    const [capturedAtValue, capturedAtDate] = isStengeskjema
+      ? await Promise.all([readImageCapturedAtValue(file), readImageCapturedAtDate(file)])
+      : ['', null]
 
     try {
       const nextFile = await compressUploadedImage(file)
@@ -3231,9 +3383,11 @@ function FormPage() {
         ...previous,
         [questionId]: nextFile,
       }))
-      const path = createTemporaryImageUploadPath(activeFormSlug, questionId, nextFile.name)
+      const path = createTemporaryImageUploadPath(activeFormSlug, questionId, nextFile.name, {
+        capturedAt: capturedAtDate,
+      })
       await uploadBytes(ref(storage, path), nextFile, {
-        contentType: nextFile.type,
+        contentType: nextFile.type || 'image/jpeg',
       })
       const previewUrl = await getDownloadURL(ref(storage, path))
 
@@ -3335,7 +3489,7 @@ function FormPage() {
       })
 
       const capturedAtValue =
-        isAdmin && activeFormSlug === STENGESKJEMA_ID ? await readImageCapturedAtValue(file) : ''
+        activeFormSlug === STENGESKJEMA_ID ? await readImageCapturedAtValue(file) : ''
       const nextFile = await compressUploadedImage(file)
 
       setSelectDetailFiles((previous) => ({
@@ -3343,11 +3497,12 @@ function FormPage() {
         [questionId]: nextFile,
       }))
       setSelectDetailCapturedAt((previous) => {
-        if (typeof previous[questionId] === 'undefined') {
-          return previous
-        }
         const next = { ...previous }
-        delete next[questionId]
+        if (capturedAtValue) {
+          next[questionId] = capturedAtValue
+        } else {
+          delete next[questionId]
+        }
         return next
       })
 
@@ -3385,8 +3540,10 @@ function FormPage() {
       [questionId]: { uploading: true, error: '' },
     }))
 
-    const capturedAtValue =
-      isAdmin && activeFormSlug === STENGESKJEMA_ID ? await readImageCapturedAtValue(file) : ''
+    const isStengeskjema = activeFormSlug === STENGESKJEMA_ID
+    const [capturedAtValue, capturedAtDate] = isStengeskjema
+      ? await Promise.all([readImageCapturedAtValue(file), readImageCapturedAtDate(file)])
+      : ['', null]
 
     try {
       const nextFile = await compressUploadedImage(file)
@@ -3396,9 +3553,10 @@ function FormPage() {
       }))
       const path = createTemporaryImageUploadPath(activeFormSlug, questionId, nextFile.name, {
         detail: true,
+        capturedAt: capturedAtDate,
       })
       await uploadBytes(ref(storage, path), nextFile, {
-        contentType: nextFile.type,
+        contentType: nextFile.type || 'image/jpeg',
       })
       const previewUrl = await getDownloadURL(ref(storage, path))
 
@@ -3590,24 +3748,27 @@ function FormPage() {
     setSubmitState({ submitting: false, message: '', error: '' })
 
     if (hasPendingImageUploads) {
+      const msg = publicCopy.waitForPhotoUpload
+      window.alert(msg)
       setSubmitState({
         submitting: false,
         message: '',
-        error: publicCopy.waitForPhotoUpload,
+        error: msg,
       })
       return
     }
 
     if (formData.enableSelfDeclaration && !selfDeclarationAccepted) {
+      const msg = displayLanguage === 'en'
+        ? 'You must confirm the self-declaration.'
+        : 'Du må bekrefte egenerklæringen.'
+      window.alert(msg)
       setSubmitErrorQuestionId('')
       setSubmitErrorTargetId('self-declaration-checkbox')
       setSubmitState({
         submitting: false,
         message: '',
-        error:
-          displayLanguage === 'en'
-            ? 'You must confirm the self-declaration.'
-            : 'Du må bekrefte egenerklæringen.',
+        error: msg,
       })
       focusValidationTarget('self-declaration-checkbox')
       return
@@ -3616,16 +3777,17 @@ function FormPage() {
     const missingRequired = visibleInputQuestions.find(isQuestionMissingRequiredAnswer)
 
     if (missingRequired) {
+      const msg = displayLanguage === 'en'
+        ? `Missing answer: ${translateText(missingRequired.label)}`
+        : `Manglende svar: ${missingRequired.label}`
+      window.alert(msg)
       const targetId = getQuestionValidationTargetId(missingRequired)
       setSubmitErrorQuestionId(missingRequired.id)
       setSubmitErrorTargetId(targetId)
       setSubmitState({
         submitting: false,
         message: '',
-        error:
-          displayLanguage === 'en'
-            ? `Missing answer: ${translateText(missingRequired.label)}`
-            : `Manglende svar: ${missingRequired.label}`,
+        error: msg,
       })
       focusValidationTarget(targetId)
       return
@@ -3645,15 +3807,16 @@ function FormPage() {
     })
 
     if (invalidPhoneQuestion) {
+      const msg = displayLanguage === 'en'
+        ? `${translateText(invalidPhoneQuestion.label)}: ${publicCopy.phoneMustBeEightDigits}`
+        : `${invalidPhoneQuestion.label}: ${publicCopy.phoneMustBeEightDigits}`
+      window.alert(msg)
       setSubmitErrorQuestionId(invalidPhoneQuestion.id)
       setSubmitErrorTargetId(invalidPhoneQuestion.id)
       setSubmitState({
         submitting: false,
         message: '',
-        error:
-          displayLanguage === 'en'
-            ? `${translateText(invalidPhoneQuestion.label)}: ${publicCopy.phoneMustBeEightDigits}`
-            : `${invalidPhoneQuestion.label}: ${publicCopy.phoneMustBeEightDigits}`,
+        error: msg,
       })
       focusValidationTarget(invalidPhoneQuestion.id)
       return
@@ -3747,10 +3910,11 @@ function FormPage() {
 
       if (formData.includeSubmissionDateTime) {
         const submittedNow = new Date()
-        submissionAnswers[SUBMISSION_DATE_KEY] = submittedNow.toLocaleDateString('nb-NO')
+        submissionAnswers[SUBMISSION_DATE_KEY] = submittedNow.toLocaleDateString('nb-NO', { timeZone: 'Europe/Oslo' })
         submissionAnswers[SUBMISSION_TIME_KEY] = submittedNow.toLocaleTimeString('nb-NO', {
           hour: '2-digit',
           minute: '2-digit',
+          timeZone: 'Europe/Oslo',
         })
       }
 
@@ -3774,7 +3938,7 @@ function FormPage() {
           const fileName = sanitizeFileName(file.name)
           const path = `forms/images/${activeFormSlug}/${submissionRef.id}-${question.id}-${fileName}`
           await uploadBytes(ref(storage, path), file, {
-            contentType: file.type,
+            contentType: file.type || 'image/jpeg',
           })
           const downloadUrl = await getDownloadURL(ref(storage, path))
           imagePaths.push(path)
@@ -3803,7 +3967,7 @@ function FormPage() {
           const fileName = sanitizeFileName(file.name)
           const path = `forms/images/${activeFormSlug}/${submissionRef.id}-${question.id}-detail-${fileName}`
           await uploadBytes(ref(storage, path), file, {
-            contentType: file.type,
+            contentType: file.type || 'image/jpeg',
           })
           submissionAnswers[getSelectDetailAnswerKey(question.id)] = path
           receiptImageMap[path] = await getDownloadURL(ref(storage, path))
@@ -3891,6 +4055,17 @@ function FormPage() {
         )
       }
 
+      const submittedLocation = getSubmissionLocation(submissionAnswers, formData.questions)
+      if (submittedLocation) {
+        const inventoryDocId = `${activeFormSlug}:${submittedLocation}`
+        deleteDoc(doc(db, 'inventoryUpdates', inventoryDocId)).catch(() => {})
+        setInventoryUpdates((prev) => {
+          const next = { ...prev }
+          delete next[submittedLocation]
+          return next
+        })
+      }
+
       if (receiptTokenValue) {
         const receiptUrl = `${window.location.origin}/skjema/${activeFormSlug}/kvittering/${receiptTokenValue}`
         receiptWindow?.location.replace(
@@ -3938,14 +4113,20 @@ function FormPage() {
       })
     } catch (error) {
       receiptWindow?.close()
-      console.error('Failed to submit form', {
+      const errorCode = error?.code || 'unknown'
+      const errorMessage = error?.message || 'No message'
+      console.error('Failed to submit form', { formSlug: activeFormSlug, error })
+      addDoc(collection(db, 'submissionErrors'), {
         formSlug: activeFormSlug,
-        error,
-      })
+        errorCode,
+        errorMessage,
+        occurredAt: serverTimestamp(),
+        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+      }).catch(() => {})
       setSubmitState({
         submitting: false,
         message: '',
-        error: getSubmitErrorMessage(error),
+        error: `${getSubmitErrorMessage(error)} (kode: ${errorCode})`,
       })
     }
   }
@@ -4537,6 +4718,29 @@ function FormPage() {
     }
   }
 
+  async function onSavePhoneEdit(submissionId) {
+    const phoneQuestion = formData.questions.find((q) => q.type === 'phone')
+    if (!phoneQuestion?.id) return
+    const newPhone = editPhoneDraft.trim()
+    setEditPhoneState({ saving: true, error: '' })
+    try {
+      await updateDoc(doc(db, 'formSubmissions', submissionId), {
+        [`answers.${phoneQuestion.id}`]: newPhone,
+      })
+      setSubmissions((prev) =>
+        prev.map((s) =>
+          s.id === submissionId
+            ? { ...s, answers: { ...s.answers, [phoneQuestion.id]: newPhone } }
+            : s,
+        ),
+      )
+      setEditPhoneSubmissionId('')
+      setEditPhoneState({ saving: false, error: '' })
+    } catch (err) {
+      setEditPhoneState({ saving: false, error: `Could not save: ${err.message}` })
+    }
+  }
+
   function onViewSubmission(submissionId) {
     setSelectedSubmissionId(submissionId)
   }
@@ -4552,11 +4756,28 @@ function FormPage() {
   const selectedSubmissionAnswerEntries = selectedSubmission
     ? getOrderedAnswerEntries(selectedSubmission.answers || {}, reviewQuestions, {
         includeRemainingAnswers: false,
-      })
+      }).filter(([answerKey]) => !answerKey.endsWith(IMAGE_CAPTURED_AT_SUFFIX))
     : []
   const hasPendingReviewDecisions = selectedSubmissionAnswerEntries.some(
     ([answerKey]) => !String(reviewDraftStatuses[answerKey] || '').trim(),
   )
+
+  const lastReviewCameraQuestion = useMemo(() => {
+    if (activeFormSlug !== STENGESKJEMA_ID) return null
+    const cameraQuestions = formData.questions.filter(
+      (q) => !isSectionQuestion(q) && q.type === 'camera' && Boolean(q.includeInReview),
+    )
+    return cameraQuestions.length > 0 ? cameraQuestions[cameraQuestions.length - 1] : null
+  }, [activeFormSlug, formData.questions])
+
+  function onPlandayTimeCheck(confirmed) {
+    setPlandayTimeConfirmed(confirmed)
+    if (!lastReviewCameraQuestion) return
+    setReviewDraftStatuses((prev) => ({
+      ...prev,
+      [lastReviewCameraQuestion.id]: confirmed ? 'approved' : 'flagged',
+    }))
+  }
 
   function onSetReviewStatus(answerKey, nextStatus) {
     setReviewDraftStatuses((previous) => ({
@@ -4601,12 +4822,17 @@ function FormPage() {
   function onOpenReviewPreview() {
     if (!selectedSubmission) return
 
-    const hasPendingDecisions = selectedSubmissionAnswerEntries.some(
+    const hasPendingDecisions = !reviewRejected && selectedSubmissionAnswerEntries.some(
       ([answerKey]) => !String(reviewDraftStatuses[answerKey] || '').trim(),
     )
 
     if (hasPendingDecisions) {
       alert('Select a rating for each question before marking the submission as reviewed.')
+      return
+    }
+
+    if (reviewRejected && !reviewRejectionComment.trim()) {
+      alert('A comment is required when rejecting the closing form.')
       return
     }
 
@@ -4658,6 +4884,9 @@ function FormPage() {
       submitterEmail:
         selectedSubmission.submitterEmail ||
         getSubmissionEmail(selectedSubmission.answers, formData.questions),
+      generalFeedback: reviewGeneralFeedback.trim(),
+      rejected: reviewRejected,
+      rejectionComment: reviewRejectionComment.trim(),
     })
   }
 
@@ -4666,24 +4895,11 @@ function FormPage() {
       return
     }
 
-    const hasPendingDecisions = selectedSubmissionAnswerEntries.some(
+    const hasPendingDecisions = !reviewRejected && selectedSubmissionAnswerEntries.some(
       ([answerKey]) => !String(reviewDraftStatuses[answerKey] || '').trim(),
     )
 
     if (hasPendingDecisions) {
-      return
-    }
-
-    const hasMissingComments = selectedSubmissionAnswerEntries.some(([answerKey]) => {
-      const s = reviewDraftStatuses[answerKey]
-      if (s !== 'flagged' && s !== 'flagged_sad') return false
-      const q = formData.questions?.find((question) => question.id === answerKey)
-      if ((q?.reviewType || 'rating') !== 'rating') return false
-      return !String(reviewDraftComments[answerKey] || '').trim()
-    })
-
-    if (hasMissingComments) {
-      setReviewSubmissionState({ saving: false, error: 'Comment is required for neutral and sad ratings.' })
       return
     }
 
@@ -4732,11 +4948,24 @@ function FormPage() {
         flaggedAnswers,
         reviewAnswers,
         reviewScoreSummary,
-        status: 'reviewed',
+        status: reviewRejected ? 'rejected' : 'reviewed',
         statusUpdatedBy: user?.email || 'admin',
         statusUpdatedAt: serverTimestamp(),
         reviewedAt: serverTimestamp(),
+        ...(reviewGeneralFeedback.trim() ? { generalFeedback: reviewGeneralFeedback.trim() } : {}),
+        ...(reviewRejected ? { rejected: true, rejectionComment: reviewRejectionComment.trim() } : { rejected: false }),
       })
+
+      if (selectedSubmission.receiptToken) {
+        updateDoc(doc(db, 'formSubmissionReceipts', selectedSubmission.receiptToken), {
+          reviewScoreSummary,
+          generalFeedback: reviewGeneralFeedback.trim() || null,
+          status: reviewRejected ? 'rejected' : 'reviewed',
+          rejected: reviewRejected || false,
+          reviewedAt: serverTimestamp(),
+          feedbackReadConfirmed: false,
+        }).catch(() => {})
+      }
 
       setSubmissions((previous) =>
         previous.map((submission) =>
@@ -4766,7 +4995,7 @@ function FormPage() {
           .catch(() => {})
       }
 
-      if (submitterEmail) {
+      if (reviewSendEmail && submitterEmail) {
         const emailFlaggedAnswers = flaggedAnswers.filter(({ answerKey }) => {
           const q = getQuestionForAnswerKey(answerKey, formData.questions)
           return (q?.reviewType || 'rating') === 'rating'
@@ -4799,6 +5028,9 @@ function FormPage() {
             ? `https://crust.no/skjema/${activeFormSlug}/kvittering/${selectedSubmission.receiptToken}`
             : null,
           reviewedBy: user?.email || null,
+          generalFeedback: reviewGeneralFeedback.trim() || null,
+          rejected: reviewRejected,
+          rejectionComment: reviewRejectionComment.trim() || null,
         }).catch((emailError) => {
           console.error('Review email failed to send', emailError)
         })
@@ -4830,13 +5062,80 @@ function FormPage() {
   }
 
   async function onSendTestInventoryAlert() {
+    const recipient = testEmailRecipient.trim() || 'magnus@crust.no'
     setInventoryTestState({ sending: true, error: '', message: '' })
     try {
-      await httpsCallable(functions, 'sendInventoryAlertEmail')({ testRecipient: 'magnus@crust.no' })
-      setInventoryTestState({ sending: false, error: '', message: 'Test sendt til magnus@crust.no!' })
+      await httpsCallable(functions, 'sendInventoryAlertEmail')({ testRecipient: recipient })
+      setInventoryTestState({ sending: false, error: '', message: `Test sendt til ${recipient}!` })
       setTimeout(() => setInventoryTestState((s) => ({ ...s, message: '' })), 4000)
     } catch (error) {
       setInventoryTestState({ sending: false, error: `Feil: ${error.message}`, message: '' })
+    }
+  }
+
+  async function onSendAnalyseEmail(event) {
+    event.preventDefault()
+    const recipient = analyseEmailRecipient.trim()
+    if (!recipient) return
+    setAnalyseEmailState({ sending: true, error: '', message: '' })
+    try {
+      await httpsCallable(functions, 'sendInventoryAlertEmail')({ testRecipient: recipient })
+      setAnalyseEmailState({ sending: false, error: '', message: `Sendt til ${recipient}!` })
+      setAnalyseEmailRecipient('')
+      setTimeout(() => setAnalyseEmailState((s) => ({ ...s, message: '' })), 4000)
+    } catch (error) {
+      setAnalyseEmailState({ sending: false, error: `Feil: ${error.message}`, message: '' })
+    }
+  }
+
+  async function onSaveInventoryUpdate() {
+    if (!inventoryModalLocation) return
+    const nonEmpty = Object.fromEntries(
+      Object.entries(inventoryModalAnswers).filter(([, v]) => String(v || '').trim()),
+    )
+    if (Object.keys(nonEmpty).length === 0) return
+    setInventoryModalSaving(true)
+    setInventoryModalError('')
+    try {
+      const existingAnswers = inventoryUpdates[inventoryModalLocation]?.answers || {}
+      const mergedAnswers = { ...existingAnswers, ...nonEmpty }
+      const existingLogs = inventoryUpdates[inventoryModalLocation]?.answerLogs || {}
+      const now = new Date()
+      const newLogs = { ...existingLogs }
+      const updatedBy = user?.email || 'admin'
+      for (const [qId, val] of Object.entries(nonEmpty)) {
+        const prev = existingAnswers[qId]
+        if (prev === val) continue
+        newLogs[qId] = [
+          { value: val, updatedAt: now.toISOString(), updatedBy },
+          ...(existingLogs[qId] || []),
+        ].slice(0, 20)
+      }
+      const docId = `${STENGESKJEMA_ID}:${inventoryModalLocation}`
+      await setDoc(doc(db, 'inventoryUpdates', docId), {
+        formSlug: STENGESKJEMA_ID,
+        location: inventoryModalLocation,
+        answers: mergedAnswers,
+        answerLogs: newLogs,
+        updatedAt: serverTimestamp(),
+        updatedBy,
+      })
+      setInventoryUpdates((prev) => ({
+        ...prev,
+        [inventoryModalLocation]: {
+          answers: mergedAnswers,
+          answerLogs: newLogs,
+          updatedAt: now,
+          updatedBy,
+        },
+      }))
+      setShowInventoryModal(false)
+      setInventoryModalLocation('')
+      setInventoryModalAnswers({})
+    } catch (err) {
+      setInventoryModalError(`Kunne ikke lagre: ${err.message}`)
+    } finally {
+      setInventoryModalSaving(false)
     }
   }
 
@@ -4864,25 +5163,35 @@ function FormPage() {
       const flaggedKeys = new Set((latestFlagged.flaggedAnswers || []).map((a) => a.answerKey))
 
       const flaggedAnswers = await Promise.all(
-        (latestFlagged.flaggedAnswers || []).map(async (item) => {
-          if (item.imageUrl) return item
-          if (isStorageImagePath(item.value)) {
-            try {
-              const imageUrl = await getDownloadURL(ref(storage, item.value))
-              return { ...item, imageUrl }
-            } catch {
-              return item
+        (latestFlagged.flaggedAnswers || [])
+          .filter((item) => {
+            const q = getQuestionForAnswerKey(item.answerKey, formData.questions)
+            return (q?.reviewType || 'rating') === 'rating'
+          })
+          .map(async (item) => {
+            if (item.imageUrl) return item
+            if (isStorageImagePath(item.value)) {
+              try {
+                const imageUrl = await getDownloadURL(ref(storage, item.value))
+                return { ...item, imageUrl }
+              } catch {
+                return item
+              }
             }
-          }
-          return item
-        }),
+            return item
+          }),
       )
 
       const approvedEntries = getOrderedAnswerEntries(
         latestFlagged.answers || {},
         reviewQuestions,
         { includeRemainingAnswers: false },
-      ).filter(([answerKey]) => !flaggedKeys.has(answerKey))
+      ).filter(([answerKey]) => {
+        if (answerKey.endsWith(IMAGE_CAPTURED_AT_SUFFIX)) return false
+        if (flaggedKeys.has(answerKey)) return false
+        const q = getQuestionForAnswerKey(answerKey, formData.questions)
+        return (q?.reviewType || 'rating') === 'rating'
+      })
 
       const approvedAnswers = await Promise.all(
         approvedEntries.map(async ([answerKey, value]) => {
@@ -4904,6 +5213,7 @@ function FormPage() {
         }),
       ).then((results) => results.filter(Boolean))
 
+      const recipient = testEmailRecipient.trim() || 'magnus@crust.no'
       await httpsCallable(functions, 'sendReviewEmail')({
         submitterEmail: latestFlagged.submitterEmail || 'test@crust.no',
         formTitle: formData.title || activeFormSlug,
@@ -4911,11 +5221,41 @@ function FormPage() {
         approvedAnswers,
         reviewScoreSummary: latestFlagged.reviewScoreSummary || { happy: 0, neutral: 0, sad: 0 },
         submittedAtSeconds: latestFlagged.submittedAt?.seconds || null,
-        reviewUrl: `https://crust.no/skjema/${activeFormSlug}/review/${latestFlagged.id}`,
-        testRecipient: 'magnus@crust.no',
+        reviewUrl: latestFlagged.receiptToken
+          ? `https://crust.no/skjema/${activeFormSlug}/kvittering/${latestFlagged.receiptToken}`
+          : null,
+        generalFeedback: latestFlagged.generalFeedback || null,
+        testRecipient: recipient,
       })
 
-      setTestEmailState({ sending: false, error: '', message: 'Test email sent to magnus@crust.no' })
+      setTestEmailState({ sending: false, error: '', message: `Test email sent to ${recipient}` })
+    } catch (error) {
+      setTestEmailState({ sending: false, error: `Failed to send: ${error.message}`, message: '' })
+    }
+  }
+
+  async function onSendTestRejectionEmail() {
+    setTestEmailState({ sending: true, error: '', message: '' })
+    try {
+      const latestSubmission = [...submissions]
+        .filter((s) => s.submittedAt)
+        .sort((a, b) => (b.submittedAt?.seconds || 0) - (a.submittedAt?.seconds || 0))[0]
+
+      const recipient = testEmailRecipient.trim() || 'magnus@crust.no'
+      await httpsCallable(functions, 'sendReviewEmail')({
+        submitterEmail: latestSubmission?.submitterEmail || 'test@crust.no',
+        formTitle: formData.title || activeFormSlug,
+        flaggedAnswers: [],
+        approvedAnswers: [],
+        reviewScoreSummary: { happy: 0, neutral: 0, sad: 0 },
+        submittedAtSeconds: latestSubmission?.submittedAt?.seconds || null,
+        reviewUrl: null,
+        reviewedBy: user?.email || null,
+        rejected: true,
+        rejectionComment: 'Dette er en test av avvisnings-e-post. Stengeskjemaet ble ikke godkjent.',
+        testRecipient: recipient,
+      })
+      setTestEmailState({ sending: false, error: '', message: `Test rejection email sent to ${recipient}` })
     } catch (error) {
       setTestEmailState({ sending: false, error: `Failed to send: ${error.message}`, message: '' })
     }
@@ -5815,7 +6155,7 @@ function FormPage() {
           const fileName = sanitizeFileName(file.name)
           const path = `forms/remarks/${activeFormSlug}/${remarkRef.id}-${uploadStartedAt}-${index}-${fileName}`
           await uploadBytes(ref(storage, path), file, {
-            contentType: file.type,
+            contentType: file.type || 'image/jpeg',
           })
           const downloadUrl = await getDownloadURL(ref(storage, path))
 
@@ -6039,6 +6379,22 @@ function FormPage() {
     }
   }
 
+  async function onSaveAnalysisRowOrder(order) {
+    setAnalysisRowOrderSaving(true)
+    try {
+      await setDoc(
+        doc(db, 'forms', formDocId || activeFormSlug),
+        { slug: activeFormSlug, analysisQuestionOrder: order, updatedAt: serverTimestamp() },
+        { merge: true },
+      )
+      setFormData((prev) => ({ ...prev, analysisQuestionOrder: order }))
+    } catch {
+      // silent — order stays in local state even if save fails
+    } finally {
+      setAnalysisRowOrderSaving(false)
+    }
+  }
+
   function renderQuestionInput(question) {
     const value = answers[question.id] || ''
 
@@ -6048,7 +6404,6 @@ function FormPage() {
           id={question.id}
           value={value}
           placeholder={getLocalizedInputPlaceholder(question)}
-          required={question.required}
           rows={4}
           onChange={(event) => onAnswerChange(question.id, event.target.value)}
         />
@@ -6071,7 +6426,6 @@ function FormPage() {
           <select
             id={question.id}
             value={value}
-            required={question.required}
             onChange={(event) => {
               const nextValue = event.target.value
               onAnswerChange(question.id, nextValue)
@@ -6142,7 +6496,6 @@ function FormPage() {
                 type="text"
                 value={detailValue}
                 placeholder={publicCopy.writeHere}
-                required
                 onChange={(event) =>
                   setSelectDetailAnswers((previous) => ({
                     ...previous,
@@ -6203,7 +6556,6 @@ function FormPage() {
           <select
             id={question.id}
             value={value}
-            required={question.required}
             onChange={(event) => {
               const nextValue = event.target.value
               onAnswerChange(question.id, nextValue)
@@ -6247,7 +6599,6 @@ function FormPage() {
               type="text"
               value={otherValue}
               placeholder={getLocalizedInputPlaceholder(question, publicCopy.enterLocation)}
-              required={question.required}
               onChange={(event) =>
                 setLocationOtherAnswers((previous) => ({
                   ...previous,
@@ -6312,7 +6663,6 @@ function FormPage() {
           value={value}
           placeholder={getLocalizedInputPlaceholder(question, publicCopy.fullName)}
           autoComplete="name"
-          required={question.required}
           onChange={(event) => onAnswerChange(question.id, event.target.value)}
         />
       )
@@ -6328,9 +6678,7 @@ function FormPage() {
             placeholder={getLocalizedInputPlaceholder(question, publicCopy.phoneNumberPlaceholder)}
             inputMode="numeric"
             autoComplete="tel-national"
-            pattern="[0-9]{8}"
             maxLength={8}
-            required={question.required}
             onChange={(event) => onAnswerChange(question.id, event.target.value)}
           />
           <small className="question-help">{publicCopy.phoneNumberHelp}</small>
@@ -6346,7 +6694,6 @@ function FormPage() {
           value={value}
           placeholder={getLocalizedInputPlaceholder(question, publicCopy.emailAddress)}
           autoComplete="email"
-          required={question.required}
           onChange={(event) => onAnswerChange(question.id, event.target.value)}
         />
       )
@@ -6358,7 +6705,6 @@ function FormPage() {
         type={question.type || 'text'}
         value={value}
         placeholder={getLocalizedInputPlaceholder(question)}
-        required={question.required}
         onChange={(event) => onAnswerChange(question.id, event.target.value)}
       />
     )
@@ -6428,9 +6774,52 @@ function FormPage() {
   const availableSubmissionDays = Array.from(
     new Set(submissions.map((submission) => getSubmissionDayKey(submission.submittedAt)).filter(Boolean)),
   )
-  const visibleSubmissions = selectedSubmissionDay
-    ? submissions.filter((submission) => getSubmissionDayKey(submission.submittedAt) === selectedSubmissionDay)
+  const effectiveSubmissionDay = selectedSubmissionDay || availableSubmissionDays[0] || ''
+  const visibleSubmissions = effectiveSubmissionDay
+    ? submissions.filter((submission) => getSubmissionDayKey(submission.submittedAt) === effectiveSubmissionDay)
     : submissions
+
+  function fetchLastPhotoMeta(submissionList, onDone) {
+    const toFetch = submissionList.filter((s) =>
+      submissionLastPhotoMeta[s.id] === undefined &&
+      Object.values(s.answers || {}).some((v) => isStorageImagePath(v))
+    )
+    if (toFetch.length === 0) { onDone?.(); return () => {} }
+    let cancelled = false
+    let pending = toFetch.length
+    toFetch.forEach((submission) => {
+      const paths = Object.values(submission.answers || {}).filter((v) => isStorageImagePath(v))
+      if (!paths.length) { if (--pending === 0) onDone?.(); return }
+      Promise.all(
+        paths.map((path) =>
+          getMetadata(ref(storage, path))
+            .then((meta) => (meta.timeCreated ? new Date(meta.timeCreated).getTime() : 0))
+            .catch(() => 0)
+        )
+      ).then((times) => {
+        if (cancelled) return
+        const latestMs = Math.max(...times)
+        const entry = latestMs
+          ? {
+              ms: latestMs,
+              display: new Date(latestMs).toLocaleString('en-GB', {
+                day: '2-digit', month: 'short',
+                hour: '2-digit', minute: '2-digit',
+                timeZone: 'Europe/Oslo',
+              }),
+            }
+          : null
+        setSubmissionLastPhotoMeta((prev) => ({ ...prev, [submission.id]: entry }))
+        if (--pending === 0) onDone?.()
+      })
+    })
+    return () => { cancelled = true }
+  }
+
+  useEffect(() => {
+    if (!isSubmissionsView) return
+    return fetchLastPhotoMeta(visibleSubmissions, undefined)
+  }, [isSubmissionsView, visibleSubmissions])
   const reviewedSubmissionMonthlyStats = useMemo(() => {
     const statsByMonth = new Map()
 
@@ -6455,6 +6844,20 @@ function FormPage() {
     })
 
     return Array.from(statsByMonth.values()).sort((a, b) => b.monthKey.localeCompare(a.monthKey))
+  }, [submissions])
+
+  const missingReviewsByDay = useMemo(() => {
+    const currentMonthKey = getSubmissionMonthKey(new Date())
+    const byDay = {}
+    submissions.forEach((s) => {
+      if (getSubmissionMonthKey(s.submittedAt) !== currentMonthKey) return
+      const status = String(s.status || '').trim().toLowerCase()
+      if (status === 'reviewed' || status === 'rejected') return
+      const dayKey = getSubmissionDayKey(s.submittedAt)
+      if (!dayKey) return
+      byDay[dayKey] = (byDay[dayKey] || 0) + 1
+    })
+    return Object.entries(byDay).sort(([a], [b]) => a.localeCompare(b))
   }, [submissions])
 
   const userScoreboard = useMemo(() => {
@@ -6767,9 +7170,19 @@ function FormPage() {
       return accumulator
     }, [])
     .sort((a, b) => a.location.localeCompare(b.location, 'nb'))
-  const analysisQuestions = formData.questions.filter(
-    (question) => !isSectionQuestion(question) && Boolean(question.includeInAnalysis),
-  )
+  const analysisQuestions = useMemo(() => {
+    const base = formData.questions.filter(
+      (question) => !isSectionQuestion(question) && Boolean(question.includeInAnalysis),
+    )
+    if (analysisRowOrder.length === 0) return base
+    return [...base].sort((a, b) => {
+      const ai = analysisRowOrder.indexOf(a.id)
+      const bi = analysisRowOrder.indexOf(b.id)
+      const aPos = ai === -1 ? base.indexOf(a) + analysisRowOrder.length : ai
+      const bPos = bi === -1 ? base.indexOf(b) + analysisRowOrder.length : bi
+      return aPos - bPos
+    })
+  }, [formData.questions, analysisRowOrder])
   const visibleHistoryQuestions =
     historyShowAllQuestions
       ? analysisQuestions
@@ -6806,6 +7219,35 @@ function FormPage() {
       return previous === nextValue ? previous : nextValue
     })
   }, [formData.analysisDefaultSubmissionLimit])
+
+  useEffect(() => {
+    const saved = Array.isArray(formData.analysisQuestionOrder) ? formData.analysisQuestionOrder : []
+    setAnalysisRowOrder(saved)
+  }, [formData.analysisQuestionOrder])
+
+  useEffect(() => {
+    if (!isHistoryView) return
+    let cancelled = false
+    getDocs(query(collection(db, 'inventoryUpdates'), where('formSlug', '==', STENGESKJEMA_ID)))
+      .then((snap) => {
+        if (cancelled) return
+        const updates = {}
+        snap.forEach((d) => {
+          const data = d.data()
+          if (data.location) {
+            updates[data.location] = {
+              answers: data.answers || {},
+              answerLogs: data.answerLogs || {},
+              updatedAt: data.updatedAt?.toDate?.() || null,
+              updatedBy: data.updatedBy || '',
+            }
+          }
+        })
+        setInventoryUpdates(updates)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [isHistoryView])
 
   useEffect(() => {
     if (flaggedSubmissions.length === 0) {
@@ -6918,6 +7360,7 @@ function FormPage() {
     (_, index) => index,
   )
   const receiptAnswerEntries = getOrderedAnswerEntries(receiptSubmission?.answers || {}, formData.questions)
+    .filter(([key]) => !key.endsWith(IMAGE_CAPTURED_AT_SUFFIX))
   const receiptEditState = getReceiptEditState(receiptSubmission?.submittedAtIso)
   const heroEyebrow = isReceiptPage ? publicCopy.receiptEyebrow : publicCopy.formEyebrow
   const localizedFormTitle = translateText(formData.title)
@@ -7284,51 +7727,8 @@ function FormPage() {
                         </div>
                       </div>
                     ) : null}
-                    {ratingItems.length > 0 ? (
-                      <div className="flagged-content-section">
-                        <h4>Vurdert med <FaceNeutral size={16} /> / <FaceSad size={16} /></h4>
-                        <div className="flagged-answer-list">
-                          {ratingItems.map((item) => (
-                            <article key={`${submission.id}-${item.answerKey}-rating`} className={`flagged-answer-row flagged-answer-row--rated ${item.reviewStatus === 'flagged_sad' ? 'is-sad' : 'is-neutral'}`}>
-                              <p className="review-answer-label">
-                                {item.reviewStatus === 'flagged_sad' ? <FaceSad size={16} /> : <FaceNeutral size={16} />}
-                                {' '}{item.label}
-                              </p>
-                              {item.comment ? (
-                                <p className="flagged-answer-comment">
-                                  <strong>Kommentar:</strong> {item.comment}
-                                </p>
-                              ) : null}
-                              {(() => {
-                                const hasImagePath = isStorageImagePath(item.value)
-                                const imageUrl = hasImagePath
-                                  ? String(item.imageUrl || flaggedImageUrls[item.value] || '')
-                                  : undefined
-                                return hasImagePath ? (
-                                  imageUrl ? (
-                                    <img className="flagged-answer-image" src={imageUrl} alt={item.label} loading="lazy" />
-                                  ) : typeof item.imageUrl === 'string' || typeof flaggedImageUrls[item.value] !== 'undefined' ? (
-                                    <p className="review-answer-value">Kunne ikke laste bilde.</p>
-                                  ) : (
-                                    <p className="review-answer-value">Laster bilde...</p>
-                                  )
-                                ) : (
-                                  <p className="review-answer-value">{String(item.value || '-')}</p>
-                                )
-                              })()}
-                            </article>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-                    {flaggingItems.length === 0 && ratingItems.length === 0 && (submission.reviewScoreSummary?.neutral || 0) + (submission.reviewScoreSummary?.sad || 0) > 0 ? (
-                      <div className="flagged-content-section">
-                        <h4>Vurdert</h4>
-                        <p className="review-answer-value">
-                          {submission.reviewScoreSummary?.neutral > 0 ? <><FaceNeutral size={15} /> {submission.reviewScoreSummary.neutral} nøytral </> : null}
-                          {submission.reviewScoreSummary?.sad > 0 ? <><FaceSad size={15} /> {submission.reviewScoreSummary.sad} surmunn</> : null}
-                        </p>
-                      </div>
+                    {flaggingItems.length === 0 ? (
+                      <p className="review-answer-value flagged-no-items-note">Ingen flaggede spørsmål.</p>
                     ) : null}
                   </>
                 )
@@ -7870,7 +8270,7 @@ function FormPage() {
       {isAdminShellView ? (
         <form action="/skjema" method="get">
           <button type="submit" className="admin-login-link">
-            Tilbake til hovedmeny
+            Back to main menu
           </button>
         </form>
       ) : !isStandalonePublicForm ? (
@@ -7879,6 +8279,23 @@ function FormPage() {
             Tilbake til alle skjema
           </button>
         </form>
+      ) : null}
+      {isHistoryView ? (
+        <div className="inventory-update-top-bar">
+          <button
+            type="button"
+            className="ghost inventory-update-btn"
+            onClick={() => {
+              setInventoryModalLocation('')
+              setInventoryModalQuestionId('')
+              setInventoryModalAnswers({})
+              setInventoryModalError('')
+              setShowInventoryModal(true)
+            }}
+          >
+            ✏ Rediger varebeholdning
+          </button>
+        </div>
       ) : null}
       {isReceiptPage && !isReceiptReady ? (
         <section className="form-entry">
@@ -7943,6 +8360,12 @@ function FormPage() {
 
           {isReceiptPage ? (
             <section className="form-entry receipt-entry">
+              {feedbackConfirmDone ? (
+                <div className="receipt-confirm-thanks">
+                  <span className="receipt-confirm-thanks-icon">✓</span>
+                  Takk for bekreftelsen!
+                </div>
+              ) : null}
               {receiptError ? <p className="forms-error">{receiptError}</p> : null}
               {!receiptError && receiptSubmission ? (
                 <>
@@ -7953,7 +8376,7 @@ function FormPage() {
                     <p>
                       <strong>{publicCopy.submittedLabel}:</strong>{' '}
                       {receiptSubmission.submittedAtIso
-                        ? new Date(receiptSubmission.submittedAtIso).toLocaleString('nb-NO')
+                        ? new Date(receiptSubmission.submittedAtIso).toLocaleString('nb-NO', { timeZone: 'Europe/Oslo' })
                         : '-'}
                     </p>
                     {receiptToken ? (
@@ -8029,6 +8452,61 @@ function FormPage() {
                       )
                     })}
                   </div>
+
+                  {(() => {
+                    const rd = receiptReviewData
+                    if (!rd || rd.status !== 'reviewed' || rd.rejected) return null
+                    const neutral = rd.reviewScoreSummary?.neutral || 0
+                    const sad = rd.reviewScoreSummary?.sad || 0
+                    const hasFeedback = neutral > 0 || sad > 0 || Boolean(rd.generalFeedback)
+                    if (!hasFeedback) return null
+                    const alreadyConfirmed = rd.feedbackReadConfirmed || feedbackConfirmDone
+                    return (
+                      <div className="receipt-feedback-section">
+                        <h4 className="receipt-feedback-title">Tilbakemelding fra gjennomgang</h4>
+                        <div className="receipt-feedback-scores">
+                          {(rd.reviewScoreSummary?.happy || 0) > 0 ? (
+                            <span className="receipt-feedback-score is-happy">
+                              <FaceHappy size={18} /> {rd.reviewScoreSummary.happy}
+                            </span>
+                          ) : null}
+                          {neutral > 0 ? (
+                            <span className="receipt-feedback-score is-neutral">
+                              <FaceNeutral size={18} /> {neutral}
+                            </span>
+                          ) : null}
+                          {sad > 0 ? (
+                            <span className="receipt-feedback-score is-sad">
+                              <FaceSad size={18} /> {sad}
+                            </span>
+                          ) : null}
+                        </div>
+                        {rd.generalFeedback ? (
+                          <p className="receipt-feedback-general">{rd.generalFeedback}</p>
+                        ) : null}
+                        {alreadyConfirmed ? (
+                          <p className="receipt-feedback-confirmed">✓ Du har bekreftet at du har lest tilbakemeldingen</p>
+                        ) : (
+                          <button
+                            type="button"
+                            className="cta receipt-feedback-confirm-btn"
+                            disabled={feedbackConfirmSaving}
+                            onClick={async () => {
+                              setFeedbackConfirmSaving(true)
+                              try {
+                                await httpsCallable(functions, 'confirmFeedbackRead')({ receiptToken })
+                                setFeedbackConfirmDone(true)
+                                setReceiptReviewData((prev) => prev ? { ...prev, feedbackReadConfirmed: true } : prev)
+                              } catch {}
+                              setFeedbackConfirmSaving(false)
+                            }}
+                          >
+                            {feedbackConfirmSaving ? 'Bekrefter...' : 'Bekreft at du har lest tilbakemeldingen'}
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </>
               ) : null}
             </section>
@@ -8894,6 +9372,13 @@ function FormPage() {
                 <div className="submissions-section-header">
                   <h3>Submissions</h3>
                   <div className="submissions-section-actions">
+                    <input
+                      type="email"
+                      className="submissions-test-email-input"
+                      value={testEmailRecipient}
+                      onChange={(e) => setTestEmailRecipient(e.target.value)}
+                      placeholder="test@epost.no"
+                    />
                     <button
                       type="button"
                       className="submissions-action-button"
@@ -8901,6 +9386,14 @@ function FormPage() {
                       disabled={testEmailState.sending}
                     >
                       {testEmailState.sending ? 'Sending…' : 'Send test email'}
+                    </button>
+                    <button
+                      type="button"
+                      className="submissions-action-button"
+                      onClick={onSendTestRejectionEmail}
+                      disabled={testEmailState.sending}
+                    >
+                      {testEmailState.sending ? 'Sending…' : 'Send test rejection email'}
                     </button>
                     {testEmailState.message ? (
                       <span className="test-email-feedback test-email-feedback--ok">{testEmailState.message}</span>
@@ -8911,38 +9404,60 @@ function FormPage() {
                   </div>
                 </div>
                 {loadingSubmissions ? <p>Loading submissions...</p> : null}
-                {!loadingSubmissions && reviewedSubmissionMonthlyStats.length > 0 ? (
-                  <div className="reviewed-monthly-summary" aria-label="Reviewed submissions per month">
-                    <div className="reviewed-monthly-summary-header">
-                      <h4>Reviewed per month</h4>
-                      <p>Number of reviewed submissions and how many of them are flagged.</p>
+                {!loadingSubmissions && reviewedSubmissionMonthlyStats.length > 0 ? (() => {
+                  const currentMonthKey = getSubmissionMonthKey(new Date())
+                  const thisMonth = reviewedSubmissionMonthlyStats.find((m) => m.monthKey === currentMonthKey)
+                  const pastMonths = reviewedSubmissionMonthlyStats.filter((m) => m.monthKey !== currentMonthKey)
+                  return (
+                    <div className="reviewed-monthly-summary">
+                      <div className="reviewed-monthly-this-month">
+                        <span>
+                          Reviewed this month: <strong>{thisMonth?.reviewedCount ?? 0}</strong>
+                          {thisMonth?.flaggedCount > 0 ? <span className="reviewed-monthly-flagged-note"> ({thisMonth.flaggedCount} flagged)</span> : null}
+                        </span>
+                        {missingReviewsByDay.map(([dayKey, count]) => {
+                          const todayKey = new Date().toLocaleDateString('sv', { timeZone: 'Europe/Oslo' })
+                          const isToday = dayKey === todayKey
+                          return isToday ? (
+                            <span key={dayKey} className="reviewed-monthly-ready">
+                              {count} submission{count !== 1 ? 's' : ''} ready to review
+                            </span>
+                          ) : (
+                            <span key={dayKey} className="reviewed-monthly-missing">
+                              ⚠ {count} missing review{count !== 1 ? 's' : ''} for {formatSubmissionDayLabel(dayKey)}
+                            </span>
+                          )
+                        })}
+                        {pastMonths.length > 0 ? (
+                          <button
+                            type="button"
+                            className="submissions-action-button submissions-action-button--small"
+                            onClick={() => setShowPastMonths((v) => !v)}
+                          >
+                            {showPastMonths ? 'Hide past months' : 'Past months'}
+                          </button>
+                        ) : null}
+                      </div>
+                      {showPastMonths && pastMonths.length > 0 ? (
+                        <div className="reviewed-monthly-past-popup">
+                          {pastMonths.map((month) => (
+                            <div key={month.monthKey} className="reviewed-monthly-past-row">
+                              <span>{formatSubmissionMonthLabel(month.monthKey)}</span>
+                              <span><strong>{month.reviewedCount}</strong> reviewed{month.flaggedCount > 0 ? `, ${month.flaggedCount} flagged` : ''}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
-                    <div className="reviewed-monthly-summary-grid">
-                      {reviewedSubmissionMonthlyStats.map((month) => (
-                        <article key={month.monthKey} className="reviewed-monthly-summary-card">
-                          <h5>{formatSubmissionMonthLabel(month.monthKey)}</h5>
-                          <div className="reviewed-monthly-summary-values">
-                            <p>
-                              <span>Reviewed</span>
-                              <strong>{month.reviewedCount}</strong>
-                            </p>
-                            <p>
-                              <span>Flagged</span>
-                              <strong>{month.flaggedCount}</strong>
-                            </p>
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
+                  )
+                })() : null}
                 {!loadingSubmissions && availableSubmissionDays.length > 0 ? (
                   <div className="submissions-filter-bar">
                     <label className="field-block" htmlFor="submission-day-filter">
                       <span>Day</span>
                       <select
                         id="submission-day-filter"
-                        value={selectedSubmissionDay}
+                        value={effectiveSubmissionDay}
                         onChange={(event) => setSelectedSubmissionDay(event.target.value)}
                       >
                         {availableSubmissionDays.map((dayKey) => (
@@ -8952,6 +9467,85 @@ function FormPage() {
                         ))}
                       </select>
                     </label>
+                    <button
+                      type="button"
+                      className="submissions-action-button"
+                      onClick={() => {
+                        setShowTimingIssues(true)
+                        setTimingIssuesFetching(true)
+                        fetchLastPhotoMeta(submissions, () => setTimingIssuesFetching(false))
+                      }}
+                    >
+                      Check timing
+                    </button>
+                  </div>
+                ) : null}
+
+                {showTimingIssues ? (
+                  <div
+                    className="submission-modal-backdrop"
+                    role="dialog"
+                    aria-modal="true"
+                    onClick={() => setShowTimingIssues(false)}
+                  >
+                    <div
+                      className="submission-modal timing-issues-modal"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="submission-modal-header">
+                        <h4>Timing issues (&gt;5 min difference)</h4>
+                        <button type="button" className="ghost" onClick={() => setShowTimingIssues(false)}>Close</button>
+                      </div>
+                      <div className="submission-modal-content">
+                        {timingIssuesFetching ? (
+                          <p style={{color:'var(--muted)'}}>Fetching photo times…</p>
+                        ) : (() => {
+                          const FIVE_MIN = 5 * 60 * 1000
+                          const issues = submissions.filter((s) => {
+                            const submittedMs = s.submittedAt?.seconds
+                              ? s.submittedAt.seconds * 1000
+                              : s.submittedAt instanceof Date ? s.submittedAt.getTime() : null
+                            const photoMs = submissionLastPhotoMeta[s.id]?.ms
+                            if (!submittedMs || !photoMs) return false
+                            return Math.abs(submittedMs - photoMs) > FIVE_MIN
+                          })
+                          if (issues.length === 0) return <p>No timing issues found.</p>
+                          return (
+                            <table className="submissions-table timing-issues-table">
+                              <thead>
+                                <tr>
+                                  <th>Name</th>
+                                  <th>Submitted</th>
+                                  <th>Last photo</th>
+                                  <th>Diff</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {issues.map((s) => {
+                                  const submittedMs = s.submittedAt?.seconds
+                                    ? s.submittedAt.seconds * 1000
+                                    : s.submittedAt instanceof Date ? s.submittedAt.getTime() : 0
+                                  const photoMs = submissionLastPhotoMeta[s.id]?.ms || 0
+                                  const diffMin = Math.round(Math.abs(submittedMs - photoMs) / 60000)
+                                  const fmtOpts = { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Oslo' }
+                                  return (
+                                    <tr key={s.id}>
+                                      <td>
+                                        <div>{getSubmissionName(s.answers, formData.questions) || '—'}</div>
+                                        <small style={{color:'var(--muted)'}}>{getSubmissionLocation(s.answers, formData.questions)}</small>
+                                      </td>
+                                      <td>{new Date(submittedMs).toLocaleString('en-GB', fmtOpts)}</td>
+                                      <td>{submissionLastPhotoMeta[s.id]?.display || '—'}</td>
+                                      <td><strong>{diffMin} min</strong></td>
+                                    </tr>
+                                  )
+                                })}
+                              </tbody>
+                            </table>
+                          )
+                        })()}
+                      </div>
+                    </div>
                   </div>
                 ) : null}
                 {!loadingSubmissions && submissions.length === 0 ? (
@@ -8966,8 +9560,9 @@ function FormPage() {
                       <thead>
                         <tr>
                           <th>Submitted</th>
+                          <th>Last photo taken</th>
                           <th>Location</th>
-                          <th>Name</th>
+                          <th>Phone</th>
                           <th>Receipt</th>
                           <th>Status</th>
                           <th>Actions</th>
@@ -8991,8 +9586,82 @@ function FormPage() {
                                   )}
                                 </small>
                               </td>
+                              <td>
+                                {(() => {
+                                  const meta = submissionLastPhotoMeta[submission.id]
+                                  if (meta?.ms) {
+                                    const submittedMs = submission.submittedAt?.seconds
+                                      ? submission.submittedAt.seconds * 1000
+                                      : submission.submittedAt instanceof Date ? submission.submittedAt.getTime() : null
+                                    const isLate = submittedMs && Math.abs(submittedMs - meta.ms) > 5 * 60 * 1000
+                                    const d = new Date(meta.ms)
+                                    const time = d.toLocaleString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Oslo' })
+                                    const date = d.toLocaleDateString('nb-NO', { timeZone: 'Europe/Oslo' })
+                                    return (
+                                      <span style={isLate ? { color: 'var(--accent)', fontWeight: 700 } : undefined}>
+                                        {time}<br /><small>{date}</small>
+                                      </span>
+                                    )
+                                  }
+                                  if (meta === null) return <span style={{color:'var(--muted)'}}>—</span>
+                                  const hasPaths = Object.values(submission.answers || {}).some((v) => isStorageImagePath(v))
+                                  return hasPaths
+                                    ? <span style={{color:'var(--muted)'}}>…</span>
+                                    : <span style={{color:'var(--muted)'}}>—</span>
+                                })()}
+                              </td>
                               <td>{getSubmissionLocation(submission.answers, formData.questions)}</td>
-                              <td>{getSubmissionName(submission.answers, formData.questions)}</td>
+                              <td>
+                                {editPhoneSubmissionId === submission.id ? (
+                                  <div className="phone-edit-row">
+                                    <input
+                                      type="tel"
+                                      className="phone-edit-input"
+                                      value={editPhoneDraft}
+                                      autoFocus
+                                      onChange={(e) => setEditPhoneDraft(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') onSavePhoneEdit(submission.id)
+                                        if (e.key === 'Escape') setEditPhoneSubmissionId('')
+                                      }}
+                                    />
+                                    <button
+                                      type="button"
+                                      className="ghost"
+                                      disabled={editPhoneState.saving}
+                                      onClick={() => onSavePhoneEdit(submission.id)}
+                                    >
+                                      {editPhoneState.saving ? '…' : '✓'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="ghost"
+                                      onClick={() => setEditPhoneSubmissionId('')}
+                                    >
+                                      ✕
+                                    </button>
+                                    {editPhoneState.error ? (
+                                      <small className="forms-error">{editPhoneState.error}</small>
+                                    ) : null}
+                                  </div>
+                                ) : (
+                                  <div className="phone-edit-row">
+                                    <span>{getSubmissionPhone(submission.answers, formData.questions) || '—'}</span>
+                                    <button
+                                      type="button"
+                                      className="ghost phone-edit-trigger"
+                                      title="Edit phone number"
+                                      onClick={() => {
+                                        setEditPhoneSubmissionId(submission.id)
+                                        setEditPhoneDraft(getSubmissionPhone(submission.answers, formData.questions) || '')
+                                        setEditPhoneState({ saving: false, error: '' })
+                                      }}
+                                    >
+                                      ✏
+                                    </button>
+                                  </div>
+                                )}
+                              </td>
                               <td>
                                 {submission.receiptToken ? (
                                   <a
@@ -9056,6 +9725,221 @@ function FormPage() {
 
               </div>
             ) : null}
+
+            {isSubmissionsView && isAdmin && (submissionErrors.length > 0 || loadingErrors) ? (
+              <div className="responses-box submissions-overview">
+                <h3>Innsendingsfeil</h3>
+                {loadingErrors ? <p>Laster...</p> : null}
+                {!loadingErrors && submissionErrors.length > 0 ? (
+                  <table className="submissions-table" style={{ fontSize: '0.82rem' }}>
+                    <thead>
+                      <tr>
+                        <th>Tidspunkt</th>
+                        <th>Feilkode</th>
+                        <th>Melding</th>
+                        <th>Enhet</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {submissionErrors.map((e) => {
+                        const d = e.occurredAt?.toDate?.()
+                        const time = d ? d.toLocaleString('nb-NO', { timeZone: 'Europe/Oslo', dateStyle: 'short', timeStyle: 'short' }) : '—'
+                        const ua = String(e.userAgent || '').slice(0, 60)
+                        return (
+                          <tr key={e.id}>
+                            <td style={{ whiteSpace: 'nowrap' }}>{time}</td>
+                            <td><code>{e.errorCode}</code></td>
+                            <td style={{ maxWidth: 260, wordBreak: 'break-word' }}>{e.errorMessage}</td>
+                            <td style={{ color: '#6b7280', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={e.userAgent}>{ua}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                ) : null}
+              </div>
+            ) : null}
+
+            {isSubmissionsView && isAdmin && !loadingSubmissions ? (() => {
+              const cutoff = Date.now() - 24 * 60 * 60 * 1000
+              const june17Ts = new Date('2026-06-17T00:00:00+02:00').getTime()
+              const pending = submissions.filter((sub) => {
+                if (sub.status !== 'reviewed' || sub.rejected || sub.feedbackReadConfirmed || sub.followUpDone) return false
+                const neutral = sub.reviewScoreSummary?.neutral || 0
+                const sad = sub.reviewScoreSummary?.sad || 0
+                if (neutral === 0 && sad === 0 && !sub.generalFeedback) return false
+                const reviewedTs = sub.reviewedAt?.seconds
+                  ? sub.reviewedAt.seconds * 1000
+                  : sub.reviewedAt instanceof Date
+                    ? sub.reviewedAt.getTime()
+                    : null
+                return reviewedTs && reviewedTs < cutoff && reviewedTs >= june17Ts
+              })
+              if (pending.length === 0) return null
+              return (
+                <div className="responses-box submissions-overview">
+                  <h3>Feedback not confirmed read ({pending.length})</h3>
+                  <p style={{ margin: '0 0 12px', fontSize: '0.85rem', color: 'rgba(24,44,60,0.55)' }}>
+                    These forms were reviewed more than 24 hours ago without the employee confirming they have read the feedback.
+                  </p>
+                  <table className="submissions-table" style={{ fontSize: '0.85rem' }}>
+                    <thead>
+                      <tr>
+                        <th>Reviewed</th>
+                        <th>Score</th>
+                        <th>General feedback</th>
+                        <th>Receipt</th>
+                        <th>Follow-up</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pending.map((sub) => {
+                        const reviewedAt = sub.reviewedAt?.seconds
+                          ? new Date(sub.reviewedAt.seconds * 1000)
+                          : sub.reviewedAt instanceof Date ? sub.reviewedAt : null
+                        const timeStr = reviewedAt
+                          ? reviewedAt.toLocaleString('nb-NO', { timeZone: 'Europe/Oslo', dateStyle: 'short', timeStyle: 'short' })
+                          : '—'
+                        return (
+                          <tr key={sub.id}>
+                            <td style={{ whiteSpace: 'nowrap' }}>{timeStr}</td>
+                            <td style={{ whiteSpace: 'nowrap' }}>
+                              {(sub.reviewScoreSummary?.happy || 0) > 0 ? <><FaceHappy size={14} /> {sub.reviewScoreSummary.happy} </> : null}
+                              {(sub.reviewScoreSummary?.neutral || 0) > 0 ? <><FaceNeutral size={14} /> {sub.reviewScoreSummary.neutral} </> : null}
+                              {(sub.reviewScoreSummary?.sad || 0) > 0 ? <><FaceSad size={14} /> {sub.reviewScoreSummary.sad}</> : null}
+                            </td>
+                            <td style={{ maxWidth: 220, color: 'rgba(24,44,60,0.7)' }}>{sub.generalFeedback || '—'}</td>
+                            <td>
+                              {sub.receiptToken ? (
+                                <a
+                                  href={`/skjema/${activeFormSlug}/kvittering/${sub.receiptToken}`}
+                                  className="ghost"
+                                  style={{ fontSize: '0.8rem', padding: '2px 8px' }}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  Open
+                                </a>
+                              ) : '—'}
+                            </td>
+                            <td>
+                              <button
+                                type="button"
+                                className="ghost"
+                                style={{ fontSize: '0.8rem' }}
+                                disabled={followUpSavingId === sub.id}
+                                onClick={async () => {
+                                  setFollowUpSavingId(sub.id)
+                                  try {
+                                    await updateDoc(doc(db, 'formSubmissions', sub.id), {
+                                      followUpDone: true,
+                                      followUpDoneAt: serverTimestamp(),
+                                      followUpDoneBy: user?.email || 'admin',
+                                    })
+                                    setSubmissions((prev) => prev.map((s) => s.id === sub.id ? { ...s, followUpDone: true } : s))
+                                  } catch {}
+                                  setFollowUpSavingId('')
+                                }}
+                              >
+                                {followUpSavingId === sub.id ? 'Saving...' : 'Mark follow-up done'}
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            })() : null}
+
+            {isSubmissionsView && isAdmin && !loadingSubmissions ? (() => {
+              const windowMs = confirmedFeedbackDays * 24 * 60 * 60 * 1000
+              const cutoffTs = Date.now() - windowMs
+              const confirmed = submissions.filter((sub) => {
+                if (!sub.feedbackReadConfirmed) return false
+                const neutral = sub.reviewScoreSummary?.neutral || 0
+                const sad = sub.reviewScoreSummary?.sad || 0
+                if (neutral === 0 && sad === 0 && !sub.generalFeedback) return false
+                const readTs = sub.feedbackReadAt?.seconds
+                  ? sub.feedbackReadAt.seconds * 1000
+                  : sub.reviewedAt?.seconds
+                    ? sub.reviewedAt.seconds * 1000
+                    : null
+                return readTs && readTs >= cutoffTs
+              }).sort((a, b) => {
+                const aTs = (a.feedbackReadAt?.seconds || a.reviewedAt?.seconds || 0)
+                const bTs = (b.feedbackReadAt?.seconds || b.reviewedAt?.seconds || 0)
+                return bTs - aTs
+              })
+              if (confirmed.length === 0) return null
+              return (
+                <div className="responses-box submissions-overview">
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                    <h3 style={{ margin: 0 }}>Feedback confirmed by employee ({confirmed.length})</h3>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      {[3, 7, 30].map((d) => (
+                        <button
+                          key={d}
+                          type="button"
+                          className="ghost"
+                          style={{ fontSize: '0.78rem', padding: '2px 10px', fontWeight: confirmedFeedbackDays === d ? 700 : 400, opacity: confirmedFeedbackDays === d ? 1 : 0.55 }}
+                          onClick={() => setConfirmedFeedbackDays(d)}
+                        >
+                          {d}d
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <table className="submissions-table" style={{ fontSize: '0.85rem' }}>
+                    <thead>
+                      <tr>
+                        <th>Confirmed read</th>
+                        <th>Score</th>
+                        <th>General feedback</th>
+                        <th>Receipt</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {confirmed.map((sub) => {
+                        const readAt = sub.feedbackReadAt?.seconds
+                          ? new Date(sub.feedbackReadAt.seconds * 1000)
+                          : sub.reviewedAt?.seconds
+                            ? new Date(sub.reviewedAt.seconds * 1000)
+                            : null
+                        const timeStr = readAt
+                          ? readAt.toLocaleString('nb-NO', { timeZone: 'Europe/Oslo', dateStyle: 'short', timeStyle: 'short' })
+                          : '—'
+                        return (
+                          <tr key={sub.id}>
+                            <td style={{ whiteSpace: 'nowrap' }}>{timeStr}</td>
+                            <td style={{ whiteSpace: 'nowrap' }}>
+                              {(sub.reviewScoreSummary?.happy || 0) > 0 ? <><FaceHappy size={14} /> {sub.reviewScoreSummary.happy} </> : null}
+                              {(sub.reviewScoreSummary?.neutral || 0) > 0 ? <><FaceNeutral size={14} /> {sub.reviewScoreSummary.neutral} </> : null}
+                              {(sub.reviewScoreSummary?.sad || 0) > 0 ? <><FaceSad size={14} /> {sub.reviewScoreSummary.sad}</> : null}
+                            </td>
+                            <td style={{ maxWidth: 220, color: 'rgba(24,44,60,0.7)' }}>{sub.generalFeedback || '—'}</td>
+                            <td>
+                              {sub.receiptToken ? (
+                                <a
+                                  href={`/skjema/${activeFormSlug}/kvittering/${sub.receiptToken}`}
+                                  className="ghost"
+                                  style={{ fontSize: '0.8rem', padding: '2px 8px' }}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  Open
+                                </a>
+                              ) : '—'}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            })() : null}
 
             {isFlaggedView ? (
               <div className="responses-box submissions-overview" id="flagged-section">
@@ -9186,38 +10070,6 @@ function FormPage() {
                     </p>
                   </div>
                   <div className="history-controls">
-                    <div className="history-alert-email">
-                      <button
-                        type="button"
-                        className="ghost"
-                        onClick={onSendInventoryAlert}
-                        disabled={inventoryAlertState.sending}
-                        title="Send oransje og røde varer på e-post"
-                      >
-                        {inventoryAlertState.sending ? 'Sender...' : '✉ Send rapport'}
-                      </button>
-                      {inventoryAlertState.message ? (
-                        <span className="history-alert-msg">{inventoryAlertState.message}</span>
-                      ) : null}
-                      {inventoryAlertState.error ? (
-                        <span className="forms-error">{inventoryAlertState.error}</span>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="ghost"
-                        onClick={onSendTestInventoryAlert}
-                        disabled={inventoryTestState.sending}
-                        title="Send test-epost til magnus@crust.no"
-                      >
-                        {inventoryTestState.sending ? 'Sender...' : '✉ Send test-epost'}
-                      </button>
-                      {inventoryTestState.message ? (
-                        <span className="history-alert-msg">{inventoryTestState.message}</span>
-                      ) : null}
-                      {inventoryTestState.error ? (
-                        <span className="forms-error">{inventoryTestState.error}</span>
-                      ) : null}
-                    </div>
                     <label className="field-block history-days-field history-days-inline" htmlFor="history-submission-limit">
                       <span>Vis siste innsendinger</span>
                       <input
@@ -9314,18 +10166,63 @@ function FormPage() {
                     ) : null}
                     {analysisQuestions.length > 0 ? (
                       <div className="history-filter-bar">
-                        <button
-                          type="button"
-                          className="ghost"
-                          onClick={() => setHistoryQuestionFilterOpen((previous) => !previous)}
-                          aria-expanded={historyQuestionFilterOpen}
-                          aria-controls="history-question-filter"
-                        >
-                          Filtrer spørsmål
-                          {!historyShowAllQuestions && selectedHistoryQuestionIds.length > 0
-                            ? ` (${selectedHistoryQuestionIds.length})`
-                            : ''}
-                        </button>
+                        <div className="history-filter-top-row">
+                          <button
+                            type="button"
+                            className="ghost"
+                            onClick={() => setHistoryQuestionFilterOpen((previous) => !previous)}
+                            aria-expanded={historyQuestionFilterOpen}
+                            aria-controls="history-question-filter"
+                          >
+                            Filtrer spørsmål
+                            {!historyShowAllQuestions && selectedHistoryQuestionIds.length > 0
+                              ? ` (${selectedHistoryQuestionIds.length})`
+                              : ''}
+                          </button>
+                          <label className="checkbox-inline analyse-hide-updated-label">
+                            <input
+                              type="checkbox"
+                              checked={hideUpdatedValues}
+                              onChange={(e) => setHideUpdatedValues(e.target.checked)}
+                            />
+                            Skjul oppdaterte verdier
+                          </label>
+                          <button
+                            type="button"
+                            className="ghost"
+                            onClick={() => {
+                              setAnalyseEmailOpen((prev) => !prev)
+                              setAnalyseEmailState({ sending: false, error: '', message: '' })
+                            }}
+                          >
+                            ✉ Send oversikt på epost
+                          </button>
+                        </div>
+                        {analyseEmailOpen ? (
+                          <form className="analyse-email-form" onSubmit={onSendAnalyseEmail}>
+                            <input
+                              type="email"
+                              className="analyse-email-input"
+                              value={analyseEmailRecipient}
+                              onChange={(e) => setAnalyseEmailRecipient(e.target.value)}
+                              placeholder="epost@eksempel.no"
+                              autoFocus
+                            />
+                            <button
+                              type="submit"
+                              className="ghost"
+                              disabled={analyseEmailState.sending || !analyseEmailRecipient.trim()}
+                            >
+                              {analyseEmailState.sending ? 'Sender...' : 'Send'}
+                            </button>
+                            {analyseEmailState.message ? (
+                              <span className="history-alert-msg">{analyseEmailState.message}</span>
+                            ) : null}
+                            {analyseEmailState.error ? (
+                              <span className="forms-error">{analyseEmailState.error}</span>
+                            ) : null}
+                          </form>
+                        ) : null}
                         {historyQuestionFilterOpen ? (
                           <div className="history-filter-panel" id="history-question-filter">
                             <div className="history-filter-actions">
@@ -9396,20 +10293,29 @@ function FormPage() {
                   const alertRows = historyRows.map((row) => {
                     const latest = row.items[0]
                     if (!latest) return null
+                    const locationUpdate = inventoryUpdates[row.location]
                     const items = analysisQuestions.flatMap((q) => {
                       if (q.excludeFromLocationStatus) return []
-                      if (hasAnalysisRefillAction(latest, q.id)) return []
-                      const value = String(latest.answers?.[q.id] || '').trim()
+                      const updatedValue = getEffectiveInventoryValue(q.id, locationUpdate, latest.submittedAt)
+                      if (!updatedValue && hasAnalysisRefillAction(latest, q.id)) return []
+                      const value = updatedValue || String(latest.answers?.[q.id] || '').trim()
                       if (!value) return []
                       const category = getSelectOptionBehavior(q, value).historyCategory
                       if (category !== 'orange' && category !== 'red') return []
-                      return [{ label: (q.analysisLabel || q.label || q.id).trim(), value, category }]
+                      return [{ label: (q.analysisLabel || q.label || q.id).trim(), value, category, isUpdated: Boolean(updatedValue) }]
                     })
-                    if (items.length === 0) return null
+                    const incidentNotes = analysisQuestions.flatMap((q) => {
+                      if (q.type !== 'text' && q.type !== 'textarea') return []
+                      if (q.excludeFromLocationStatus) return []
+                      const value = String(latest.answers?.[q.id] || '').trim()
+                      if (!value) return []
+                      return [{ label: (q.analysisLabel || q.label || q.id).trim(), value }]
+                    })
+                    if (items.length === 0 && incidentNotes.length === 0) return null
                     const sortedItems = [...items].sort((a, b) =>
                       (a.category === 'red' ? 0 : 1) - (b.category === 'red' ? 0 : 1)
                     )
-                    return { location: row.location, items: sortedItems }
+                    return { location: row.location, items: sortedItems, incidentNotes }
                   }).filter(Boolean).sort((a, b) => {
                     const aRed = a.items.some((i) => i.category === 'red') ? 0 : 1
                     const bRed = b.items.some((i) => i.category === 'red') ? 0 : 1
@@ -9430,11 +10336,17 @@ function FormPage() {
                         <span className="inventory-alert-summary-note">Sendes daglig kl. 08:00</span>
                       </p>
                       <div className="inventory-alert-location-grid">
-                        {alertRows.map(({ location, items }) => (
+                        {alertRows.map(({ location, items, incidentNotes }) => (
                           <div key={location} className="inventory-alert-location-card">
                             <p className="inventory-alert-location-name">📍 {location}</p>
+                            {incidentNotes.map((note, i) => (
+                              <div key={i} className="inventory-alert-incident-note">
+                                <span className="inventory-alert-incident-label">{note.label}</span>
+                                <span className="inventory-alert-incident-text">{note.value}</span>
+                              </div>
+                            ))}
                             {items.map((item, i) => (
-                              <div key={i} className={`inventory-alert-item is-${item.category}`}>
+                              <div key={i} className={`inventory-alert-item is-${item.category} ${item.isUpdated ? 'is-updated' : ''}`}>
                                 <span className="inventory-alert-item-label">{item.label}</span>
                                 <span className="inventory-alert-item-value">{item.value}</span>
                               </div>
@@ -9494,39 +10406,54 @@ function FormPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {visibleHistoryQuestions.map((question) => (
+                        {visibleHistoryQuestions.map((question, qIndex) => (
                           <tr key={`history-question-${question.id}`}>
-                            <th scope="row">{question.analysisLabel || question.label}</th>
+                            <th scope="row" className="history-row-header">
+                              <span>{question.analysisLabel || question.label}</span>
+                              <span className="history-row-order-btns">
+                                <button
+                                  type="button"
+                                  className="ghost history-row-order-btn"
+                                  title="Flytt opp"
+                                  disabled={qIndex === 0 || analysisRowOrderSaving}
+                                  onClick={() => {
+                                    const ids = analysisQuestions.map((q) => q.id)
+                                    const next = [...ids]
+                                    ;[next[qIndex - 1], next[qIndex]] = [next[qIndex], next[qIndex - 1]]
+                                    setAnalysisRowOrder(next)
+                                    onSaveAnalysisRowOrder(next)
+                                  }}
+                                >▲</button>
+                                <button
+                                  type="button"
+                                  className="ghost history-row-order-btn"
+                                  title="Flytt ned"
+                                  disabled={qIndex === visibleHistoryQuestions.length - 1 || analysisRowOrderSaving}
+                                  onClick={() => {
+                                    const ids = analysisQuestions.map((q) => q.id)
+                                    const next = [...ids]
+                                    ;[next[qIndex], next[qIndex + 1]] = [next[qIndex + 1], next[qIndex]]
+                                    setAnalysisRowOrder(next)
+                                    onSaveAnalysisRowOrder(next)
+                                  }}
+                                >▼</button>
+                              </span>
+                            </th>
                             {visibleHistoryRows.flatMap((row) =>
                               historySubmissionSlots.map((slotIndex) => {
                                 const submission = row.items[slotIndex]
                                 const values = submission
                                   ? getHistoryAnswerValues(submission, question)
                                   : []
+                                const inventoryUpdate = slotIndex === 0 && !hideUpdatedValues
+                                  ? getEffectiveInventoryValue(question.id, inventoryUpdates[row.location], submission?.submittedAt)
+                                  : ''
                                 const historyCellCategory = submission
                                   ? getHistoryCellCategory(question, submission)
                                   : ''
-                                const analysisStateKey =
-                                  submission?.id && question?.id
-                                    ? `${submission.id}:${question.id}`
-                                    : ''
-                                const analysisCellState = analysisStateKey
-                                  ? analysisActionState[analysisStateKey] || {
-                                      saving: false,
-                                      error: '',
-                                    }
-                                  : { saving: false, error: '' }
-                                const hasRefillAction = submission
-                                  ? hasAnalysisRefillAction(submission, question.id)
-                                  : false
-                                const showRefillAction =
-                                  Boolean(submission) &&
-                                  slotIndex === 0 &&
-                                  (
-                                    historyCellCategory === 'orange' ||
-                                    historyCellCategory === 'red' ||
-                                    hasRefillAction
-                                  )
+                                const effectiveCellCategory = inventoryUpdate
+                                  ? getSelectOptionBehavior(question, inventoryUpdate).historyCategory
+                                  : historyCellCategory
 
                                 return (
                                   <td
@@ -9534,13 +10461,17 @@ function FormPage() {
                                     className={`history-cell ${
                                       slotIndex === 0 ? 'history-current-column' : ''
                                     } ${
-                                      slotIndex === 0 && historyCellCategory === 'red'
+                                      slotIndex === 0 && effectiveCellCategory === 'red'
                                         ? 'history-current-column-red'
                                         : ''
                                     }`}
                                   >
                                     <div className="history-cell-content">
-                                      {values.length > 0 ? (
+                                      {inventoryUpdate ? (
+                                        <span className="history-cell-inventory-update" title="Manuelt oppdatert varebeholdning">
+                                          {inventoryUpdate}
+                                        </span>
+                                      ) : values.length > 0 ? (
                                         <span
                                           className={`history-cell-value ${
                                             historyCellCategory
@@ -9553,38 +10484,23 @@ function FormPage() {
                                       ) : (
                                         <span className="history-empty-cell">-</span>
                                       )}
-                                      {showRefillAction ? (
-                                        hasRefillAction ? (
-                                          <label
-                                            className="history-cell-checkbox-wrap"
-                                            aria-label="Nullstill påfylling"
-                                            title="Nullstill påfylling"
-                                          >
-                                            <input
-                                              type="checkbox"
-                                              className="history-cell-checkbox"
-                                              checked
-                                              disabled={analysisCellState.saving}
-                                              onChange={() => onResetAnalysisRefill(submission, question)}
-                                            />
-                                          </label>
-                                        ) : (
-                                          <button
-                                            type="button"
-                                            className="ghost history-cell-action"
-                                            onClick={() => onMarkAnalysisRefill(submission, question)}
-                                            disabled={analysisCellState.saving}
-                                            aria-label="Marker påfylling"
-                                            title="Marker påfylling"
-                                          >
-                                            {analysisCellState.saving ? '...' : '+'}
-                                          </button>
-                                        )
+                                      {slotIndex === 0 ? (
+                                        <button
+                                          type="button"
+                                          className="ghost history-cell-edit-btn"
+                                          title="Rediger varebeholdning"
+                                          onClick={() => {
+                                            setInventoryModalLocation(row.location)
+                                            setInventoryModalQuestionId(question.id)
+                                            setInventoryModalAnswers({})
+                                            setInventoryModalError('')
+                                            setShowInventoryModal(true)
+                                          }}
+                                        >
+                                          ✏
+                                        </button>
                                       ) : null}
                                     </div>
-                                    {analysisCellState.error ? (
-                                      <p className="history-cell-error">{analysisCellState.error}</p>
-                                    ) : null}
                                   </td>
                                 )
                               }),
@@ -9607,6 +10523,186 @@ function FormPage() {
                 visibleHistoryQuestions.length === 0 ? (
                   <p>Ingen spørsmål er valgt i filteret.</p>
                 ) : null}
+
+                {!loadingSubmissions && (() => {
+                  const logEntries = []
+                  for (const [location, upd] of Object.entries(inventoryUpdates)) {
+                    for (const [qId, entries] of Object.entries(upd.answerLogs || {})) {
+                      const question = analysisQuestions.find((q) => q.id === qId)
+                      const label = question?.analysisLabel || question?.label || qId
+                      for (const entry of entries) {
+                        logEntries.push({
+                          location,
+                          label,
+                          value: entry.value,
+                          updatedAt: entry.updatedAt ? new Date(entry.updatedAt) : null,
+                          updatedBy: entry.updatedBy || '',
+                        })
+                      }
+                    }
+                  }
+                  logEntries.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+                  if (logEntries.length === 0) return null
+                  return (
+                    <div className="inventory-update-log">
+                      <h4 className="inventory-update-log-title">Logg – manuelle oppdateringer</h4>
+                      <table className="inventory-update-log-table">
+                        <thead>
+                          <tr>
+                            <th>Tidspunkt</th>
+                            <th>Lokasjon</th>
+                            <th>Produkt</th>
+                            <th>Verdi</th>
+                            <th>Av</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {logEntries.map((entry, i) => (
+                            <tr key={i}>
+                              <td className="inventory-log-time">
+                                {entry.updatedAt
+                                  ? entry.updatedAt.toLocaleString('no-NO', {
+                                      day: '2-digit',
+                                      month: 'short',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })
+                                  : '–'}
+                              </td>
+                              <td>{entry.location}</td>
+                              <td>{entry.label}</td>
+                              <td className="inventory-log-value">{entry.value}</td>
+                              <td className="inventory-log-by">{entry.updatedBy}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                })()}
+              </div>
+            ) : null}
+
+            {showInventoryModal ? (
+              <div
+                className="submission-modal-backdrop"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="inventory-update-modal-title"
+                onClick={() => setShowInventoryModal(false)}
+              >
+                <div
+                  className="submission-modal forms-admin-modal inventory-update-modal"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="submission-modal-header">
+                    <h4 id="inventory-update-modal-title">Rediger varebeholdning</h4>
+                    <button type="button" className="ghost" onClick={() => setShowInventoryModal(false)}>
+                      Lukk
+                    </button>
+                  </div>
+                  <div className="submission-modal-content">
+                    {(() => {
+                      const selectedQuestion = analysisQuestions.find((q) => q.id === inventoryModalQuestionId)
+                      const latestSubmission = inventoryModalLocation
+                        ? historyRows.find((r) => r.location === inventoryModalLocation)?.items[0]
+                        : null
+                      return (
+                        <div className="inventory-update-steps">
+                          <label className="field-block">
+                            <span>1. Velg sted</span>
+                            <select
+                              value={inventoryModalLocation}
+                              onChange={(e) => {
+                                setInventoryModalLocation(e.target.value)
+                                setInventoryModalQuestionId('')
+                                setInventoryModalAnswers({})
+                              }}
+                            >
+                              <option value="">Velg sted...</option>
+                              {historyRows.map((row) => (
+                                <option key={row.location} value={row.location}>{row.location}</option>
+                              ))}
+                            </select>
+                          </label>
+
+                          {inventoryModalLocation ? (
+                            <label className="field-block">
+                              <span>2. Velg spørsmål</span>
+                              <select
+                                value={inventoryModalQuestionId}
+                                onChange={(e) => {
+                                  setInventoryModalQuestionId(e.target.value)
+                                  setInventoryModalAnswers({})
+                                }}
+                              >
+                                <option value="">Velg spørsmål...</option>
+                                {analysisQuestions.map((q) => (
+                                  <option key={q.id} value={q.id}>{q.analysisLabel || q.label}</option>
+                                ))}
+                              </select>
+                            </label>
+                          ) : null}
+
+                          {inventoryModalLocation && selectedQuestion ? (() => {
+                            const currentValue = String(latestSubmission?.answers?.[selectedQuestion.id] || '').trim()
+                            const existingUpdate = inventoryUpdates[inventoryModalLocation]?.answers?.[selectedQuestion.id]
+                            return (
+                              <label className="field-block">
+                                <span>3. Ny verdi</span>
+                                {(currentValue || existingUpdate) ? (
+                                  <small className="field-help inventory-update-current">
+                                    {existingUpdate
+                                      ? <>Forrige oppdatering: <span className="inventory-updated-value">{existingUpdate}</span></>
+                                      : <>Siste skjema: {currentValue}</>
+                                    }
+                                  </small>
+                                ) : null}
+                                {selectedQuestion.type === 'select' && Array.isArray(selectedQuestion.options) ? (
+                                  <select
+                                    value={inventoryModalAnswers[selectedQuestion.id] || ''}
+                                    onChange={(e) => setInventoryModalAnswers({ [selectedQuestion.id]: e.target.value })}
+                                  >
+                                    <option value="">Velg ny verdi...</option>
+                                    {selectedQuestion.options.map((opt) => (
+                                      <option key={opt} value={opt}>{opt}</option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <input
+                                    type={selectedQuestion.type === 'date' ? 'date' : 'text'}
+                                    placeholder="Ny verdi..."
+                                    value={inventoryModalAnswers[selectedQuestion.id] || ''}
+                                    onChange={(e) => setInventoryModalAnswers({ [selectedQuestion.id]: e.target.value })}
+                                  />
+                                )}
+                              </label>
+                            )
+                          })() : null}
+                        </div>
+                      )
+                    })()}
+                    {inventoryModalError ? <p className="forms-error">{inventoryModalError}</p> : null}
+                  </div>
+                  <div className="submission-modal-actions" style={{ padding: '10px 14px', borderTop: '1px solid rgba(24,44,60,0.12)', justifyContent: 'flex-end' }}>
+                    <button type="button" className="ghost" onClick={() => setShowInventoryModal(false)}>
+                      Avbryt
+                    </button>
+                    <button
+                      type="button"
+                      className="cta"
+                      disabled={
+                        !inventoryModalLocation ||
+                        !inventoryModalQuestionId ||
+                        inventoryModalSaving ||
+                        Object.values(inventoryModalAnswers).every((v) => !String(v || '').trim())
+                      }
+                      onClick={onSaveInventoryUpdate}
+                    >
+                      {inventoryModalSaving ? 'Lagrer...' : 'Lagre'}
+                    </button>
+                  </div>
+                </div>
               </div>
             ) : null}
 
@@ -9628,20 +10724,6 @@ function FormPage() {
                         Back to submissions
                       </button>
                     </form>
-                    {selectedSubmission ? (
-                      <button
-                        type="button"
-                        className="cta"
-                        onClick={onOpenReviewPreview}
-                        disabled={
-                          reviewSubmissionState.saving ||
-                          selectedSubmissionAnswerEntries.length === 0 ||
-                          hasPendingReviewDecisions
-                        }
-                      >
-                        Set as reviewed
-                      </button>
-                    ) : null}
                   </div>
                 </div>
 
@@ -9753,6 +10835,12 @@ function FormPage() {
                                       loading="lazy"
                                     />
                                   ) : null}
+                                  {(() => {
+                                    const capturedAt = String(selectedSubmission.answers?.[getImageCapturedAtAnswerKey(answerKey)] || '').trim()
+                                    return capturedAt ? (
+                                      <p className="review-answer-captured-at">Tatt: {capturedAt}</p>
+                                    ) : null
+                                  })()}
                                   {reviewImage.imageUrl ? (
                                     <p className="review-answer-value review-answer-file-link">
                                       <a
@@ -9888,26 +10976,20 @@ function FormPage() {
                                           </div>
                                         </div>
                                       ) : null}
-                                      {(() => {
-                                        const commentMissing = !String(reviewDraftComments[answerKey] || '').trim()
-                                        return (
-                                          <label
-                                            className={`field-block review-comment-field${commentMissing ? ' review-comment-required' : ''}`}
-                                            htmlFor={`review-comment-${answerKey}`}
-                                          >
-                                            <span>Comment <span className="review-comment-asterisk">*</span></span>
-                                            <textarea
-                                              id={`review-comment-${answerKey}`}
-                                              rows={4}
-                                              required
-                                              value={reviewDraftComments[answerKey] || ''}
-                                              onChange={(event) =>
-                                                onReviewCommentChange(answerKey, event.target.value)
-                                              }
-                                            />
-                                          </label>
-                                        )
-                                      })()}
+                                      <label
+                                        className="field-block review-comment-field"
+                                        htmlFor={`review-comment-${answerKey}`}
+                                      >
+                                        <span>Comment</span>
+                                        <textarea
+                                          id={`review-comment-${answerKey}`}
+                                          rows={4}
+                                          value={reviewDraftComments[answerKey] || ''}
+                                          onChange={(event) =>
+                                            onReviewCommentChange(answerKey, event.target.value)
+                                          }
+                                        />
+                                      </label>
                                     </>
                                   ) : null}
                                 </>
@@ -9919,6 +11001,69 @@ function FormPage() {
                       })()}
                     </div>
                   </>
+                ) : null}
+
+
+                {selectedSubmission ? (
+                  <div className="review-general-feedback">
+                    {!reviewRejected ? (
+                      <label className="review-general-feedback-label">
+                        <span>General feedback to employee <span className="review-general-feedback-optional">(optional)</span></span>
+                        <textarea
+                          className="review-general-feedback-textarea"
+                          rows={3}
+                          value={reviewGeneralFeedback}
+                          onChange={(e) => setReviewGeneralFeedback(e.target.value)}
+                          placeholder="Write overall feedback shown at the top of the email…"
+                        />
+                      </label>
+                    ) : null}
+
+                    <label className="review-reject-label">
+                      <input
+                        type="checkbox"
+                        checked={reviewRejected}
+                        onChange={(e) => setReviewRejected(e.target.checked)}
+                      />
+                      <span>Reject this closing form</span>
+                    </label>
+                    {reviewRejected ? (
+                      <label className="review-general-feedback-label">
+                        <span>Rejection reason <span className="review-general-feedback-required">*</span></span>
+                        <textarea
+                          className="review-general-feedback-textarea"
+                          rows={3}
+                          value={reviewRejectionComment}
+                          onChange={(e) => setReviewRejectionComment(e.target.value)}
+                          placeholder="Explain why the form is being rejected…"
+                        />
+                      </label>
+                    ) : null}
+
+                    <label className="review-send-email-label">
+                      <input
+                        type="checkbox"
+                        checked={reviewSendEmail}
+                        onChange={(e) => setReviewSendEmail(e.target.checked)}
+                      />
+                      <span>Send review to user on email</span>
+                    </label>
+
+                    <div className="review-general-feedback-actions">
+                      <button
+                        type="button"
+                        className="cta"
+                        onClick={onOpenReviewPreview}
+                        disabled={
+                          reviewSubmissionState.saving ||
+                          selectedSubmissionAnswerEntries.length === 0 ||
+                          (!reviewRejected && hasPendingReviewDecisions)
+                        }
+                      >
+                        Set as reviewed
+                      </button>
+                    </div>
+                  </div>
                 ) : null}
               </div>
             ) : null}
@@ -9972,6 +11117,18 @@ function FormPage() {
                       onChange={(e) => setReviewEmailOverride(e.target.value)}
                     />
                   </label>
+                  {reviewEmailSuggestion && reviewEmailSuggestion !== reviewEmailOverride ? (
+                    <p className="review-email-suggestion">
+                      Sist sendt til: <strong>{reviewEmailSuggestion}</strong>
+                      <button
+                        type="button"
+                        className="ghost review-email-suggestion-btn"
+                        onClick={() => setReviewEmailOverride(reviewEmailSuggestion)}
+                      >
+                        Bruk
+                      </button>
+                    </p>
+                  ) : null}
                   <span><strong>CC:</strong> brandon@crust.no, magnus@crust.no</span>
                   {!reviewEmailOverride ? (
                     <p className="email-preview-no-email">Ingen e-post — e-post sendes ikke til innsender.</p>
@@ -9980,22 +11137,38 @@ function FormPage() {
               </div>
 
               <div className="email-preview-body">
-                <h2 className="email-preview-title">Stengeskjemaet ditt har blitt gjennomgått</h2>
+                <h2 className="email-preview-title">
+                  {reviewEmailPreviewData.rejected ? 'Stengeskjemaet ditt ble avvist' : 'Stengeskjemaet ditt har blitt gjennomgått'}
+                </h2>
 
-                <div className="email-preview-count-bar">
-                  <span className="email-preview-count is-happy">
-                    <FaceHappy size={24} /> {reviewEmailPreviewData.reviewScoreSummary.happy}
-                  </span>
-                  <span className="email-preview-count is-neutral">
-                    <FaceNeutral size={24} /> {reviewEmailPreviewData.reviewScoreSummary.neutral}
-                  </span>
-                  <span className="email-preview-count is-sad">
-                    <FaceSad size={24} /> {reviewEmailPreviewData.reviewScoreSummary.sad}
-                  </span>
-                </div>
+                {reviewEmailPreviewData.rejected ? (
+                  <div className="email-preview-rejection">
+                    <strong>Avvist:</strong> {reviewEmailPreviewData.rejectionComment}
+                  </div>
+                ) : null}
+
+                {!reviewEmailPreviewData.rejected && reviewEmailPreviewData.generalFeedback ? (
+                  <div className="email-preview-general-feedback">
+                    {reviewEmailPreviewData.generalFeedback}
+                  </div>
+                ) : null}
+
+                {!reviewEmailPreviewData.rejected ? (
+                  <div className="email-preview-count-bar">
+                    <span className="email-preview-count is-happy">
+                      <FaceHappy size={24} /> {reviewEmailPreviewData.reviewScoreSummary.happy}
+                    </span>
+                    <span className="email-preview-count is-neutral">
+                      <FaceNeutral size={24} /> {reviewEmailPreviewData.reviewScoreSummary.neutral}
+                    </span>
+                    <span className="email-preview-count is-sad">
+                      <FaceSad size={24} /> {reviewEmailPreviewData.reviewScoreSummary.sad}
+                    </span>
+                  </div>
+                ) : null}
                 {reviewEmailPreviewData.reviewedBy ? (
                   <p className="email-preview-reviewer">
-                    {(() => { const n = reviewEmailPreviewData.reviewedBy.replace(/@.*/, ''); return `Vurdert av: ${n.charAt(0).toUpperCase()}${n.slice(1)}`; })()}
+                    {`Vurdert av: ${reviewEmailPreviewData.reviewedBy}`}
                   </p>
                 ) : null}
 

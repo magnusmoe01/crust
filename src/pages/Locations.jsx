@@ -6,9 +6,11 @@ import {
   addDoc,
   collection,
   doc,
+  getDoc,
   onSnapshot,
   query,
   serverTimestamp,
+  setDoc,
   updateDoc,
 } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
@@ -32,6 +34,8 @@ const emptyLocationForm = {
   imageUrl: "",
   order: "",
   orderEnabled: false,
+  excludeFromCount: false,
+  disabled: false,
 };
 
 function normalizeUrl(value) {
@@ -116,6 +120,13 @@ function Locations() {
   const [editLocation, setEditLocation] = useState(emptyLocationForm);
   const [editImageFile, setEditImageFile] = useState(null);
   const [editState, setEditState] = useState({ saving: false, error: "" });
+  const [banner, setBanner] = useState({ visible: false, text: "", bgColor: "#fef9c3", textColor: "#713f12" });
+  const [bannerDraft, setBannerDraft] = useState({ visible: false, text: "", bgColor: "#fef9c3", textColor: "#713f12" });
+  const [bannerSaving, setBannerSaving] = useState(false);
+  const [bannerError, setBannerError] = useState("");
+  const [bannerEditorOpen, setBannerEditorOpen] = useState(false);
+  const [disabledModalOpen, setDisabledModalOpen] = useState(false);
+  const [reactivating, setReactivating] = useState("");
   const { user, isAdmin, loading, error, signOutAdmin } = useAdminSession();
 
   useEffect(() => {
@@ -153,8 +164,49 @@ function Locations() {
     return unsubscribe;
   }, []);
 
+  useEffect(() => {
+    getDoc(doc(db, "siteSettings", "locationsBanner"))
+      .then((snap) => {
+        const data = snap.exists() ? snap.data() : { visible: false, text: "" };
+        const parsed = {
+          visible: Boolean(data.visible),
+          text: data.text || "",
+          bgColor: data.bgColor || "#fef9c3",
+          textColor: data.textColor || "#713f12",
+        };
+        setBanner(parsed);
+        setBannerDraft(parsed);
+      })
+      .catch(() => {});
+  }, []);
+
+  async function onSaveBanner() {
+    setBannerSaving(true);
+    setBannerError("");
+    try {
+      await setDoc(doc(db, "siteSettings", "locationsBanner"), {
+        visible: bannerDraft.visible,
+        text: bannerDraft.text.trim(),
+        bgColor: bannerDraft.bgColor,
+        textColor: bannerDraft.textColor,
+        updatedAt: serverTimestamp(),
+        updatedBy: user?.email || "admin",
+      });
+      setBanner({ visible: bannerDraft.visible, text: bannerDraft.text.trim(), bgColor: bannerDraft.bgColor, textColor: bannerDraft.textColor });
+    } catch (err) {
+      setBannerError(
+        getLocationErrorMessage(err, "Kunne ikke lagre banner."),
+      );
+    } finally {
+      setBannerSaving(false);
+    }
+  }
+
   const hasLocations = useMemo(() => locations.length > 0, [locations]);
-  const locationCount = locations.length;
+  const locationCount = useMemo(
+    () => locations.filter((l) => !l.excludeFromCount && !l.disabled).length,
+    [locations],
+  );
   const locationLabel = locationCount === 1 ? "vogn" : "vogner";
   const foodtruckLabel = locationCount === 1 ? "foodtruck" : "foodtrucks";
   const heroEyebrow = loadingLocations
@@ -255,6 +307,8 @@ function Locations() {
       imageUrl: location.imageUrl || "",
       order: location.order == null ? "" : String(location.order),
       orderEnabled: location.orderEnabled || false,
+      excludeFromCount: location.excludeFromCount || false,
+      disabled: location.disabled || false,
     });
     setEditImageFile(null);
     setEditState({ saving: false, error: "" });
@@ -295,6 +349,8 @@ function Locations() {
         imageUrl,
         order: editLocation.order.trim() ? Number(editLocation.order) : null,
         orderEnabled: editLocation.orderEnabled,
+        excludeFromCount: editLocation.excludeFromCount,
+        disabled: editLocation.disabled,
         updatedAt: serverTimestamp(),
         updatedBy: user?.email || "admin",
       });
@@ -336,10 +392,15 @@ function Locations() {
           <ul>
             <li>{activeLocationsLabel}</li>
             <li>Daglig servering</li>
-            <li>Åpner fra 7. april og utover måneden!</li>
           </ul>
         </div>
       </header>
+
+      {banner.visible ? (
+        <div className="locations-banner" style={{ background: banner.bgColor, borderBottomColor: banner.bgColor }}>
+          <p className="locations-banner-text" style={{ color: banner.textColor }}>{banner.text}</p>
+        </div>
+      ) : null}
 
       <section className="locations-grid" aria-live="polite">
         {loadingLocations ? <p>Laster plasseringer...</p> : null}
@@ -350,7 +411,7 @@ function Locations() {
           <p>Ingen plasseringer lagt inn enda.</p>
         ) : null}
 
-        {locations.map((location) => (
+        {locations.filter((l) => !l.disabled).map((location) => (
           <article key={location.id}>
             <img
               src={location.imageUrl || foodtruck600}
@@ -430,6 +491,26 @@ function Locations() {
                 </button>
                 <button
                   type="button"
+                  className="ghost"
+                  onClick={() => {
+                    setBannerEditorOpen((prev) => !prev);
+                    setBannerDraft({ visible: banner.visible, text: banner.text });
+                    setBannerError("");
+                  }}
+                >
+                  {bannerEditorOpen ? "Lukk banner-editor" : "Rediger infobanner"}
+                </button>
+                {locations.some((l) => l.disabled) ? (
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => setDisabledModalOpen(true)}
+                  >
+                    Deaktiverte ({locations.filter((l) => l.disabled).length})
+                  </button>
+                ) : null}
+                <button
+                  type="button"
                   className="ghost admin-logout-mini"
                   onClick={signOutAdmin}
                 >
@@ -437,6 +518,64 @@ function Locations() {
                 </button>
               </div>
             </div>
+
+            {bannerEditorOpen ? (
+              <div className="locations-banner-editor">
+                <h4 className="locations-banner-editor-title">Infobanner</h4>
+                <textarea
+                  className="locations-banner-textarea"
+                  value={bannerDraft.text}
+                  onChange={(e) => setBannerDraft((prev) => ({ ...prev, text: e.target.value }))}
+                  placeholder="Skriv inn bannertekst her..."
+                  rows={2}
+                />
+                <div className="locations-banner-color-row">
+                  <label className="locations-banner-color-label">
+                    <span>Bakgrunn</span>
+                    <input
+                      type="color"
+                      value={bannerDraft.bgColor}
+                      onChange={(e) => setBannerDraft((prev) => ({ ...prev, bgColor: e.target.value }))}
+                    />
+                  </label>
+                  <label className="locations-banner-color-label">
+                    <span>Tekstfarge</span>
+                    <input
+                      type="color"
+                      value={bannerDraft.textColor}
+                      onChange={(e) => setBannerDraft((prev) => ({ ...prev, textColor: e.target.value }))}
+                    />
+                  </label>
+                </div>
+                <div className="locations-banner-editor-row">
+                  <label className="location-order-enabled-row" style={{ margin: 0 }}>
+                    <input
+                      type="checkbox"
+                      checked={bannerDraft.visible}
+                      onChange={(e) => setBannerDraft((prev) => ({ ...prev, visible: e.target.checked }))}
+                    />
+                    <span>Vis banner på siden</span>
+                  </label>
+                  <button
+                    type="button"
+                    className="cta"
+                    onClick={onSaveBanner}
+                    disabled={bannerSaving}
+                  >
+                    {bannerSaving ? "Lagrer..." : "Lagre banner"}
+                  </button>
+                </div>
+                {bannerError ? <p className="forms-error">{bannerError}</p> : null}
+                {bannerDraft.visible && bannerDraft.text ? (
+                  <div className="locations-banner-preview">
+                    <span className="locations-banner-preview-label">Forhåndsvisning:</span>
+                    <div className="locations-banner locations-banner--preview" style={{ background: bannerDraft.bgColor, borderBottomColor: bannerDraft.bgColor }}>
+                      <p className="locations-banner-text" style={{ color: bannerDraft.textColor }}>{bannerDraft.text}</p>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             {isAddModalOpen ? (
               <div
@@ -898,6 +1037,36 @@ function Locations() {
                       <span>Tillat bestillinger fra denne lokasjonen</span>
                     </label>
 
+                    <label className="field-block location-order-enabled-row">
+                      <input
+                        id="edit-location-exclude-from-count"
+                        type="checkbox"
+                        checked={editLocation.excludeFromCount}
+                        onChange={(event) =>
+                          setEditLocation((previous) => ({
+                            ...previous,
+                            excludeFromCount: event.target.checked,
+                          }))
+                        }
+                      />
+                      <span>Utelat fra totalt antall foodtrucks</span>
+                    </label>
+
+                    <label className="field-block location-order-enabled-row location-disabled-row">
+                      <input
+                        id="edit-location-disabled"
+                        type="checkbox"
+                        checked={editLocation.disabled}
+                        onChange={(event) =>
+                          setEditLocation((previous) => ({
+                            ...previous,
+                            disabled: event.target.checked,
+                          }))
+                        }
+                      />
+                      <span>Deaktiver plassering (skjules fra siden)</span>
+                    </label>
+
                     {editState.error ? (
                       <p className="forms-error">{editState.error}</p>
                     ) : null}
@@ -923,6 +1092,72 @@ function Locations() {
                       </button>
                     </div>
                   </form>
+                </div>
+              </div>
+            ) : null}
+
+            {disabledModalOpen ? (
+              <div
+                className="location-modal-overlay"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="disabled-locations-modal-title"
+                onClick={() => setDisabledModalOpen(false)}
+              >
+                <div className="location-modal" onClick={(e) => e.stopPropagation()}>
+                  <div className="locations-admin-form">
+                    <h3 id="disabled-locations-modal-title">Deaktiverte plasseringer</h3>
+                    {locations.filter((l) => l.disabled).length === 0 ? (
+                      <p style={{ margin: 0, color: "rgba(24,44,60,0.5)", fontSize: "0.9rem" }}>Ingen deaktiverte plasseringer.</p>
+                    ) : (
+                      <div className="disabled-locations-list">
+                        {locations.filter((l) => l.disabled).map((location) => (
+                          <div key={location.id} className="disabled-location-row">
+                            <div className="disabled-location-info">
+                              <strong>{location.name || "Uten navn"}</strong>
+                              <span>{location.city || location.address || ""}</span>
+                            </div>
+                            <div className="disabled-location-actions">
+                              <button
+                                type="button"
+                                className="ghost"
+                                disabled={reactivating === location.id}
+                                onClick={async () => {
+                                  setReactivating(location.id);
+                                  try {
+                                    await updateDoc(doc(db, "locations", location.id), {
+                                      disabled: false,
+                                      updatedAt: serverTimestamp(),
+                                      updatedBy: user?.email || "admin",
+                                    });
+                                  } catch {}
+                                  setReactivating("");
+                                }}
+                              >
+                                {reactivating === location.id ? "Reaktiverer..." : "Reaktiver"}
+                              </button>
+                              <button
+                                type="button"
+                                className="ghost"
+                                onClick={() => onStartEdit(location)}
+                              >
+                                Rediger
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="location-edit-actions" style={{ marginTop: "8px" }}>
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={() => setDisabledModalOpen(false)}
+                      >
+                        Lukk
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             ) : null}

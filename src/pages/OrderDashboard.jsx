@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   collection, query, where, onSnapshot, doc,
-  updateDoc, serverTimestamp, orderBy, getDoc,
+  updateDoc, serverTimestamp, orderBy, getDoc, addDoc,
 } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { db, functions } from '../firebase'
@@ -81,25 +81,64 @@ function isToday(createdAt) {
     d.getDate() === now.getDate()
 }
 
+let sharedAudioCtx = null
+
+function getAudioContext() {
+  if (!sharedAudioCtx || sharedAudioCtx.state === 'closed') {
+    sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)()
+  }
+  return sharedAudioCtx
+}
+
+function unlockAudio() {
+  try {
+    const ctx = getAudioContext()
+    if (ctx.state === 'suspended') ctx.resume()
+    const buf = ctx.createBuffer(1, 1, 22050)
+    const src = ctx.createBufferSource()
+    src.buffer = buf
+    src.connect(ctx.destination)
+    src.start(0)
+  } catch {}
+}
+
 function playNotification() {
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)()
+    const ctx = getAudioContext()
+    if (ctx.state === 'suspended') {
+      ctx.resume().then(() => playNotification())
+      return
+    }
     const t = ctx.currentTime
-    // Two-tone ding: high then lower
-    const tones = [{ freq: 880, start: t, dur: 0.18 }, { freq: 660, start: t + 0.22, dur: 0.28 }]
-    for (const { freq, start, dur } of tones) {
+
+    function addNote(freq, at, dur, vol = 0.45) {
       const osc = ctx.createOscillator()
       const gain = ctx.createGain()
       osc.type = 'sine'
       osc.frequency.value = freq
-      gain.gain.setValueAtTime(0.55, start)
-      gain.gain.exponentialRampToValueAtTime(0.001, start + dur)
+      gain.gain.setValueAtTime(0.001, at)
+      gain.gain.linearRampToValueAtTime(vol, at + 0.015)
+      gain.gain.setValueAtTime(vol, at + dur - 0.05)
+      gain.gain.exponentialRampToValueAtTime(0.001, at + dur + 0.08)
       osc.connect(gain)
       gain.connect(ctx.destination)
-      osc.start(start)
-      osc.stop(start + dur)
+      osc.start(at)
+      osc.stop(at + dur + 0.1)
     }
-    setTimeout(() => ctx.close(), 1000)
+
+    addNote(1319, t + 0.00, 0.12, 0.55)
+    addNote(1047, t + 0.18, 0.28, 0.50)
+    addNote(880,  t + 0.41, 0.28, 0.45)
+    addNote(784,  t + 0.64, 0.28, 0.45)
+    addNote(659,  t + 0.87, 0.28, 0.40)
+    addNote(784,  t + 1.10, 0.28, 0.42)
+    addNote(880,  t + 1.33, 0.28, 0.44)
+    addNote(1047, t + 1.56, 0.20, 0.50)
+    addNote(1319, t + 1.76, 0.10, 0.52)
+    addNote(1047, t + 1.90, 0.28, 0.48)
+    addNote(880,  t + 2.13, 0.28, 0.44)
+    addNote(784,  t + 2.36, 0.28, 0.42)
+    addNote(659,  t + 2.59, 0.70, 0.38)
   } catch {}
 }
 
@@ -114,7 +153,16 @@ export default function OrderDashboard() {
   const [dayStarted, setDayStarted] = useState(loadDayStarted)
   const [paused, setPaused] = useState(false)
   const [pauseLoading, setPauseLoading] = useState(false)
+  const [audioCheck, setAudioCheck] = useState('idle') // 'idle' | 'played' | 'confirmed' | 'failed'
   const [activeTab, setActiveTab] = useState('active')
+  const [products, setProducts] = useState([])
+  const [productsLoading, setProductsLoading] = useState(false)
+  const [productToggling, setProductToggling] = useState({})
+  const [walkinOpen, setWalkinOpen] = useState(false)
+  const [walkinName, setWalkinName] = useState('')
+  const [walkinPhone, setWalkinPhone] = useState('')
+  const [walkinCart, setWalkinCart] = useState({})
+  const [walkinState, setWalkinState] = useState({ saving: false, error: '' })
   const [orders, setOrders] = useState([])
   const [ordersLoading, setOrdersLoading] = useState(true)
   const [now, setNow] = useState(Date.now())
@@ -168,10 +216,37 @@ export default function OrderDashboard() {
   useEffect(() => {
     if (!locationId) return
     return onSnapshot(doc(db, 'orderConfig', 'default'), (snap) => {
-      const locSettings = snap.data()?.locationSettings || {}
+      const data = snap.data() || {}
+      const locSettings = data.locationSettings || {}
       setPaused(Boolean(locSettings[locationId]?.paused))
     })
   }, [locationId])
+
+  useEffect(() => {
+    if ((!walkinOpen && activeTab !== 'products') || !pin) return
+    setProductsLoading(true)
+    getDoc(doc(db, 'orderConfig', 'default'))
+      .then((snap) => { setProducts(snap.exists() ? snap.data()?.products || [] : []) })
+      .catch(() => {})
+      .finally(() => setProductsLoading(false))
+  }, [activeTab, walkinOpen, pin])
+
+  async function onToggleProduct(productId) {
+    setProductToggling((prev) => ({ ...prev, [productId]: true }))
+    try {
+      const snap = await getDoc(doc(db, 'orderConfig', 'default'))
+      const current = snap.data()?.products || []
+      const updated = current.map((p) =>
+        p.id === productId ? { ...p, available: p.available === false ? true : false } : p
+      )
+      await updateDoc(doc(db, 'orderConfig', 'default'), { products: updated })
+      setProducts(updated)
+    } catch (err) {
+      console.error('Could not toggle product', err)
+    } finally {
+      setProductToggling((prev) => ({ ...prev, [productId]: false }))
+    }
+  }
 
   async function onTogglePause() {
     setPauseLoading(true)
@@ -234,6 +309,39 @@ export default function OrderDashboard() {
     setActionState((prev) => ({ ...prev, [orderId]: { ...prev[orderId], ...state } }))
   }
 
+  async function onSubmitWalkin(e) {
+    e.preventDefault()
+    const name = walkinName.trim()
+    if (!name) { setWalkinState({ saving: false, error: 'Fyll inn navn.' }); return }
+    const items = products
+      .filter((p) => walkinCart[p.id] > 0)
+      .map((p) => ({ id: p.id, name: p.name, price: p.price || 0, quantity: walkinCart[p.id] }))
+    if (items.length === 0) { setWalkinState({ saving: false, error: 'Legg til minst ett produkt.' }); return }
+    const total = items.reduce((s, i) => s + i.price * i.quantity, 0)
+    setWalkinState({ saving: true, error: '' })
+    try {
+      await addDoc(collection(db, 'orders'), {
+        locationId,
+        locationName,
+        items,
+        total,
+        customerName: name,
+        customerPhone: walkinPhone.trim() || '',
+        status: 'confirmed',
+        walkin: true,
+        alertSent: true,
+        createdAt: serverTimestamp(),
+      })
+      setWalkinOpen(false)
+      setWalkinName('')
+      setWalkinPhone('')
+      setWalkinCart({})
+      setWalkinState({ saving: false, error: '' })
+    } catch (err) {
+      setWalkinState({ saving: false, error: 'Kunne ikke legge inn bestilling.' })
+    }
+  }
+
   async function onConfirm(order) {
     setOrderAction(order.id, { confirming: true, error: '' })
     try {
@@ -289,26 +397,74 @@ export default function OrderDashboard() {
   if (!dayStarted) {
     const now = new Date()
     const dateLabel = now.toLocaleDateString('nb-NO', { weekday: 'long', day: 'numeric', month: 'long' })
+    const audioConfirmed = audioCheck === 'confirmed'
     return (
       <div className="worker-page">
         <div className="worker-pin-box">
-          <h1 className="worker-pin-title">God dag!</h1>
-          <p className="worker-pin-sub">📍 {locationName}</p>
-          <p className="worker-day-date">{dateLabel}</p>
+          <div className="worker-pin-box-header">
+            <h1 className="worker-pin-title">📍 {locationName}</h1>
+            <button
+              type="button"
+              className="worker-logout"
+              onClick={() => { clearSession(); setPin(''); setLocationId(null); setLocationName('') }}
+            >
+              Logg ut
+            </button>
+          </div>
+          <p className="worker-pin-sub">God dag! · {dateLabel}</p>
+
+          <div className="worker-audio-check">
+            <p className="worker-audio-check-title">🔊 Test lyden før du starter</p>
+            <p className="worker-audio-check-sub">Du må høre varsler når nye bestillinger kommer inn.</p>
+
+            {audioCheck === 'idle' || audioCheck === 'failed' ? (
+              <>
+                {audioCheck === 'failed' ? (
+                  <p className="worker-audio-check-warning">
+                    Skru av stillemodus og sett volumet til maks, prøv igjen.
+                  </p>
+                ) : null}
+                <button
+                  type="button"
+                  className="order-btn worker-audio-test-btn"
+                  onClick={() => {
+                    unlockAudio()
+                    playNotification()
+                    setAudioCheck('played')
+                  }}
+                >
+                  Spill av testlyd
+                </button>
+              </>
+            ) : audioCheck === 'played' ? (
+              <>
+                <label className="worker-audio-confirm-label">
+                  <input
+                    type="checkbox"
+                    onChange={(e) => { unlockAudio(); setAudioCheck(e.target.checked ? 'confirmed' : 'played') }}
+                  />
+                  <span>Jeg hørte lyden og den er høy nok til at jeg hører det når det kommer inn en bestilling</span>
+                </label>
+                <button
+                  type="button"
+                  className="worker-audio-retry-btn"
+                  onClick={() => playNotification()}
+                >
+                  Test på nytt
+                </button>
+              </>
+            ) : (
+              <p className="worker-audio-check-ok">✓ Lyden er bekreftet</p>
+            )}
+          </div>
+
           <button
             type="button"
             className="order-btn worker-start-day-btn"
-            onClick={() => { saveDayStarted(); setDayStarted(true) }}
+            disabled={!audioConfirmed}
+            onClick={() => { unlockAudio(); saveDayStarted(); setDayStarted(true) }}
           >
             Start ny dag
-          </button>
-          <button
-            type="button"
-            className="worker-logout"
-            style={{ marginTop: 16 }}
-            onClick={() => { clearSession(); setPin(''); setLocationId(null); setLocationName('') }}
-          >
-            Logg ut
           </button>
         </div>
       </div>
@@ -321,6 +477,7 @@ export default function OrderDashboard() {
   const activeCount = pendingOrders.length + confirmedOrders.length
 
   return (
+    <>
     <div className="worker-page">
       <div className="worker-header">
         <div>
@@ -331,13 +488,30 @@ export default function OrderDashboard() {
           <p className="worker-subtitle">📍 {locationName}</p>
         </div>
         <div className="worker-header-actions">
+          {!paused ? (
+            <span className="worker-open-status">✓ Du er åpent for bestillinger</span>
+          ) : null}
+          <button
+            type="button"
+            className="worker-pause-btn worker-walkin-btn"
+            onClick={() => { setWalkinOpen(true); setWalkinState({ saving: false, error: '' }) }}
+          >
+            + Kassabestilling
+          </button>
           <button
             type="button"
             className={`worker-pause-btn${paused ? ' is-paused' : ''}`}
             onClick={onTogglePause}
             disabled={pauseLoading}
           >
-            {paused ? '▶ Gjenoppta' : '⏸ Pause'}
+            {paused ? '▶ Gjenoppta' : '⏸ Sett på pause'}
+          </button>
+          <button
+            type="button"
+            className="worker-logout"
+            onClick={() => playNotification()}
+          >
+            🔊 Test lyd
           </button>
           <button
             type="button"
@@ -372,6 +546,16 @@ export default function OrderDashboard() {
           Fullført i dag
           {readyOrders.length > 0 ? <span className="worker-tab-badge worker-tab-badge--done">{readyOrders.length}</span> : null}
         </button>
+        <button
+          type="button"
+          className={`worker-tab${activeTab === 'products' ? ' is-active' : ''}`}
+          onClick={() => setActiveTab('products')}
+        >
+          Rediger produkter
+          {products.some((p) => p.available === false) ? (
+            <span className="worker-tab-badge worker-tab-badge--warn">!</span>
+          ) : null}
+        </button>
       </div>
 
       {activeTab === 'active' ? (
@@ -392,26 +576,46 @@ export default function OrderDashboard() {
                 {pendingOrders.map((order) => {
                   const ageMs = now - (order.createdAt?.toMillis?.() || now)
                   const isUrgent = ageMs >= ALERT_MINUTES * 60 * 1000
+                  const remainingMs = Math.max(0, ALERT_MINUTES * 60 * 1000 - ageMs)
+                  const remainingSec = Math.ceil(remainingMs / 1000)
+                  const remainingMin = Math.floor(remainingSec / 60)
+                  const remainingSecPart = remainingSec % 60
+                  const countdownLabel = remainingSec > 0
+                    ? `${remainingMin}:${String(remainingSecPart).padStart(2, '0')}`
+                    : null
                   const state = actionState[order.id] || {}
                   return (
                     <div key={order.id} className={`worker-order-row${isUrgent ? ' is-urgent' : ''}`}>
-                      <span className="worker-row-age">{ageLabel(order.createdAt, now)}</span>
+                      <span className="worker-row-age">
+                        {ageLabel(order.createdAt, now)}
+                        {isUrgent ? <span className="worker-row-age-alert"> – daglig leder varslet</span> : null}
+                      </span>
                       <span className="worker-row-name">{order.customerName}</span>
                       <span className="worker-row-items">
                         {(order.items || []).map((item, i) => (
                           <span key={i}>{item.quantity}× {item.name}</span>
                         ))}
                       </span>
+                      {order.customerNote ? (
+                        <span className="worker-row-note">📝 {order.customerNote}</span>
+                      ) : null}
                       <span className="worker-row-actions">
                         {state.error ? <span className="worker-row-error">{state.error}</span> : null}
-                        <button
-                          type="button"
-                          className="worker-confirm-btn"
-                          onClick={() => onConfirm(order)}
-                          disabled={state.confirming}
-                        >
-                          {state.confirming ? '...' : '✓ Bekreft'}
-                        </button>
+                        <div className="worker-confirm-group">
+                          {countdownLabel ? (
+                            <span className="worker-confirm-countdown">
+                              Må bekreftes innen {countdownLabel} før daglig leder varsles
+                            </span>
+                          ) : null}
+                          <button
+                            type="button"
+                            className="worker-confirm-btn"
+                            onClick={() => onConfirm(order)}
+                            disabled={state.confirming}
+                          >
+                            {state.confirming ? '...' : '✓ Bekreft'}
+                          </button>
+                        </div>
                       </span>
                     </div>
                   )
@@ -438,6 +642,9 @@ export default function OrderDashboard() {
                           <span key={i}>{item.quantity}× {item.name}</span>
                         ))}
                       </span>
+                      {order.customerNote ? (
+                        <span className="worker-row-note">📝 {order.customerNote}</span>
+                      ) : null}
                       <span className="worker-row-actions">
                         {state.error ? <span className="worker-row-error">{state.error}</span> : null}
                         {state.readySent ? (
@@ -449,7 +656,7 @@ export default function OrderDashboard() {
                             onClick={() => onReady(order)}
                             disabled={state.readying}
                           >
-                            {state.readying ? '...' : '🍕 Klar'}
+                            {state.readying ? '...' : '🍕 Marker som klar'}
                           </button>
                         )}
                       </span>
@@ -460,6 +667,48 @@ export default function OrderDashboard() {
             </div>
           ) : null}
         </>
+      ) : activeTab === 'products' ? (
+        <div className="worker-products">
+          {productsLoading ? (
+            <p className="worker-tab-empty">Laster produkter...</p>
+          ) : products.length === 0 ? (
+            <p className="worker-tab-empty">Ingen produkter funnet.</p>
+          ) : (
+          <>
+          {products.some((p) => p.available === false) ? (
+            <div className="worker-products-warning">
+              ⚠ Noen produkter er deaktivert — husk å skru de på igjen når de er tilbake på lager!
+            </div>
+          ) : null}
+          <div className="worker-products-list">
+            {products.map((product) => {
+              const isAvailable = product.available !== false
+              return (
+                <div
+                  key={product.id}
+                  className={`worker-product-row${!isAvailable ? ' is-unavailable' : ''}`}
+                >
+                  <div className="worker-product-info">
+                    <span className="worker-product-name">{product.name}</span>
+                    {!isAvailable ? (
+                      <span className="worker-product-badge">Deaktivert</span>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    className={`worker-product-toggle${isAvailable ? ' is-on' : ' is-off'}`}
+                    onClick={() => onToggleProduct(product.id)}
+                    disabled={productToggling[product.id]}
+                  >
+                    {isAvailable ? 'Deaktiver' : 'Aktiver'}
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+          </>
+          )}
+        </div>
       ) : (
         <>
           {readyOrders.length === 0 ? (
@@ -491,5 +740,60 @@ export default function OrderDashboard() {
         </>
       )}
     </div>
+
+    {walkinOpen ? (
+
+      <div className="worker-modal-overlay" onClick={() => setWalkinOpen(false)}>
+        <div className="worker-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="worker-modal-header">
+            <h2 className="worker-modal-title">Kassabestilling</h2>
+            <button type="button" className="worker-logout" onClick={() => setWalkinOpen(false)}>Lukk</button>
+          </div>
+          <form onSubmit={onSubmitWalkin} className="worker-modal-form">
+            <label className="order-field">
+              <span>Navn *</span>
+              <input
+                type="text"
+                value={walkinName}
+                onChange={(e) => setWalkinName(e.target.value)}
+                placeholder="Kundens navn"
+                autoFocus
+              />
+            </label>
+            <label className="order-field">
+              <span>Telefon (valgfritt)</span>
+              <input
+                type="tel"
+                value={walkinPhone}
+                onChange={(e) => setWalkinPhone(e.target.value)}
+                placeholder="8 siffer"
+                inputMode="numeric"
+              />
+            </label>
+            <div className="worker-walkin-products">
+              <p className="worker-walkin-products-label">Produkter *</p>
+              {products.filter((p) => p.available !== false).map((p) => {
+                const qty = walkinCart[p.id] || 0
+                return (
+                  <div key={p.id} className="worker-walkin-product-row">
+                    <span className="worker-walkin-product-name">{p.name}</span>
+                    <div className="worker-product-qty">
+                      <button type="button" className="worker-qty-btn" onClick={() => setWalkinCart((c) => ({ ...c, [p.id]: Math.max(0, (c[p.id] || 0) - 1) }))}>−</button>
+                      <span className="worker-qty-val">{qty}</span>
+                      <button type="button" className="worker-qty-btn" onClick={() => setWalkinCart((c) => ({ ...c, [p.id]: (c[p.id] || 0) + 1 }))}>+</button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            {walkinState.error ? <p className="worker-walkin-error">{walkinState.error}</p> : null}
+            <button type="submit" className="order-btn" disabled={walkinState.saving} style={{ width: '100%', marginTop: 8 }}>
+              {walkinState.saving ? 'Legger inn...' : 'Legg inn i kø'}
+            </button>
+          </form>
+        </div>
+      </div>
+    ) : null}
+    </>
   )
 }

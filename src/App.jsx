@@ -19,7 +19,8 @@ import {
 import Layout from "./components/Layout";
 import alesund600 from "./assets/optimized/alesund-600.jpg";
 import alesund1200 from "./assets/optimized/alesund-1200.jpg";
-import crustPizza from "./assets/Crust-pizza.jpeg";
+import crustPizza from "./assets/pizzabilde.jpeg";
+import pizzaeske from "./assets/pizzaeske.jpeg";
 import prosess600 from "./assets/optimized/prosess-600.png";
 import prosess1200 from "./assets/optimized/prosess-1200.png";
 import "./App.css";
@@ -37,6 +38,7 @@ const Contact = lazy(() => import("./pages/Contact"));
 const Forms = lazy(() => import("./pages/Forms"));
 const FormPage = lazy(() => import("./pages/FormPage"));
 const VarigHadeland = lazy(() => import("./pages/VarigHadeland"));
+const Gilde = lazy(() => import("./pages/Gilde"));
 const Obos = lazy(() => import("./pages/Obos"));
 const Admin = lazy(() => import("./pages/Admin"));
 const AdminLocations = lazy(() => import("./pages/AdminLocations"));
@@ -50,6 +52,7 @@ const Order = lazy(() => import("./pages/Order"));
 const OrderDashboard = lazy(() => import("./pages/OrderDashboard"));
 const OrderAdmin = lazy(() => import("./pages/OrderAdmin"));
 const AllOrders = lazy(() => import("./pages/AllOrders"));
+const Sms = lazy(() => import("./pages/Sms"));
 
 function withPageLoader(element) {
   return (
@@ -254,8 +257,8 @@ function Home() {
             <span>Nå - 2026</span>
             <p>
               Vi dobler sesongvarigheten og antallet arbeidstimer for ungdommen.
-              Vi går fra toast til pizza for å styrke bunnlinjen og bygge en mer
-              bærekraftig bedrift.
+              Vi utvider til pizza for å nå flere kunder, skape flere
+              arbeidstimer for ungdommen og bygge en mer bærekraftig bedrift.
             </p>
           </div>
         </div>
@@ -275,10 +278,8 @@ function Home() {
           </div>
           <div className="story-image">
             <img
-              src={alesund600}
-              srcSet={`${alesund600} 600w, ${alesund1200} 1200w`}
-              sizes="(max-width: 900px) 90vw, 520px"
-              alt="Utsikt over Ålesund"
+              src={pizzaeske}
+              alt="Crust pizzaeske"
               loading="lazy"
               decoding="async"
             />
@@ -326,6 +327,7 @@ function App() {
         <Route path="/omtale" element={withPageLoader(<Publications />)} />
         <Route path="/varsling" element={withPageLoader(<Varsling />)} />
         <Route path="/varig-hadeland" element={withPageLoader(<VarigHadeland />)} />
+        <Route path="/gilde" element={withPageLoader(<Gilde />)} />
         <Route path="/obos" element={withPageLoader(<Obos />)} />
         <Route path="/admin" element={withPageLoader(<Admin />)} />
 
@@ -374,7 +376,17 @@ function App() {
           )}
         />
 
+        <Route
+          path="/admin/sms"
+          element={withPageLoader(
+            <RequireAdminRoute>
+              <Sms />
+            </RequireAdminRoute>
+          )}
+        />
+
         <Route path="/sales" element={withPageLoader(<Sales />)} />
+        <Route path="/varebeholdning" element={withPageLoader(<RoutedFormPage />)} />
         <Route path="/skjema" element={withPageLoader(<Forms />)} />
         <Route
           path="/skjema/:formSlug/kvittering/:receiptToken"

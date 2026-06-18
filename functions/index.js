@@ -549,7 +549,7 @@ function formatNorwegianDate(seconds) {
 
 const EMAIL_ITEM_LIMIT = 20;
 
-function buildReviewEmailHtml(formTitle, flaggedAnswers, approvedAnswers, reviewScoreSummary, submittedAtSeconds, reviewUrl, reviewedBy, isTest) {
+function buildReviewEmailHtml(formTitle, flaggedAnswers, approvedAnswers, reviewScoreSummary, submittedAtSeconds, reviewUrl, reviewedBy, isTest, { generalFeedback, rejected, rejectionComment } = {}) {
   const allFlags = Array.isArray(flaggedAnswers)  ? flaggedAnswers  : [];
   const approved = Array.isArray(approvedAnswers) ? approvedAnswers : [];
 
@@ -576,9 +576,7 @@ function buildReviewEmailHtml(formTitle, flaggedAnswers, approvedAnswers, review
   const svgSad     = `<span style="display:inline-block;font-size:22px;line-height:1;vertical-align:middle;">&#128577;</span>`;
 
   // ── Count bar ──────────────────────────────────────────────────────────────
-  const rawName = reviewedBy ? reviewedBy.replace(/@.*/, "") : null;
-  const reviewerName = rawName ? rawName.charAt(0).toUpperCase() + rawName.slice(1) : null;
-  const reviewerLabel = isTest ? "TEST" : (reviewerName || null);
+  const reviewerLabel = isTest ? "TEST" : (reviewedBy || null);
   const countBar = `
     <div style="display:flex;align-items:center;padding:14px 18px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:8px;">
       <span style="display:inline-flex;align-items:center;gap:8px;color:#166534;font-weight:700;font-size:18px;margin-right:32px;">${svgHappy}&nbsp;${happyCount}</span>
@@ -649,12 +647,42 @@ function buildReviewEmailHtml(formTitle, flaggedAnswers, approvedAnswers, review
       <a href="${reviewUrl}" style="display:inline-block;padding:12px 24px;background:#1f2937;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700;font-size:14px;">Se full gjennomgang</a>
     </div>` : "";
 
+  const needsConfirm = (neutralCount > 0 || sadCount > 0 || Boolean(generalFeedback)) && reviewUrl;
+  const confirmBlock = needsConfirm ? `
+    <div style="margin:20px 0 0;padding:16px 20px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;">
+      <p style="margin:0 0 12px;font-size:14px;color:#78350f;line-height:1.5;">Du har fått en eller flere tilbakemeldinger. Bekreft at du har lest dem.</p>
+      <a href="${reviewUrl}" style="display:block;width:100%;box-sizing:border-box;padding:12px 20px;background:#d97706;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:700;font-size:14px;text-align:center;">Bekreft at du har lest tilbakemeldingen →</a>
+    </div>` : "";
+
+  const generalFeedbackBlock = generalFeedback
+    ? `<div style="margin:0 0 20px;padding:14px 18px;background:#f0f4ff;border-left:4px solid #3b82f6;border-radius:0 8px 8px 0;">
+         <p style="margin:0;font-size:14px;color:#1e3a5f;line-height:1.6;">${generalFeedback}</p>
+       </div>`
+    : "";
+
+  if (rejected) {
+    return `
+      <html>
+        <body style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#1f2937">
+          <h2 style="margin:0 0 10px;color:#b91c1c;">Stengeskjemaet ditt ble avvist</h2>
+          ${intro}
+          ${reviewerLabel ? `<p style="margin:0 0 16px;font-size:13px;color:#6b7280;">Vurdert av: <strong style="color:#1f2937;">${reviewerLabel}</strong></p>` : ""}
+          <div style="margin:0 0 24px;padding:14px 18px;background:#fef2f2;border-left:4px solid #dc2626;border-radius:0 8px 8px 0;">
+            <p style="margin:0;font-size:14px;color:#7f1d1d;line-height:1.6;"><strong>Årsak:</strong> ${rejectionComment || ""}</p>
+          </div>
+          <p style="margin-top:36px;color:#6b7280;font-size:13px">— Crust</p>
+        </body>
+      </html>`;
+  }
+
   return `
     <html>
       <body style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#1f2937">
         <h2 style="margin:0 0 10px">Stengeskjemaet ditt har blitt gjennomgått</h2>
         ${intro}
         ${countBar}
+        ${confirmBlock}
+        ${generalFeedbackBlock}
         ${flaggedSection}
         ${approvedSection}
         ${moreButton}
@@ -674,7 +702,7 @@ exports.sendReviewEmail = onCall(
       throw new HttpsError("permission-denied", "Admin access required");
     }
 
-    const { submitterEmail, formTitle, flaggedAnswers, approvedAnswers, reviewScoreSummary, submittedAtSeconds, reviewUrl, testRecipient } = data || {};
+    const { submitterEmail, formTitle, flaggedAnswers, approvedAnswers, reviewScoreSummary, submittedAtSeconds, reviewUrl, testRecipient, generalFeedback, rejected, rejectionComment } = data || {};
     if (!submitterEmail) {
       throw new HttpsError("invalid-argument", "submitterEmail is required");
     }
@@ -684,9 +712,9 @@ exports.sendReviewEmail = onCall(
 
     const hasFlags = Array.isArray(flaggedAnswers) && flaggedAnswers.length > 0;
     const isTest   = Boolean(testRecipient);
-    const subject  = isTest
-      ? `[TEST] Ditt stengeskjema har blitt vurdert`
-      : `Ditt stengeskjema har blitt vurdert`;
+    const subject  = rejected
+      ? (isTest ? `[TEST] Stengeskjemaet ditt ble avvist` : `Stengeskjemaet ditt ble avvist`)
+      : (isTest ? `[TEST] Ditt stengeskjema har blitt vurdert` : `Ditt stengeskjema har blitt vurdert`);
 
     const toRecipients = isTest
       ? [{ emailAddress: { address: testRecipient } }]
@@ -702,7 +730,7 @@ exports.sendReviewEmail = onCall(
       subject,
       body: {
         contentType: "HTML",
-        content:     buildReviewEmailHtml(formTitle, flaggedAnswers, approvedAnswers, reviewScoreSummary, submittedAtSeconds, reviewUrl, data.reviewedBy, isTest),
+        content:     buildReviewEmailHtml(formTitle, flaggedAnswers, approvedAnswers, reviewScoreSummary, submittedAtSeconds, reviewUrl, data.reviewedBy, isTest, { generalFeedback, rejected, rejectionComment }),
       },
       toRecipients,
       ...(ccRecipients.length ? { ccRecipients } : {}),
@@ -824,12 +852,13 @@ exports.initiateVippsOrder = onCall(
     secrets: ["VIPPS_CLIENT_ID", "VIPPS_CLIENT_SECRET", "VIPPS_SUBSCRIPTION_KEY", "VIPPS_MSN"],
   },
   async ({ data }) => {
-    const { locationId, locationName, items, total, customerPhone, customerName } = data || {};
+    const { locationId, locationName, items, total, customerPhone, customerName, customerNote } = data || {};
     if (!locationId || !Array.isArray(items) || items.length === 0 || !customerPhone || !customerName) {
       throw new HttpsError("invalid-argument", "Missing required order fields");
     }
 
     const smsPhone = formatPhoneForSms(customerPhone);
+    const noteValue = typeof customerNote === "string" && customerNote.trim() ? customerNote.trim() : null;
 
     const orderRef = await admin.firestore().collection("orders").add({
       locationId,
@@ -838,6 +867,7 @@ exports.initiateVippsOrder = onCall(
       total: Number(total) || 0,
       customerPhone: smsPhone,
       customerName,
+      ...(noteValue ? { customerNote: noteValue } : {}),
       status:     "pending_payment",
       alertSent:  false,
       createdAt:  admin.firestore.FieldValue.serverTimestamp(),
@@ -971,7 +1001,7 @@ exports.checkVippsOrder = onCall(
 
     // Already paid — return early
     if (order.status === "paid" || order.status === "confirmed" || order.status === "ready") {
-      return { status: order.status, customerName: order.customerName, customerPhone: order.customerPhone, total: order.total };
+      return { status: order.status, customerName: order.customerName, customerPhone: order.customerPhone, total: order.total, locationId: order.locationId, locationName: order.locationName, items: order.items || [], orderId };
     }
 
     // Fallback: check Vipps API directly
@@ -1024,13 +1054,35 @@ exports.checkVippsOrder = onCall(
             logger.error("Fallback SMS failed", { orderId, error: err?.message });
           }
         }
-        return { status: "paid", customerName: order.customerName, customerPhone: order.customerPhone, total: order.total };
+        return { status: "paid", customerName: order.customerName, customerPhone: order.customerPhone, total: order.total, locationId: order.locationId, locationName: order.locationName, items: order.items || [], orderId };
       }
     } catch (err) {
       logger.error("Vipps status check failed", { orderId, error: err?.message });
     }
 
     return { status: order.status || "pending_payment" };
+  },
+);
+
+// Manual SMS — send arbitrary message to one or more numbers (admin only)
+exports.sendManualSms = onCall(
+  {
+    region:  "europe-west1",
+    invoker: "public",
+    secrets: ["ELKS_API_USERNAME", "ELKS_API_PASSWORD"],
+  },
+  async ({ data }) => {
+    const message = (data?.message || "").trim();
+    if (!message) throw new HttpsError("invalid-argument", "message required");
+
+    const phones = Array.isArray(data?.phones)
+      ? data.phones.map((p) => String(p).trim()).filter(Boolean)
+      : [(data?.phone || "").trim()].filter(Boolean);
+
+    if (!phones.length) throw new HttpsError("invalid-argument", "phone required");
+
+    await Promise.all(phones.map((phone) => sendElksSms(phone, message)));
+    return { sent: true, count: phones.length };
   },
 );
 
@@ -1107,20 +1159,23 @@ exports.sendOrderReadySms = onCall(
 
     const order    = snap.data();
     const name     = capitalizeFirst(order.customerName || "");
+    const phone    = String(order.customerPhone || "").trim();
     const template = config.smsTexts?.ready || SMS_DEFAULTS.ready;
 
-    await sendElksSms(
-      order.customerPhone,
-      renderSmsTemplate(template, { name, location: order.locationName || "" }),
-    );
+    if (phone) {
+      await sendElksSms(
+        phone,
+        renderSmsTemplate(template, { name, location: order.locationName || "" }),
+      );
+    }
 
     await orderRef.update({
       status:          "ready",
       readyAt:         admin.firestore.FieldValue.serverTimestamp(),
-      feedbackSmsSent: false,
+      feedbackSmsSent: !phone,
     });
 
-    return { sent: true };
+    return { sent: Boolean(phone) };
   },
 );
 
@@ -1166,7 +1221,7 @@ exports.scheduledFeedbackSms = onSchedule(
 
 const AZURE_SECRETS_INVENTORY = ["AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_TENANT_ID"];
 const SELECT_OPTION_HISTORY_CATEGORIES = ["normal", "orange", "red"];
-const INVENTORY_EMAIL_RECIPIENTS = ["brandon@crust.no", "magnus@crust.no"];
+const INVENTORY_EMAIL_RECIPIENTS = ["magnus@crust.no"];
 
 function getSelectOptionHistoryCategory(question, selectedOption) {
   if (!selectedOption || question?.type !== "select") return "normal";
@@ -1179,10 +1234,11 @@ function getSelectOptionHistoryCategory(question, selectedOption) {
 async function buildInventoryAlertData() {
   const db = admin.firestore();
 
-  // Load stengeskjema form definition and active locations in parallel
-  const [formsSnap, locationsSnap] = await Promise.all([
+  // Load stengeskjema form definition, active locations, and manual edits in parallel
+  const [formsSnap, locationsSnap, inventoryUpdatesSnap] = await Promise.all([
     db.collection("forms").where("slug", "==", "stengeskjema").limit(1).get(),
     db.collection("locations").get(),
+    db.collection("inventoryUpdates").where("formSlug", "==", "stengeskjema").get(),
   ]);
   if (formsSnap.empty) throw new Error("stengeskjema form not found");
 
@@ -1191,6 +1247,19 @@ async function buildInventoryAlertData() {
       .map((d) => String(d.data().name || "").trim())
       .filter(Boolean),
   );
+
+  // Build map of manual inventory edits per location
+  const inventoryUpdatesByLocation = new Map();
+  inventoryUpdatesSnap.forEach((d) => {
+    const data = d.data();
+    if (data.location) {
+      inventoryUpdatesByLocation.set(String(data.location).trim(), {
+        answers: data.answers || {},
+        answerLogs: data.answerLogs || {},
+        updatedAt: data.updatedAt?.toDate?.() || null,
+      });
+    }
+  });
 
   const formDoc = formsSnap.docs[0].data();
   const allQuestions = Array.isArray(formDoc.questions) ? formDoc.questions : [];
@@ -1222,10 +1291,14 @@ async function buildInventoryAlertData() {
 
   // Build alert data per location — only for locations active on /analyse
   const result = [];
-  for (const [location, submission] of Array.from(latestByLocation.entries()).sort((a, b) => a[0].localeCompare(b[0], "nb"))) {
+  for (const [location, submission] of latestByLocation.entries()) {
     if (!activeLocationNames.has(location)) continue;
     const redItems = [];
     const orangeItems = [];
+
+    const manualUpdate = inventoryUpdatesByLocation.get(location);
+    const submissionDate = submission.submittedAt?.toDate?.()
+      || (submission.submittedAt?.seconds ? new Date(submission.submittedAt.seconds * 1000) : null);
 
     for (const question of analysisQuestions) {
       if (question.excludeFromLocationStatus) continue;
@@ -1234,12 +1307,27 @@ async function buildInventoryAlertData() {
       const actionType = String(action?.type || "").toLowerCase();
       if (actionType === "refill" || actionType === "ordered") continue;
 
-      const value = String(submission.answers?.[question.id] || "").trim();
+      const submissionValue = String(submission.answers?.[question.id] || "").trim();
+      const manualValue = String(manualUpdate?.answers?.[question.id] || "").trim();
+
+      // Use per-answer log timestamp if available, fall back to doc-level updatedAt
+      const answerLog = manualUpdate?.answerLogs?.[question.id];
+      const manualTs = answerLog?.[0]?.updatedAt
+        ? new Date(answerLog[0].updatedAt)
+        : (manualUpdate?.updatedAt || null);
+
+      // Use manual edit only if it exists and is newer than the latest submission
+      const manualIsNewer = manualValue && manualTs
+        ? (submissionDate ? manualTs > submissionDate : true)
+        : false;
+
+      const value = manualIsNewer ? manualValue : submissionValue;
+      const adminEdited = manualIsNewer;
       if (!value) continue;
 
       const category = getSelectOptionHistoryCategory(question, value);
       const label = (question.analysisLabel || question.label || question.id).trim();
-      const item = { label, value, category };
+      const item = { label, value, category, adminEdited };
 
       if (category === "red") redItems.push(item);
       else if (category === "orange") orangeItems.push(item);
@@ -1251,11 +1339,32 @@ async function buildInventoryAlertData() {
     }
   }
 
+  // Sort by most recently submitted first; locations without a timestamp go last
+  result.sort((a, b) => (b.submittedAtSeconds || 0) - (a.submittedAtSeconds || 0));
+
   return result;
 }
 
-function buildInventoryAlertEmailHtml(alertData, dateStr) {
-  if (alertData.length === 0) {
+function buildInventoryAlertEmailHtml(alertData, dateStr, overdueFeedback = []) {
+  const overdueSectionHtml = overdueFeedback.length > 0 ? `
+    <div style="margin-bottom:28px;padding:16px 20px;background:#fef9c3;border-left:4px solid #ca8a04;border-radius:0 6px 6px 0;">
+      <h3 style="margin:0 0 12px;font-size:1rem;color:#713f12;">⚠️ Tilbakemeldinger ikke bekreftet lest (${overdueFeedback.length})</h3>
+      ${overdueFeedback.map(f => `
+        <div style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #fde68a;">
+          <div style="font-size:0.88rem;color:#713f12;">
+            <strong>Vurdert:</strong> ${f.reviewedStr} (${f.hoursAgo}t siden)
+            ${f.neutral > 0 ? `&nbsp;· <span style="color:#b45309;">🟡 ${f.neutral} nøytral</span>` : ""}
+            ${f.sad > 0 ? `&nbsp;· <span style="color:#991b1b;">🔴 ${f.sad} surmunn</span>` : ""}
+          </div>
+          ${f.generalFeedback ? `<div style="font-size:0.85rem;color:#78350f;margin-top:4px;font-style:italic;">"${f.generalFeedback}"</div>` : ""}
+          ${f.receiptToken ? `<div style="margin-top:6px;"><a href="https://crust.no/skjema/stengeskjema/kvittering/${f.receiptToken}" style="font-size:0.82rem;color:#1d4ed8;">Åpne kvittering →</a></div>` : ""}
+        </div>`).join("")}
+      <div style="margin-top:8px;">
+        <a href="https://crust.no/skjema/stengeskjema/submissions" style="font-size:0.82rem;color:#1d4ed8;">Registrer oppfølging gjort på /submissions →</a>
+      </div>
+    </div>` : "";
+
+  if (alertData.length === 0 && overdueFeedback.length === 0) {
     return `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#1f2937;">
         <h2 style="margin:0 0 8px;">Varebeholdning – ${dateStr}</h2>
@@ -1264,14 +1373,15 @@ function buildInventoryAlertEmailHtml(alertData, dateStr) {
   }
 
   const sections = alertData.map(({ location, items, submittedAtSeconds }) => {
-    const rows = items.map(({ label, value, category }) => {
+    const rows = items.map(({ label, value, category, adminEdited }) => {
       const isRed = category === "red";
       const borderColor = isRed ? "#dc2626" : "#d97706";
       const bgColor     = isRed ? "#fef2f2"  : "#fffbeb";
-      const textColor   = isRed ? "#7f1d1d"  : "#78350f";
+      const labelColor  = isRed ? "#7f1d1d" : "#78350f";
+      const valueColor  = adminEdited ? "#1d4ed8" : labelColor;
       return `
-        <div style="border-left:4px solid ${borderColor};background:${bgColor};color:${textColor};padding:10px 14px;margin-bottom:8px;border-radius:0 6px 6px 0;">
-          <strong>${label}</strong>: ${value}
+        <div style="border-left:4px solid ${borderColor};background:${bgColor};padding:10px 14px;margin-bottom:8px;border-radius:0 6px 6px 0;">
+          <strong style="color:${labelColor};">${label}</strong><span style="color:${valueColor};">: ${value}</span>
         </div>`;
     }).join("");
 
@@ -1286,9 +1396,9 @@ function buildInventoryAlertEmailHtml(alertData, dateStr) {
 
     return `
       <div style="margin-bottom:28px;">
-        <div style="display:flex;align-items:baseline;gap:10px;border-bottom:1px solid #e5e7eb;padding-bottom:6px;margin-bottom:10px;">
+        <div style="border-bottom:1px solid #e5e7eb;padding-bottom:6px;margin-bottom:10px;">
           <h3 style="margin:0;font-size:1rem;color:#374151;">📍 ${location}</h3>
-          ${submittedLabel ? `<span style="font-size:0.78rem;color:#9ca3af;">Siste skjema: ${submittedLabel}</span>` : ""}
+          ${submittedLabel ? `<span style="display:block;margin-top:4px;font-size:0.78rem;color:#9ca3af;">Siste skjema: <strong style="color:#374151;">${submittedLabel}</strong></span>` : ""}
         </div>
         ${rows}
       </div>`;
@@ -1296,11 +1406,12 @@ function buildInventoryAlertEmailHtml(alertData, dateStr) {
 
   return `
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#1f2937;">
-      <h2 style="margin:0 0 4px;">🔴 Varebeholdning – ${dateStr}</h2>
+      <h2 style="margin:0 0 4px;">Varebeholdning – ${dateStr}</h2>
       <p style="color:#6b7280;margin:0 0 24px;font-size:0.9rem;">
         Rød og oransje status per lokasjon, basert på siste stengeskjema.
         Rød er øverst per lokasjon.
       </p>
+      ${overdueSectionHtml}
       ${sections}
       <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0 16px;" />
       <p style="font-size:0.8rem;color:#9ca3af;margin:0;">
@@ -1310,16 +1421,55 @@ function buildInventoryAlertEmailHtml(alertData, dateStr) {
     </div>`;
 }
 
+async function buildOverdueFeedbackData() {
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const snap = await db.collection("formSubmissions")
+    .where("formSlug", "==", "stengeskjema")
+    .where("status", "==", "reviewed")
+    .get();
+  const overdue = [];
+  for (const d of snap.docs) {
+    const data = d.data();
+    if (data.rejected) continue;
+    if (data.feedbackReadConfirmed) continue;
+    if (data.followUpDone) continue;
+    const neutral = data.reviewScoreSummary?.neutral || 0;
+    const sad = data.reviewScoreSummary?.sad || 0;
+    if (neutral === 0 && sad === 0 && !data.generalFeedback) continue;
+    const reviewedAt = data.reviewedAt?.toDate?.();
+    if (!reviewedAt || reviewedAt > cutoff) continue;
+    const days2 = ["søn","man","tir","ons","tor","fre","lør"];
+    const pad = (n) => String(n).padStart(2, "0");
+    const reviewedStr = `${days2[reviewedAt.getDay()]} ${reviewedAt.getDate()}. kl. ${pad(reviewedAt.getHours())}:${pad(reviewedAt.getMinutes())}`;
+    const hoursAgo = Math.floor((Date.now() - reviewedAt.getTime()) / 3600000);
+    overdue.push({
+      id: d.id,
+      receiptToken: data.receiptToken || "",
+      name: data.answers ? Object.values(data.answers).find(v => typeof v === "string" && v.length > 1 && v.length < 60) || "" : "",
+      neutral,
+      sad,
+      generalFeedback: data.generalFeedback || "",
+      reviewedStr,
+      hoursAgo,
+    });
+  }
+  overdue.sort((a, b) => b.hoursAgo - a.hoursAgo);
+  return overdue;
+}
+
 async function doSendInventoryAlert(testRecipient) {
   const days    = ["søndag","mandag","tirsdag","onsdag","torsdag","fredag","lørdag"];
   const months  = ["januar","februar","mars","april","mai","juni","juli","august","september","oktober","november","desember"];
   const now     = new Date();
   const dateStr = `${days[now.getDay()]} ${now.getDate()}. ${months[now.getMonth()]} ${now.getFullYear()}`;
 
-  const alertData = await buildInventoryAlertData();
-  const html      = buildInventoryAlertEmailHtml(alertData, dateStr);
-  const subject   = alertData.length > 0
-    ? `Varebeholdning ${now.getDate()}. ${months[now.getMonth()]}: ${alertData.reduce((s, l) => s + l.items.filter(i => i.category === "red").length, 0)} røde, ${alertData.reduce((s, l) => s + l.items.filter(i => i.category === "orange").length, 0)} oransje`
+  const [alertData, overdueFeedback] = await Promise.all([
+    buildInventoryAlertData(),
+    buildOverdueFeedbackData(),
+  ]);
+  const html = buildInventoryAlertEmailHtml(alertData, dateStr, overdueFeedback);
+  const subject   = alertData.length > 0 || overdueFeedback.length > 0
+    ? `Varebeholdning ${now.getDate()}. ${months[now.getMonth()]}: ${alertData.reduce((s, l) => s + l.items.filter(i => i.category === "red").length, 0)} røde, ${alertData.reduce((s, l) => s + l.items.filter(i => i.category === "orange").length, 0)} oransje${overdueFeedback.length > 0 ? `, ${overdueFeedback.length} ubekreftet tilbakemelding` : ""}`
     : `Varebeholdning ${now.getDate()}. ${months[now.getMonth()]}: Alt OK`;
 
   const toRecipients = testRecipient
@@ -1350,6 +1500,57 @@ exports.sendInventoryAlertEmail = onCall(
   async (req) => {
     const testRecipient = typeof req.data?.testRecipient === "string" ? req.data.testRecipient.trim() : null;
     return doSendInventoryAlert(testRecipient || null);
+  },
+);
+
+// Confirm that staff has read their feedback on a reviewed closing form
+exports.confirmFeedbackRead = onCall(
+  { region: "europe-west1", invoker: "public" },
+  async ({ data }) => {
+    const { receiptToken } = data || {};
+    if (!receiptToken || typeof receiptToken !== "string") {
+      throw new HttpsError("invalid-argument", "receiptToken required");
+    }
+    const receiptSnap = await db.collection("formSubmissionReceipts").doc(receiptToken).get();
+    if (!receiptSnap.exists) throw new HttpsError("not-found", "Receipt not found");
+    const { submissionId } = receiptSnap.data() || {};
+    if (!submissionId) throw new HttpsError("failed-precondition", "Receipt has no submissionId");
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    await Promise.all([
+      db.collection("formSubmissions").doc(submissionId).update({
+        feedbackReadConfirmed: true,
+        feedbackReadAt: now,
+      }),
+      db.collection("formSubmissionReceipts").doc(receiptToken).update({
+        feedbackReadConfirmed: true,
+      }),
+    ]);
+    return { confirmed: true };
+  },
+);
+
+// Return review data for a receipt (bypasses auth since receipt token is the secret)
+exports.getReceiptReviewData = onCall(
+  { region: "europe-west1", invoker: "public" },
+  async ({ data }) => {
+    const { receiptToken } = data || {};
+    if (!receiptToken || typeof receiptToken !== "string") {
+      throw new HttpsError("invalid-argument", "receiptToken required");
+    }
+    const receiptSnap = await db.collection("formSubmissionReceipts").doc(receiptToken).get();
+    if (!receiptSnap.exists) return null;
+    const { submissionId } = receiptSnap.data() || {};
+    if (!submissionId) return null;
+    const subSnap = await db.collection("formSubmissions").doc(submissionId).get();
+    if (!subSnap.exists) return null;
+    const sub = subSnap.data();
+    return {
+      status: sub.status || null,
+      rejected: sub.rejected || false,
+      reviewScoreSummary: sub.reviewScoreSummary || null,
+      generalFeedback: sub.generalFeedback || null,
+      feedbackReadConfirmed: sub.feedbackReadConfirmed || false,
+    };
   },
 );
 
