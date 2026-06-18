@@ -111,8 +111,9 @@ function Layout() {
       "/sales": "Salg",
       "/skjema": "Skjemaer",
       "/bestilling": "Bestilling",
+      "/bestilling/storbestilling": "Storbestilling",
       "/bestilling/event": "Catering",
-      "/bestilling/myepizza": "Storbestilling",
+      "/bestilling/myepizza": "Mange pizzaer",
     };
     if (location.pathname === "/") {
       document.title = "Crust n' Trust";
@@ -188,10 +189,13 @@ function Layout() {
                   <span className="nav-label">Søk jobb</span>
                 </Link>
               </nav>
+              {/* HIDDEN: re-enable by removing the false && guard */}
+              {false && (
               <Link to="/bestilling" className="nav-order-cta" aria-label="Bestill pizza">
-                <span>Order Pizza!!</span>
+                <span>Bestill pizza nå!</span>
                 <FontAwesomeIcon icon={faPizzaSlice} />
               </Link>
+              )}
             </div>
           </header>
         </>

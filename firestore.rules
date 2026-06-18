@@ -127,12 +127,14 @@ service cloud.firestore {
     }
 
     match /cateringRequests/{docId} {
-      allow create: if true;
+      allow create: if request.resource.data.deliveryTimestamp is timestamp
+        && request.resource.data.deliveryTimestamp >= request.time + duration.value(2, 'd');
       allow read, update, delete: if isCrustUser();
     }
 
     match /largeOrders/{docId} {
-      allow create: if true;
+      allow create: if request.resource.data.deliveryTimestamp is timestamp
+        && request.resource.data.deliveryTimestamp >= request.time + duration.value(2, 'd');
       allow read, update, delete: if isCrustUser();
     }
 

@@ -1648,7 +1648,18 @@ exports.scheduledInventoryAlert = onSchedule(
 
 // ── Bestilling email notifications ───────────────────────────────────────────
 
-const BESTILLING_RECIPIENTS = ["event@crust.no", "brandon@crust.no"];
+const BESTILLING_RECIPIENTS = ["event@crust.no", "brandon@crust.no", "magnus@crust.no"];
+const MIN_ADVANCE_DAYS = 3;
+
+function isDeliveryDateValid(dateStr) {
+  if (!dateStr) return false;
+  const deliveryDate = new Date(dateStr);
+  if (isNaN(deliveryDate.getTime())) return false;
+  const minDate = new Date();
+  minDate.setDate(minDate.getDate() + MIN_ADVANCE_DAYS);
+  minDate.setHours(0, 0, 0, 0);
+  return deliveryDate >= minDate;
+}
 
 async function sendBestillingEmail(subject, html, toAddresses) {
   const axios = require("axios");
@@ -1727,9 +1738,26 @@ exports.sendCateringNotification = onCall(
   { region: "europe-west1", invoker: "public", secrets: ["AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_TENANT_ID"] },
   async ({ data }) => {
     if (!data?.email || !data?.name) throw new HttpsError("invalid-argument", "email and name required");
-    try { await sendBestillingEmail(`Ny cateringforespørsel: ${data.name}`, cateringInternalHtml(data), BESTILLING_RECIPIENTS); } catch (e) { logger.error("Catering internal email failed", { error: e?.message }); }
-    try { await sendBestillingEmail("Vi har mottatt din cateringforespørsel — Crust n' Trust", cateringConfirmHtml(data), [data.email]); } catch (e) { logger.error("Catering confirm email failed", { error: e?.message }); }
-    return { sent: true };
+    if (!isDeliveryDateValid(data.date)) throw new HttpsError("invalid-argument", "Leveringsdato må være minst 3 dager frem i tid");
+    const result = { internalSent: false, confirmSent: false };
+    try {
+      await sendBestillingEmail(`Ny cateringforespørsel: ${data.name}`, cateringInternalHtml(data), BESTILLING_RECIPIENTS);
+      result.internalSent = true;
+      logger.info("Catering internal email sent", { name: data.name, recipients: BESTILLING_RECIPIENTS });
+    } catch (e) {
+      logger.error("Catering internal email failed", { error: e?.message, status: e?.response?.status, name: data.name });
+    }
+    try {
+      await sendBestillingEmail("Vi har mottatt din cateringforespørsel — Crust n' Trust", cateringConfirmHtml(data), [data.email]);
+      result.confirmSent = true;
+      logger.info("Catering confirmation email sent", { to: data.email });
+    } catch (e) {
+      logger.error("Catering confirm email failed", { error: e?.message, status: e?.response?.status, to: data.email });
+    }
+    if (!result.internalSent && !result.confirmSent) {
+      throw new HttpsError("internal", "Failed to send notification emails");
+    }
+    return result;
   },
 );
 
@@ -1737,8 +1765,25 @@ exports.sendLargeOrderNotification = onCall(
   { region: "europe-west1", invoker: "public", secrets: ["AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_TENANT_ID"] },
   async ({ data }) => {
     if (!data?.email || !data?.name) throw new HttpsError("invalid-argument", "email and name required");
-    try { await sendBestillingEmail(`Ny storbestilling: ${data.name} (${data.pizzaQuantity || 0} pizzaer)`, largeOrderInternalHtml(data), BESTILLING_RECIPIENTS); } catch (e) { logger.error("Large order internal email failed", { error: e?.message }); }
-    try { await sendBestillingEmail("Vi har mottatt din storbestilling — Crust n' Trust", largeOrderConfirmHtml(data), [data.email]); } catch (e) { logger.error("Large order confirm email failed", { error: e?.message }); }
-    return { sent: true };
+    if (!isDeliveryDateValid(data.deliveryDate)) throw new HttpsError("invalid-argument", "Leveringsdato må være minst 3 dager frem i tid");
+    const result = { internalSent: false, confirmSent: false };
+    try {
+      await sendBestillingEmail(`Ny storbestilling: ${data.name} (${data.pizzaQuantity || 0} pizzaer)`, largeOrderInternalHtml(data), BESTILLING_RECIPIENTS);
+      result.internalSent = true;
+      logger.info("Large order internal email sent", { name: data.name, recipients: BESTILLING_RECIPIENTS });
+    } catch (e) {
+      logger.error("Large order internal email failed", { error: e?.message, status: e?.response?.status, name: data.name });
+    }
+    try {
+      await sendBestillingEmail("Vi har mottatt din storbestilling — Crust n' Trust", largeOrderConfirmHtml(data), [data.email]);
+      result.confirmSent = true;
+      logger.info("Large order confirmation email sent", { to: data.email });
+    } catch (e) {
+      logger.error("Large order confirm email failed", { error: e?.message, status: e?.response?.status, to: data.email });
+    }
+    if (!result.internalSent && !result.confirmSent) {
+      throw new HttpsError("internal", "Failed to send notification emails");
+    }
+    return result;
   },
 );

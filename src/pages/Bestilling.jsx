@@ -1,75 +1,144 @@
+import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
+import { collection, onSnapshot } from "firebase/firestore";
+import { db } from "../firebase";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faArrowRight,
-  faTruckFast,
-  faCalendarCheck,
   faPizzaSlice,
   faEnvelope,
+  faLocationDot,
+  faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 import foodtruckImg from "../assets/optimized/foodtruck-600.png";
-import pizzaImg from "../assets/pizzabilde.jpeg";
+import pizzaeskeImg from "../assets/pizzaeske.jpeg";
+import ivognaImg from "../assets/i-vogna.jpeg";
 import "./Bestilling.css";
 
-const FOODORA_URL = "https://www.foodora.no/en/restaurant/o1ss/crustn-trust";
+function useFoodoraLocations() {
+  const [locations, setLocations] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "locations"), (snap) => {
+      const locs = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((l) => !l.disabled && l.foodoraUrl)
+        .sort((a, b) => {
+          const oa = typeof a.order === "number" ? a.order : Infinity;
+          const ob = typeof b.order === "number" ? b.order : Infinity;
+          return oa - ob || (a.name || "").localeCompare(b.name || "", "nb");
+        });
+      setLocations(locs);
+      setLoading(false);
+    });
+    return unsub;
+  }, []);
+
+  return { locations, loading };
+}
 
 function Bestilling() {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const { locations, loading } = useFoodoraLocations();
+  const pickerRef = useRef(null);
+
+  useEffect(() => {
+    if (!pickerOpen) return;
+    function onKey(e) { if (e.key === "Escape") setPickerOpen(false); }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [pickerOpen]);
+
   return (
     <div className="bestilling-page">
       <header className="bestilling-hero">
         <p className="eyebrow">Bestill fra Crust n' Trust</p>
         <h1>Hvordan vil du bestille?</h1>
         <p>
-          Velg den bestillingsmåten som passer deg best — levering, catering,
+          Velg den bestillingsmåten som passer deg best — levering,
           storbestilling eller noe helt spesielt.
         </p>
       </header>
 
       <div className="bestilling-grid">
-        {/* Foodora */}
-        <a
-          href={FOODORA_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="bestilling-card is-link"
-          aria-label="Bestill levering med Foodora"
-        >
-          <div className="bestilling-card-visual">
-            <FontAwesomeIcon icon={faTruckFast} className="bestilling-card-visual-icon" />
-          </div>
-          <div className="bestilling-card-body">
-            <h2>Foodora</h2>
-            <p>Bestill levering med Foodora — rett til døra di.</p>
-            <span className="bestilling-card-cta">
-              Bestill med Foodora <FontAwesomeIcon icon={faArrowRight} />
-            </span>
-          </div>
-        </a>
+        {/* Foodora — location picker */}
+        <div className="bestilling-card is-link" ref={pickerRef}>
+          <button
+            type="button"
+            className="bestilling-card-btn"
+            onClick={() => setPickerOpen((o) => !o)}
+            aria-expanded={pickerOpen}
+            aria-haspopup="true"
+          >
+            <div className="bestilling-card-visual">
+              <img src={pizzaeskeImg} alt="Bestill pizza med Foodora" loading="lazy" decoding="async" />
+            </div>
+            <div className="bestilling-card-body">
+              <h2>Foodora</h2>
+              <p>Bestill levering med Foodora — velg lokasjon.</p>
+              <span className="bestilling-card-cta">
+                Bestill med Foodora <FontAwesomeIcon icon={faArrowRight} />
+              </span>
+            </div>
+          </button>
 
-        {/* Catering / Event */}
-        <Link to="/bestilling/event" className="bestilling-card is-link" aria-label="Bestill catering">
+          {pickerOpen && (
+            <div className="foodora-picker" role="dialog" aria-label="Velg lokasjon">
+              <div className="foodora-picker-header">
+                <h3>Velg lokasjon</h3>
+                <button
+                  type="button"
+                  className="foodora-picker-close"
+                  onClick={() => setPickerOpen(false)}
+                  aria-label="Lukk"
+                >
+                  <FontAwesomeIcon icon={faXmark} />
+                </button>
+              </div>
+
+              {loading ? (
+                <p className="foodora-picker-loading">Laster lokasjoner…</p>
+              ) : locations.length === 0 ? (
+                <p className="foodora-picker-empty">Ingen Foodora-lokasjoner tilgjengelig akkurat nå.</p>
+              ) : (
+                <ul className="foodora-picker-list">
+                  {locations.map((loc) => (
+                    <li key={loc.id}>
+                      <a
+                        href={loc.foodoraUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="foodora-picker-item"
+                        onClick={() => setPickerOpen(false)}
+                      >
+                        <FontAwesomeIcon icon={faLocationDot} className="foodora-picker-icon" />
+                        <div>
+                          <strong>{loc.city || loc.name}</strong>
+                          {loc.city && loc.name && loc.city !== loc.name && (
+                            <span className="foodora-picker-address">{loc.name}</span>
+                          )}
+                        </div>
+                        <FontAwesomeIcon icon={faArrowRight} className="foodora-picker-arrow" />
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Large orders & Catering */}
+        <Link to="/bestilling/storbestilling" className="bestilling-card is-link" aria-label="Storbestilling og catering">
           <div className="bestilling-card-visual">
             <img src={foodtruckImg} alt="Crust pizzavogn" loading="lazy" decoding="async" />
           </div>
           <div className="bestilling-card-body">
-            <h2>Catering / Event</h2>
-            <p>Vi kommer til deg med vogn og pizza servert av ungdommer i sin første jobb.</p>
-            <span className="bestilling-card-cta">
-              Bestill catering <FontAwesomeIcon icon={faCalendarCheck} />
-            </span>
-          </div>
-        </Link>
-
-        {/* Large orders */}
-        <Link to="/bestilling/myepizza" className="bestilling-card is-link" aria-label="Bestill mange pizzaer">
-          <div className="bestilling-card-visual">
-            <img src={pizzaImg} alt="Mange Crust-pizzaer" loading="lazy" decoding="async" />
-          </div>
-          <div className="bestilling-card-body">
             <h2>Storbestilling</h2>
-            <p>Vil du bestille mange pizzaer? Vi ordner det.</p>
+            <p>Trenger du mange pizzaer — med eller uten vogn og servering? Vi ordner det.</p>
             <span className="bestilling-card-cta">
-              Bestill mange pizzaer <FontAwesomeIcon icon={faPizzaSlice} />
+              Se alternativer <FontAwesomeIcon icon={faPizzaSlice} />
             </span>
           </div>
         </Link>
@@ -77,7 +146,7 @@ function Bestilling() {
         {/* Custom — NOT clickable */}
         <div className="bestilling-card">
           <div className="bestilling-card-visual">
-            <FontAwesomeIcon icon={faEnvelope} className="bestilling-card-visual-icon" />
+            <img src={ivognaImg} alt="Spesialbestilling og catering" loading="lazy" decoding="async" />
           </div>
           <div className="bestilling-card-body">
             <h2>Spesialbestilling</h2>

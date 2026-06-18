@@ -32,6 +32,15 @@
   gap: 0;
 }
 
+.bestilling-grid > :last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
+.bestilling-grid > :last-child:nth-child(odd) .bestilling-card-body {
+  text-align: center;
+  align-items: center;
+}
+
 .bestilling-card {
   display: flex;
   flex-direction: column;
@@ -132,6 +141,139 @@
 .bestilling-card-email:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+/* ── Foodora card button reset ──────────── */
+.bestilling-card-btn {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  flex: 1;
+}
+
+/* ── Foodora location picker ────────────── */
+.foodora-picker {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #fff;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  animation: pickerIn 0.18s ease-out;
+}
+
+@keyframes pickerIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.foodora-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 28px;
+  border-bottom: 1px solid rgba(24, 44, 60, 0.08);
+}
+
+.foodora-picker-header h3 {
+  font-family: "Fraunces", serif;
+  font-size: 1.25rem;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.foodora-picker-close {
+  background: none;
+  border: 1px solid rgba(24, 44, 60, 0.15);
+  border-radius: 4px;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 1rem;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.foodora-picker-close:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.foodora-picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.foodora-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-radius: 4px;
+  color: var(--ink);
+  transition: background 0.15s;
+  font-size: 0.93rem;
+}
+
+.foodora-picker-item:hover {
+  background: #fdf6ef;
+}
+
+.foodora-picker-item strong {
+  display: block;
+  font-size: 0.95rem;
+}
+
+.foodora-picker-address {
+  display: block;
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.foodora-picker-icon {
+  color: var(--accent);
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.foodora-picker-arrow {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.8rem;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.foodora-picker-item:hover .foodora-picker-arrow {
+  opacity: 1;
+}
+
+.foodora-picker-loading,
+.foodora-picker-empty {
+  padding: 32px 28px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  text-align: center;
+  margin: 0;
 }
 
 @media (max-width: 700px) {

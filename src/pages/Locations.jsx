@@ -31,6 +31,7 @@ const emptyLocationForm = {
   weekendOrderDeadline: "",
   weekendDeliveryTime: "",
   mapUrl: "",
+  foodoraUrl: "",
   imageUrl: "",
   order: "",
   orderEnabled: false,
@@ -270,6 +271,7 @@ function Locations() {
         weekendOrderDeadline: newLocation.weekendOrderDeadline.trim(),
         weekendDeliveryTime: newLocation.weekendDeliveryTime.trim(),
         mapUrl: normalizeUrl(newLocation.mapUrl),
+        foodoraUrl: normalizeUrl(newLocation.foodoraUrl),
         imageUrl,
         order: newLocation.order.trim() ? Number(newLocation.order) : null,
         createdAt: serverTimestamp(),
@@ -304,6 +306,7 @@ function Locations() {
       weekendOrderDeadline: location.weekendOrderDeadline || "",
       weekendDeliveryTime: location.weekendDeliveryTime || "",
       mapUrl: location.mapUrl || "",
+      foodoraUrl: location.foodoraUrl || "",
       imageUrl: location.imageUrl || "",
       order: location.order == null ? "" : String(location.order),
       orderEnabled: location.orderEnabled || false,
@@ -346,6 +349,7 @@ function Locations() {
         weekendOrderDeadline: editLocation.weekendOrderDeadline.trim(),
         weekendDeliveryTime: editLocation.weekendDeliveryTime.trim(),
         mapUrl: normalizeUrl(editLocation.mapUrl),
+        foodoraUrl: normalizeUrl(editLocation.foodoraUrl),
         imageUrl,
         order: editLocation.order.trim() ? Number(editLocation.order) : null,
         orderEnabled: editLocation.orderEnabled,
@@ -753,6 +757,22 @@ function Locations() {
                       />
                     </label>
 
+                    <label className="field-block" htmlFor="location-foodora-url">
+                      <span>Foodora-lenke (valgfritt)</span>
+                      <input
+                        id="location-foodora-url"
+                        type="url"
+                        value={newLocation.foodoraUrl}
+                        onChange={(event) =>
+                          setNewLocation((previous) => ({
+                            ...previous,
+                            foodoraUrl: event.target.value,
+                          }))
+                        }
+                        placeholder="https://www.foodora.no/..."
+                      />
+                    </label>
+
                     <label
                       className="field-block"
                       htmlFor="location-image-file"
@@ -984,6 +1004,25 @@ function Locations() {
                           }))
                         }
                         placeholder="https://maps.google.com/..."
+                      />
+                    </label>
+
+                    <label
+                      className="field-block"
+                      htmlFor="edit-location-foodora-url"
+                    >
+                      <span>Foodora-lenke (valgfritt)</span>
+                      <input
+                        id="edit-location-foodora-url"
+                        type="url"
+                        value={editLocation.foodoraUrl}
+                        onChange={(event) =>
+                          setEditLocation((previous) => ({
+                            ...previous,
+                            foodoraUrl: event.target.value,
+                          }))
+                        }
+                        placeholder="https://www.foodora.no/..."
                       />
                     </label>
 

@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, Timestamp } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "../firebase";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -17,6 +17,20 @@ const CATERING_TYPES = [
   "Festival / marked",
   "Annet",
 ];
+
+const MIN_ADVANCE_DAYS = 3;
+
+function getMinDeliveryDate() {
+  const d = new Date();
+  d.setDate(d.getDate() + MIN_ADVANCE_DAYS);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function formatLocalDate(d) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
 
 const INITIAL = {
   name: "",
@@ -54,7 +68,14 @@ function EventCatering() {
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = "Ugyldig e-postadresse";
     if (!form.address.trim()) e.address = "Adresse er påkrevd";
     if (!form.cateringType) e.cateringType = "Velg type catering";
-    if (!form.date) e.date = "Velg dato";
+    if (!form.date) {
+      e.date = "Velg dato";
+    } else {
+      const selected = new Date(form.date + "T00:00:00");
+      if (isNaN(selected.getTime()) || selected < getMinDeliveryDate()) {
+        e.date = "Levering må bestilles minst 3 dager i forveien";
+      }
+    }
     return e;
   }
 
@@ -69,11 +90,14 @@ function EventCatering() {
     try {
       await addDoc(collection(db, "cateringRequests"), {
         ...form,
+        deliveryTimestamp: Timestamp.fromDate(new Date(form.date + "T00:00:00")),
         status: "pending",
         createdAt: serverTimestamp(),
       });
       setSubmitted(true);
-      httpsCallable(functions, "sendCateringNotification")(form).catch(() => {});
+      httpsCallable(functions, "sendCateringNotification")(form).catch((e) => {
+        console.error("sendCateringNotification failed:", e?.message);
+      });
     } catch {
       setSubmitError("Noe gikk galt. Prøv igjen eller send e-post til event@crust.no.");
     } finally {
@@ -194,7 +218,7 @@ function EventCatering() {
               </label>
               <label>
                 Ønsket dato *
-                <input type="date" name="date" value={form.date} onChange={handleChange} className={errors.date ? "is-invalid" : ""} min={new Date().toISOString().split("T")[0]} required />
+                <input type="date" name="date" value={form.date} onChange={handleChange} className={errors.date ? "is-invalid" : ""} min={formatLocalDate(getMinDeliveryDate())} required />
                 {errors.date && <span className="ec-field-error" role="alert">{errors.date}</span>}
               </label>
             </div>

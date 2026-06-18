@@ -55,6 +55,7 @@ const AllOrders = lazy(() => import("./pages/AllOrders"));
 const Sms = lazy(() => import("./pages/Sms"));
 
 const Bestilling = lazy(() => import("./pages/Bestilling"));
+const StorbestillingGateway = lazy(() => import("./pages/StorbestillingGateway"));
 const EventCatering = lazy(() => import("./pages/EventCatering"));
 const LargeOrder = lazy(() => import("./pages/LargeOrder"));
 const BestillingAdmin = lazy(() => import("./pages/BestillingAdmin"));
@@ -117,10 +118,13 @@ function Home() {
               skikkelig god pizza.
             </p>
             <div className="hero-actions">
+              {/* HIDDEN: re-enable by removing the false && guard */}
+              {false && (
               <Link className="cta" to="/bestilling">
                 Bestill pizza! <FontAwesomeIcon icon={faPizzaSlice} />
               </Link>
-              <Link className="ghost" to="/bestilling/event">
+              )}
+              <Link className="ghost" to="/bestilling/storbestilling">
                 Bestill til et arrangement{" "}
                 <FontAwesomeIcon icon={faCalendarRegular} />
               </Link>
@@ -301,9 +305,12 @@ function Home() {
             Hver slice støtter en ungdom i sin aller første jobb!
           </p>
           <div className="visit-actions">
+            {/* HIDDEN: re-enable by removing the false && guard */}
+            {false && (
             <Link className="cta" to="/bestilling">
               Bestill pizza <FontAwesomeIcon icon={faPizzaSlice} />
             </Link>
+            )}
 
             <Link className="ghost" to="/plasseringer">
               Hvor finner du oss <FontAwesomeIcon icon={faMapPin} />
@@ -332,6 +339,7 @@ function App() {
         <Route path="/omtale" element={withPageLoader(<Publications />)} />
         <Route path="/varsling" element={withPageLoader(<Varsling />)} />
         <Route path="/bestilling" element={withPageLoader(<Bestilling />)} />
+        <Route path="/bestilling/storbestilling" element={withPageLoader(<StorbestillingGateway />)} />
         <Route path="/bestilling/event" element={withPageLoader(<EventCatering />)} />
         <Route path="/bestilling/myepizza" element={withPageLoader(<LargeOrder />)} />
         <Route path="/varig-hadeland" element={withPageLoader(<VarigHadeland />)} />

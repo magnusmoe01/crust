@@ -183,10 +183,14 @@
   border: 2px solid var(--accent);
   padding: 24px 28px;
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
   gap: 14px;
+}
+
+.lo-price-breakdown {
+  width: 100%;
+  display: grid;
+  gap: 16px;
 }
 
 .lo-price-label {
@@ -197,12 +201,52 @@
   color: var(--muted);
 }
 
+.lo-breakdown-lines {
+  display: grid;
+  gap: 8px;
+}
+
+.lo-breakdown-line {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  color: var(--ink);
+}
+
+.lo-breakdown-line.is-discount {
+  color: #27ae60;
+  font-weight: 600;
+}
+
+.lo-breakdown-totals {
+  border-top: 1.5px solid rgba(24, 44, 60, 0.12);
+  padding-top: 14px;
+  display: grid;
+  gap: 6px;
+}
+
+.lo-breakdown-total-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--ink);
+}
+
 .lo-price-total {
   font-family: "Fraunces", serif;
-  font-size: 2.2rem;
+  font-size: 2rem;
   font-weight: 700;
   color: var(--ink);
   letter-spacing: -0.02em;
+}
+
+.lo-breakdown-total-sub {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.82rem;
+  color: var(--muted);
 }
 
 .lo-price-note {
