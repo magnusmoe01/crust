@@ -1422,14 +1422,16 @@ function buildInventoryAlertEmailHtml(alertData, dateStr, overdueFeedback = []) 
 }
 
 async function buildOverdueFeedbackData() {
+  const db = admin.firestore();
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const featureStart = new Date("2026-06-17T00:00:00+02:00");
   const snap = await db.collection("formSubmissions")
-    .where("formSlug", "==", "stengeskjema")
     .where("status", "==", "reviewed")
     .get();
   const overdue = [];
   for (const d of snap.docs) {
     const data = d.data();
+    if (data.formSlug !== "stengeskjema") continue;
     if (data.rejected) continue;
     if (data.feedbackReadConfirmed) continue;
     if (data.followUpDone) continue;
@@ -1438,6 +1440,7 @@ async function buildOverdueFeedbackData() {
     if (neutral === 0 && sad === 0 && !data.generalFeedback) continue;
     const reviewedAt = data.reviewedAt?.toDate?.();
     if (!reviewedAt || reviewedAt > cutoff) continue;
+    if (reviewedAt < featureStart) continue;
     const days2 = ["søn","man","tir","ons","tor","fre","lør"];
     const pad = (n) => String(n).padStart(2, "0");
     const reviewedStr = `${days2[reviewedAt.getDay()]} ${reviewedAt.getDate()}. kl. ${pad(reviewedAt.getHours())}:${pad(reviewedAt.getMinutes())}`;
@@ -1507,6 +1510,7 @@ exports.sendInventoryAlertEmail = onCall(
 exports.confirmFeedbackRead = onCall(
   { region: "europe-west1", invoker: "public" },
   async ({ data }) => {
+    const db = admin.firestore();
     const { receiptToken } = data || {};
     if (!receiptToken || typeof receiptToken !== "string") {
       throw new HttpsError("invalid-argument", "receiptToken required");
@@ -1533,6 +1537,7 @@ exports.confirmFeedbackRead = onCall(
 exports.getReceiptReviewData = onCall(
   { region: "europe-west1", invoker: "public" },
   async ({ data }) => {
+    const db = admin.firestore();
     const { receiptToken } = data || {};
     if (!receiptToken || typeof receiptToken !== "string") {
       throw new HttpsError("invalid-argument", "receiptToken required");
