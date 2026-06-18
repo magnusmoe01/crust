@@ -43,7 +43,7 @@ function Contact() {
             <strong>Telefon:</strong> +47 958 85 852
           </p>
           <p>
-            <strong>Adresse:</strong> Sandakerveien 121, 0484 Oslo
+            <strong>Adresse:</strong> Olaf Helsets vei 6, 0694 Oslo
           </p>
         </div>
       </header>

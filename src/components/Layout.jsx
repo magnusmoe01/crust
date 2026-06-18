@@ -218,8 +218,8 @@ function Layout() {
             </div>
             <div>
               <strong>Adresse</strong>
-              <p>Sandakerveien 121</p>
-              <p>0484 Oslo</p>
+              <p>Olaf Helsets vei 6</p>
+              <p>0694 Oslo</p>
             </div>
             <div>
               <strong>Kontakt</strong>
