@@ -5240,7 +5240,7 @@ function FormPage() {
   async function onSaveWarningCategory(nextCategoryInput, callbacks = {}) {
     const nextCategory = String(nextCategoryInput || '').trim()
     if (!nextCategory) {
-      callbacks.onValidationError?.('Enter a category name before adding it.')
+      callbacks.onValidationError?.('Skriv inn et kategorinavn før du legger det til.')
       return
     }
 
@@ -5271,8 +5271,8 @@ function FormPage() {
       const code = error?.code ? ` (${error.code})` : ''
       callbacks.onSaveError?.(
         error?.code === 'permission-denied'
-          ? `Could not save the category${code}. Missing permission in Firestore rules.`
-          : `Could not save the category${code}.`,
+          ? `Kunne ikke lagre kategorien${code}. Mangler tilgang i Firestore-regler.`
+          : `Kunne ikke lagre kategorien${code}.`,
       )
     }
   }
@@ -5301,7 +5301,7 @@ function FormPage() {
           ...previous,
           saving: false,
           error: '',
-          message: 'Category saved.',
+          message: 'Kategori lagret.',
           categorySaving: false,
           categoryError: '',
         }))
@@ -5387,7 +5387,7 @@ function FormPage() {
         error: '',
         message: '',
         categorySaving: false,
-        categoryError: 'Enter a category name before saving.',
+        categoryError: 'Skriv inn et kategorinavn før du lagrer.',
       }))
       return
     }
@@ -5404,7 +5404,7 @@ function FormPage() {
         error: '',
         message: '',
         categorySaving: false,
-        categoryError: `The category "${duplicateCategory}" already exists.`,
+        categoryError: `Kategorien "${duplicateCategory}" finnes allerede.`,
       }))
       return
     }
@@ -5534,7 +5534,7 @@ function FormPage() {
         ...previous,
         saving: false,
         error: '',
-        message: 'Category updated.',
+        message: 'Kategori oppdatert.',
         categorySaving: false,
         categoryError: '',
       }))
@@ -5550,8 +5550,8 @@ function FormPage() {
         categorySaving: false,
         categoryError:
           error?.code === 'permission-denied'
-            ? `Could not update the category${code}. Missing permission in Firestore rules.`
-            : `Could not update the category${code}.`,
+            ? `Kunne ikke oppdatere kategorien${code}. Mangler tilgang i Firestore-regler.`
+            : `Kunne ikke oppdatere kategorien${code}.`,
       }))
     }
   }
@@ -5570,7 +5570,7 @@ function FormPage() {
         error: '',
         message: '',
         categorySaving: false,
-        categoryError: `Cannot delete the category "${category}" because it is used in ${usageCount} ${usageCount === 1 ? 'remark or warning' : 'remarks or warnings'}. Change or delete these first.`,
+        categoryError: `Kan ikke slette kategorien "${category}" fordi den brukes i ${usageCount} ${usageCount === 1 ? 'remark eller advarsel' : 'remarks eller advarsler'}. Endre eller slett disse først.`,
       }))
       return
     }
@@ -5585,7 +5585,7 @@ function FormPage() {
         error: '',
         message: '',
         categorySaving: false,
-        categoryError: `Category "${category}" not found.`,
+        categoryError: `Fant ikke kategorien "${category}".`,
       }))
       return
     }
@@ -5631,7 +5631,7 @@ function FormPage() {
         ...previous,
         saving: false,
         error: '',
-        message: 'Category deleted.',
+        message: 'Kategori slettet.',
         categorySaving: false,
         categoryError: '',
       }))
@@ -5647,8 +5647,8 @@ function FormPage() {
         categorySaving: false,
         categoryError:
           error?.code === 'permission-denied'
-            ? `Could not delete the category${code}. Missing permission in Firestore rules.`
-            : `Could not delete the category${code}.`,
+            ? `Kunne ikke slette kategorien${code}. Mangler tilgang i Firestore-regler.`
+            : `Kunne ikke slette kategorien${code}.`,
       }))
     }
   }
@@ -7508,9 +7508,7 @@ function FormPage() {
               onClick={(event) => event.stopPropagation()}
             >
               <div className="submission-modal-header">
-                <h4 id="remark-category-modal-title">
-                  {remarkCategoryModalCategory ? `Rename: ${remarkCategoryModalCategory}` : 'Manage categories'}
-                </h4>
+                <h4 id="remark-category-modal-title">Manage category</h4>
                 <button
                   type="button"
                   className="ghost"
@@ -7522,45 +7520,44 @@ function FormPage() {
               </div>
               <div className="submission-modal-content">
                 <div className="remarks-category-modal-content">
-                  {!remarkCategoryModalCategory ? (
-                    availableWarningCategories.length > 0 ? (
-                      <>
-                        <div className="remarks-category-admin-list">
-                          {availableWarningCategories.map((category) => {
-                            const usageCount = warningCategoryUsageCounts[category.toLowerCase()] || 0
-                            const isConfigured = configuredWarningCategories.some(
-                              (value) => value.toLowerCase() === category.toLowerCase(),
-                            )
+                  {availableWarningCategories.length > 0 ? (
+                    <>
+                      <div className="remarks-category-admin-list">
+                        {availableWarningCategories.map((category) => {
+                          const usageCount = warningCategoryUsageCounts[category.toLowerCase()] || 0
+                          const isConfigured = configuredWarningCategories.some(
+                            (value) => value.toLowerCase() === category.toLowerCase(),
+                          )
 
-                            return (
-                              <div key={`remark-category-${category}`} className="remarks-category-admin-row">
-                                <span className="remarks-category-chip">{category}</span>
-                                <span className="review-answer-value">
-                                  {usageCount > 0 ? `In use: ${usageCount}` : 'Not in use'}
-                                </span>
-                                <span className="review-answer-value">
-                                  {isConfigured ? 'Selectable category' : 'In existing data only'}
-                                </span>
-                                <button
-                                  type="button"
-                                  className="ghost"
-                                  onClick={() => openRemarkCategoryModal(category)}
-                                  disabled={remarkState.categorySaving}
-                                >
-                                  Rename
-                                </button>
-                              </div>
-                            )
-                          })}
-                        </div>
-                        <small className="question-help">
-                          Click "Rename" next to a category to change its name. Deletion is only available for categories not in use.
-                        </small>
-                      </>
-                    ) : (
-                      <p className="review-answer-value">No categories yet.</p>
-                    )
+                          return (
+                            <div key={`remark-category-${category}`} className="remarks-category-admin-row">
+                              <span className="remarks-category-chip">{category}</span>
+                              <span className="review-answer-value">
+                                {usageCount > 0 ? `In use: ${usageCount}` : 'Not in use'}
+                              </span>
+                              <span className="review-answer-value">
+                                {isConfigured ? 'Selectable category' : 'In existing data only'}
+                              </span>
+                              <button
+                                type="button"
+                                className="ghost"
+                                onClick={() => openRemarkCategoryModal(category)}
+                                disabled={remarkState.categorySaving}
+                              >
+                                Manage
+                              </button>
+                            </div>
+                          )
+                        })}
+                      </div>
+                      <small className="question-help">
+                        You can rename categories here. Deletion is only available for categories not in use.
+                      </small>
+                    </>
                   ) : (
+                    <p className="review-answer-value">No categories yet.</p>
+                  )}
+                  {remarkCategoryModalCategory ? (
                     <>
                       <p className="review-answer-value">
                         <strong>Current name:</strong> {remarkCategoryModalCategory}
@@ -7576,7 +7573,6 @@ function FormPage() {
                           type="text"
                           value={remarkCategoryRenameDraft}
                           disabled={remarkState.categorySaving}
-                          autoFocus
                           onChange={(event) => setRemarkCategoryRenameDraft(event.target.value)}
                         />
                       </label>
@@ -7594,7 +7590,7 @@ function FormPage() {
                           }}
                           disabled={remarkState.categorySaving}
                         >
-                          ← Back to list
+                          Close management
                         </button>
                         <button
                           type="button"
@@ -7628,11 +7624,11 @@ function FormPage() {
                       </div>
                       {(warningCategoryUsageCounts[remarkCategoryModalCategory.toLowerCase()] || 0) > 0 ? (
                         <p className="review-pending-note">
-                          This category is in use and cannot be deleted until the associated remarks or warnings have been changed.
+                          The category is in use and cannot be deleted until the associated remarks or warnings have been changed.
                         </p>
                       ) : null}
                     </>
-                  )}
+                  ) : null}
                   {remarkState.categoryError ? <p className="forms-error">{remarkState.categoryError}</p> : null}
                 </div>
               </div>
