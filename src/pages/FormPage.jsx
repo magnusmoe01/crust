@@ -1559,7 +1559,13 @@ function getEffectiveInventoryValue(questionId, locationUpdate, latestSubmittedA
       ? locationUpdate.updatedAt
       : null
   if (!manualTs) return manualValue
-  const submittedTs = latestSubmittedAt instanceof Date ? latestSubmittedAt : null
+  const submittedTs = latestSubmittedAt?.seconds
+    ? new Date(latestSubmittedAt.seconds * 1000)
+    : latestSubmittedAt instanceof Date
+      ? latestSubmittedAt
+      : latestSubmittedAt?.toDate?.()
+        ? latestSubmittedAt.toDate()
+        : null
   if (submittedTs && submittedTs > manualTs) return ''
   return manualValue
 }
@@ -2093,6 +2099,7 @@ function FormPage() {
   const [feedbackConfirmSaving, setFeedbackConfirmSaving] = useState(false)
   const [feedbackConfirmDone, setFeedbackConfirmDone] = useState(false)
   const [followUpSavingId, setFollowUpSavingId] = useState('')
+  const [followUpDrafts, setFollowUpDrafts] = useState({})
   const [confirmedFeedbackDays, setConfirmedFeedbackDays] = useState(3)
   const [flaggedImageUrls, setFlaggedImageUrls] = useState({})
   const [flaggedReviewOpenId, setFlaggedReviewOpenId] = useState('')
@@ -9044,7 +9051,7 @@ function FormPage() {
                                         onEditorQuestionChange(index, 'excludeFromLocationStatus', event.target.checked)
                                       }
                                     />
-                                    Utelat fra status per lokasjon
+                                    Ekskluder fra status per lokasjon
                                   </label>
                                 ) : null}
                                 <label
@@ -9789,7 +9796,7 @@ function FormPage() {
                         <th>Score</th>
                         <th>General feedback</th>
                         <th>Receipt</th>
-                        <th>Follow-up</th>
+                        <th>Register follow-up</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -9818,31 +9825,130 @@ function FormPage() {
                                   target="_blank"
                                   rel="noreferrer"
                                 >
-                                  Open
+                                  Åpne
                                 </a>
                               ) : '—'}
                             </td>
+                            <td style={{ minWidth: 200 }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                <textarea
+                                  rows={2}
+                                  style={{ fontSize: '0.8rem', width: '100%', padding: '4px 6px', borderRadius: 4, border: '1px solid rgba(24,44,60,0.18)', resize: 'vertical', fontFamily: 'inherit' }}
+                                  placeholder="What was done?"
+                                  value={followUpDrafts[sub.id] || ''}
+                                  onChange={(e) => setFollowUpDrafts((prev) => ({ ...prev, [sub.id]: e.target.value }))}
+                                />
+                                <button
+                                  type="button"
+                                  className="ghost"
+                                  style={{ fontSize: '0.8rem', alignSelf: 'flex-start' }}
+                                  disabled={followUpSavingId === sub.id}
+                                  onClick={async () => {
+                                    setFollowUpSavingId(sub.id)
+                                    const note = followUpDrafts[sub.id]?.trim() || ''
+                                    try {
+                                      await updateDoc(doc(db, 'formSubmissions', sub.id), {
+                                        followUpDone: true,
+                                        followUpDoneAt: serverTimestamp(),
+                                        followUpDoneBy: user?.email || 'admin',
+                                        followUpNote: note,
+                                      })
+                                      setSubmissions((prev) => prev.map((s) => s.id === sub.id ? {
+                                        ...s,
+                                        followUpDone: true,
+                                        followUpDoneBy: user?.email || 'admin',
+                                        followUpNote: note,
+                                      } : s))
+                                    } catch {}
+                                    setFollowUpSavingId('')
+                                  }}
+                                >
+                                  {followUpSavingId === sub.id ? 'Saving...' : 'Mark follow-up done'}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            })() : null}
+
+            {isSubmissionsView && isAdmin && !loadingSubmissions ? (() => {
+              const june17Ts2 = new Date('2026-06-17T00:00:00+02:00').getTime()
+              const followedUp = submissions.filter((sub) => {
+                if (!sub.followUpDone) return false
+                const neutral = sub.reviewScoreSummary?.neutral || 0
+                const sad = sub.reviewScoreSummary?.sad || 0
+                if (neutral === 0 && sad === 0 && !sub.generalFeedback) return false
+                const doneTs = sub.followUpDoneAt?.seconds
+                  ? sub.followUpDoneAt.seconds * 1000
+                  : null
+                return doneTs && doneTs >= june17Ts2
+              }).sort((a, b) => (b.followUpDoneAt?.seconds || 0) - (a.followUpDoneAt?.seconds || 0))
+              if (followedUp.length === 0) return null
+              return (
+                <div className="responses-box submissions-overview">
+                  <h3>Follow-up registered ({followedUp.length})</h3>
+                  <table className="submissions-table" style={{ fontSize: '0.85rem' }}>
+                    <thead>
+                      <tr>
+                        <th>Reviewed</th>
+                        <th>Score</th>
+                        <th>Follow-up note</th>
+                        <th>Followed up by</th>
+                        <th>Staff confirmed</th>
+                        <th>Receipt</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {followedUp.map((sub) => {
+                        const reviewedAt = sub.reviewedAt?.seconds ? new Date(sub.reviewedAt.seconds * 1000) : null
+                        const doneAt = sub.followUpDoneAt?.seconds ? new Date(sub.followUpDoneAt.seconds * 1000) : null
+                        const readAt = sub.feedbackReadAt?.seconds ? new Date(sub.feedbackReadAt.seconds * 1000) : null
+                        const fmt = (d) => d ? d.toLocaleString('nb-NO', { timeZone: 'Europe/Oslo', dateStyle: 'short', timeStyle: 'short' }) : '—'
+                        const flaggedItems = (sub.flaggedAnswers || [])
+                        return (
+                          <tr key={sub.id}>
+                            <td style={{ whiteSpace: 'nowrap' }}>{fmt(reviewedAt)}</td>
+                            <td style={{ whiteSpace: 'nowrap' }}>
+                              {(sub.reviewScoreSummary?.happy || 0) > 0 ? <><FaceHappy size={14} /> {sub.reviewScoreSummary.happy} </> : null}
+                              {(sub.reviewScoreSummary?.neutral || 0) > 0 ? <><FaceNeutral size={14} /> {sub.reviewScoreSummary.neutral} </> : null}
+                              {(sub.reviewScoreSummary?.sad || 0) > 0 ? <><FaceSad size={14} /> {sub.reviewScoreSummary.sad}</> : null}
+                            </td>
+                            <td style={{ maxWidth: 280 }}>
+                              {sub.followUpNote ? (
+                                <p style={{ margin: '0 0 6px', whiteSpace: 'pre-wrap', color: 'rgba(24,44,60,0.85)' }}>{sub.followUpNote}</p>
+                              ) : <span style={{ color: 'rgba(24,44,60,0.35)' }}>—</span>}
+                              {sub.generalFeedback ? (
+                                <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: '#1e3a5f', background: '#f0f4ff', borderLeft: '3px solid #3b82f6', padding: '4px 8px', borderRadius: '0 4px 4px 0' }}>
+                                  <strong>General:</strong> {sub.generalFeedback}
+                                </p>
+                              ) : null}
+                              {flaggedItems.map((a, i) => {
+                                const isSad = a.reviewStatus === 'flagged_sad'
+                                return (
+                                  <p key={i} style={{ margin: '4px 0 0', fontSize: '0.78rem', color: isSad ? '#7f1d1d' : '#78350f', background: isSad ? '#fef2f2' : '#fffbeb', borderLeft: `3px solid ${isSad ? '#dc2626' : '#d97706'}`, padding: '4px 8px', borderRadius: '0 4px 4px 0' }}>
+                                    {isSad ? <FaceSad size={12} /> : <FaceNeutral size={12} />}{' '}
+                                    <strong>{a.label || a.answerKey}</strong>
+                                    {a.comment ? <> — {a.comment}</> : null}
+                                  </p>
+                                )
+                              })}
+                            </td>
+                            <td style={{ whiteSpace: 'nowrap' }}>
+                              <div style={{ fontSize: '0.8rem' }}>{sub.followUpDoneBy || '—'}</div>
+                              <div style={{ fontSize: '0.75rem', color: 'rgba(24,44,60,0.45)' }}>{fmt(doneAt)}</div>
+                            </td>
+                            <td style={{ whiteSpace: 'nowrap', color: readAt ? '#16a34a' : 'rgba(24,44,60,0.4)' }}>
+                              {readAt ? fmt(readAt) : 'Not confirmed'}
+                            </td>
                             <td>
-                              <button
-                                type="button"
-                                className="ghost"
-                                style={{ fontSize: '0.8rem' }}
-                                disabled={followUpSavingId === sub.id}
-                                onClick={async () => {
-                                  setFollowUpSavingId(sub.id)
-                                  try {
-                                    await updateDoc(doc(db, 'formSubmissions', sub.id), {
-                                      followUpDone: true,
-                                      followUpDoneAt: serverTimestamp(),
-                                      followUpDoneBy: user?.email || 'admin',
-                                    })
-                                    setSubmissions((prev) => prev.map((s) => s.id === sub.id ? { ...s, followUpDone: true } : s))
-                                  } catch {}
-                                  setFollowUpSavingId('')
-                                }}
-                              >
-                                {followUpSavingId === sub.id ? 'Saving...' : 'Mark follow-up done'}
-                              </button>
+                              {sub.receiptToken ? (
+                                <a href={`/skjema/${activeFormSlug}/kvittering/${sub.receiptToken}`} className="ghost" style={{ fontSize: '0.8rem', padding: '2px 8px' }} target="_blank" rel="noreferrer">Open</a>
+                              ) : '—'}
                             </td>
                           </tr>
                         )
@@ -9876,7 +9982,7 @@ function FormPage() {
               return (
                 <div className="responses-box submissions-overview">
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                    <h3 style={{ margin: 0 }}>Feedback confirmed by employee ({confirmed.length})</h3>
+                    <h3 style={{ margin: 0 }}>Tilbakemelding bekreftet lest ({confirmed.length})</h3>
                     <div style={{ display: 'flex', gap: 6 }}>
                       {[3, 7, 30].map((d) => (
                         <button
@@ -9894,10 +10000,10 @@ function FormPage() {
                   <table className="submissions-table" style={{ fontSize: '0.85rem' }}>
                     <thead>
                       <tr>
-                        <th>Confirmed read</th>
+                        <th>Bekreftet lest</th>
                         <th>Score</th>
-                        <th>General feedback</th>
-                        <th>Receipt</th>
+                        <th>Generell tilbakemelding</th>
+                        <th>Kvittering</th>
                       </tr>
                     </thead>
                     <tbody>
