@@ -118,12 +118,9 @@ function Home() {
               skikkelig god pizza.
             </p>
             <div className="hero-actions">
-              {/* HIDDEN: re-enable by removing the false && guard */}
-              {false && (
               <Link className="cta" to="/bestilling">
                 Bestill pizza! <FontAwesomeIcon icon={faPizzaSlice} />
               </Link>
-              )}
               <Link className="ghost" to="/bestilling/storbestilling">
                 Bestill til et arrangement{" "}
                 <FontAwesomeIcon icon={faCalendarRegular} />
@@ -305,12 +302,9 @@ function Home() {
             Hver slice støtter en ungdom i sin aller første jobb!
           </p>
           <div className="visit-actions">
-            {/* HIDDEN: re-enable by removing the false && guard */}
-            {false && (
             <Link className="cta" to="/bestilling">
               Bestill pizza <FontAwesomeIcon icon={faPizzaSlice} />
             </Link>
-            )}
 
             <Link className="ghost" to="/plasseringer">
               Hvor finner du oss <FontAwesomeIcon icon={faMapPin} />
