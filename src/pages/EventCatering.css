@@ -1,0 +1,326 @@
+.ec-page { background: #fff; }
+
+/* ── Hero ───────────────────────────────── */
+.ec-hero {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 480px;
+}
+
+.ec-hero-text {
+  background: #182c3c;
+  color: #fbf9db;
+  padding: 72px var(--pad);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.ec-hero-text .eyebrow { color: var(--accent); }
+
+.ec-hero-text h1 {
+  font-family: "Fraunces", serif;
+  font-size: clamp(2.2rem, 3vw + 1rem, 3.8rem);
+  margin: 16px 0 14px;
+  line-height: 1.06;
+  letter-spacing: -0.02em;
+  color: #fff;
+}
+
+.ec-hero-text p {
+  color: rgba(251, 249, 219, 0.65);
+  font-size: 1.05rem;
+  max-width: 440px;
+  margin: 0 0 32px;
+  line-height: 1.7;
+}
+
+.ec-hero-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--accent);
+  color: #fff;
+  padding: 14px 28px;
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 0.88rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  box-shadow: 0 4px 16px rgba(231, 92, 62, 0.4);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  align-self: flex-start;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.ec-hero-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(231, 92, 62, 0.5);
+}
+
+.ec-hero-images {
+  overflow: hidden;
+}
+
+.ec-hero-images img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* ── Highlights ─────────────────────────── */
+.ec-highlights {
+  padding: 96px var(--pad);
+}
+
+.ec-highlight {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 72px;
+  align-items: center;
+}
+
+.ec-highlight + .ec-highlight {
+  margin-top: 96px;
+}
+
+.ec-highlight.reverse {
+  direction: rtl;
+}
+
+.ec-highlight.reverse > * {
+  direction: ltr;
+}
+
+.ec-highlight-text h2 {
+  font-family: "Fraunces", serif;
+  font-size: clamp(1.8rem, 2.5vw + 0.6rem, 2.6rem);
+  margin: 0 0 16px;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.ec-highlight-text p {
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.75;
+}
+
+.ec-highlight-img {
+  width: 100%;
+  height: 340px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+/* ── Menu section ───────────────────────── */
+.ec-menu {
+  padding: 0 var(--pad) 96px;
+}
+
+.ec-menu h2 {
+  font-family: "Fraunces", serif;
+  font-size: clamp(1.8rem, 2.5vw + 0.6rem, 2.6rem);
+  margin: 0 0 8px;
+  letter-spacing: -0.02em;
+}
+
+.ec-menu > p {
+  color: var(--muted);
+  margin: 0 0 36px;
+  font-size: 0.95rem;
+}
+
+/* ── Booking form ───────────────────────── */
+.ec-booking {
+  padding: 96px var(--pad);
+  background: #fdf0e4;
+}
+
+.ec-booking h2 {
+  font-family: "Fraunces", serif;
+  font-size: clamp(1.8rem, 2.5vw + 0.6rem, 2.6rem);
+  margin: 0 0 6px;
+  letter-spacing: -0.02em;
+}
+
+.ec-booking > p {
+  color: var(--muted);
+  margin: 0 0 40px;
+  font-size: 0.95rem;
+}
+
+.ec-form {
+  display: grid;
+  gap: 22px;
+  max-width: 600px;
+}
+
+.ec-form label {
+  display: grid;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 0.86rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+}
+
+.ec-form input,
+.ec-form select,
+.ec-form textarea {
+  border-radius: 4px;
+  border: 1.5px solid rgba(24, 44, 60, 0.18);
+  padding: 12px 14px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  background: #fff;
+  transition: border-color 0.15s;
+}
+
+.ec-form input:focus,
+.ec-form select:focus,
+.ec-form textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(251, 127, 89, 0.12);
+}
+
+.ec-form input.is-invalid,
+.ec-form select.is-invalid,
+.ec-form textarea.is-invalid {
+  border-color: #c0392b;
+}
+
+.ec-form textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.ec-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+}
+
+.ec-field-error {
+  color: #c0392b;
+  font-size: 0.78rem;
+  margin: 0;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+
+.ec-form-error {
+  color: #c0392b;
+  font-size: 0.88rem;
+  margin: 0;
+}
+
+.ec-form-note {
+  color: var(--muted);
+  font-size: 0.84rem;
+  margin: 0;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+
+.ec-form-submit {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--accent);
+  color: #fff;
+  padding: 14px 32px;
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 0.88rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: 0 4px 16px rgba(231, 92, 62, 0.35);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  justify-self: start;
+}
+
+.ec-form-submit:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(231, 92, 62, 0.48);
+}
+
+.ec-form-submit:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+/* ── Success ────────────────────────────── */
+.ec-success {
+  text-align: center;
+  padding: 56px 24px;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.ec-success-icon {
+  font-size: 3rem;
+  color: #27ae60;
+  margin-bottom: 16px;
+}
+
+.ec-success h3 {
+  font-family: "Fraunces", serif;
+  font-size: 1.6rem;
+  margin: 0 0 10px;
+}
+
+.ec-success p {
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+/* ── Honeypot ───────────────────────────── */
+.ec-hp {
+  position: absolute;
+  left: -9999px;
+  opacity: 0;
+  height: 0;
+  width: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* ── Responsive ─────────────────────────── */
+@media (max-width: 900px) {
+  .ec-hero { grid-template-columns: 1fr; }
+
+  .ec-hero-images {
+    max-height: 260px;
+  }
+
+  .ec-highlight {
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
+
+  .ec-highlight.reverse { direction: ltr; }
+
+  .ec-highlight-img {
+    height: 240px;
+    order: -1;
+  }
+}
+
+@media (max-width: 600px) {
+  .ec-hero-text { padding: 48px 6vw; }
+
+  .ec-form-row {
+    grid-template-columns: 1fr;
+    gap: 22px;
+  }
+}

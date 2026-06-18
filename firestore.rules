@@ -126,5 +126,20 @@ service cloud.firestore {
       allow read, delete: if isCrustUser();
     }
 
+    match /cateringRequests/{docId} {
+      allow create: if true;
+      allow read, update, delete: if isCrustUser();
+    }
+
+    match /largeOrders/{docId} {
+      allow create: if true;
+      allow read, update, delete: if isCrustUser();
+    }
+
+    match /priceAuditLog/{docId} {
+      allow read, create: if isCrustUser();
+      allow update, delete: if false;
+    }
+
   }
 }

@@ -54,6 +54,11 @@ const OrderAdmin = lazy(() => import("./pages/OrderAdmin"));
 const AllOrders = lazy(() => import("./pages/AllOrders"));
 const Sms = lazy(() => import("./pages/Sms"));
 
+const Bestilling = lazy(() => import("./pages/Bestilling"));
+const EventCatering = lazy(() => import("./pages/EventCatering"));
+const LargeOrder = lazy(() => import("./pages/LargeOrder"));
+const BestillingAdmin = lazy(() => import("./pages/BestillingAdmin"));
+
 function withPageLoader(element) {
   return (
     <Suspense fallback={<div className="loading-box">Laster...</div>}>
@@ -112,13 +117,13 @@ function Home() {
               skikkelig god pizza.
             </p>
             <div className="hero-actions">
-              <Link className="cta" to="/plasseringer">
-                Hent pizza nå! <FontAwesomeIcon icon={faPizzaSlice} />
+              <Link className="cta" to="/bestilling">
+                Bestill pizza! <FontAwesomeIcon icon={faPizzaSlice} />
               </Link>
-              <a className="ghost" href="/event">
+              <Link className="ghost" to="/bestilling/event">
                 Bestill til et arrangement{" "}
                 <FontAwesomeIcon icon={faCalendarRegular} />
-              </a>
+              </Link>
             </div>
           </div>
           <div className="hero-media">
@@ -296,13 +301,13 @@ function Home() {
             Hver slice støtter en ungdom i sin aller første jobb!
           </p>
           <div className="visit-actions">
-            <a className="cta" href="/event">
-              Bestill servering <FontAwesomeIcon icon={faPizzaSlice} />
-            </a>
+            <Link className="cta" to="/bestilling">
+              Bestill pizza <FontAwesomeIcon icon={faPizzaSlice} />
+            </Link>
 
-            <a className="ghost" href="/plasseringer">
+            <Link className="ghost" to="/plasseringer">
               Hvor finner du oss <FontAwesomeIcon icon={faMapPin} />
-            </a>
+            </Link>
           </div>
         </div>
       </section>
@@ -326,6 +331,9 @@ function App() {
         <Route path="/om-oss" element={withPageLoader(<About />)} />
         <Route path="/omtale" element={withPageLoader(<Publications />)} />
         <Route path="/varsling" element={withPageLoader(<Varsling />)} />
+        <Route path="/bestilling" element={withPageLoader(<Bestilling />)} />
+        <Route path="/bestilling/event" element={withPageLoader(<EventCatering />)} />
+        <Route path="/bestilling/myepizza" element={withPageLoader(<LargeOrder />)} />
         <Route path="/varig-hadeland" element={withPageLoader(<VarigHadeland />)} />
         <Route path="/gilde" element={withPageLoader(<Gilde />)} />
         <Route path="/obos" element={withPageLoader(<Obos />)} />
@@ -381,6 +389,15 @@ function App() {
           element={withPageLoader(
             <RequireAdminRoute>
               <Sms />
+            </RequireAdminRoute>
+          )}
+        />
+
+        <Route
+          path="/admin/bestilling"
+          element={withPageLoader(
+            <RequireAdminRoute>
+              <BestillingAdmin />
             </RequireAdminRoute>
           )}
         />

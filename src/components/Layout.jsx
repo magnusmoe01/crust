@@ -10,6 +10,7 @@ import {
   faLocationDot,
   faNewspaper,
   faUserPlus,
+  faPizzaSlice,
 } from "@fortawesome/free-solid-svg-icons";
 import crustLogo from "../assets/optimized/crust-logo-1024.png";
 import tmLogo from "../assets/tm-logo-transparent.png";
@@ -106,8 +107,12 @@ function Layout() {
       "/admin/leverandører": "Leverandører",
       "/admin/leverandorer": "Leverandører",
       "/admin/lokasjoner": "Leverandører",
+      "/admin/bestilling": "Bestillingspriser",
       "/sales": "Salg",
       "/skjema": "Skjemaer",
+      "/bestilling": "Bestilling",
+      "/bestilling/event": "Catering",
+      "/bestilling/myepizza": "Storbestilling",
     };
     if (location.pathname === "/") {
       document.title = "Crust n' Trust";
@@ -183,6 +188,10 @@ function Layout() {
                   <span className="nav-label">Søk jobb</span>
                 </Link>
               </nav>
+              <Link to="/bestilling" className="nav-order-cta" aria-label="Bestill pizza">
+                <span>Order Pizza!!</span>
+                <FontAwesomeIcon icon={faPizzaSlice} />
+              </Link>
             </div>
           </header>
         </>

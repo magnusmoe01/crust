@@ -1640,3 +1640,100 @@ exports.scheduledInventoryAlert = onSchedule(
     await doSendInventoryAlert(null);
   },
 );
+
+// ── Bestilling email notifications ───────────────────────────────────────────
+
+const BESTILLING_RECIPIENTS = ["event@crust.no", "brandon@crust.no"];
+
+async function sendBestillingEmail(subject, html, toAddresses) {
+  const axios = require("axios");
+  const token = await getAzureAccessToken();
+  await axios.post(
+    `https://graph.microsoft.com/v1.0/users/${REVIEW_EMAIL_FROM}/sendMail`,
+    {
+      message: {
+        subject,
+        body: { contentType: "HTML", content: html },
+        toRecipients: toAddresses.map((a) => ({ emailAddress: { address: a } })),
+      },
+      saveToSentItems: false,
+    },
+    { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } },
+  );
+}
+
+function cateringInternalHtml(d) {
+  const row = (label, val) => val ? `<tr><td style="padding:6px 0;font-weight:700;width:130px;">${label}</td><td style="padding:6px 0;">${val}</td></tr>` : "";
+  return `<html><body style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#1f2937">
+    <h2 style="margin:0 0 14px">Ny cateringforespørsel</h2>
+    <table style="width:100%;border-collapse:collapse;">
+      ${row("Navn", d.name)}${row("Telefon", d.phone)}${row("E-post", d.email)}
+      ${row("Adresse", d.address)}${row("Type", d.cateringType)}${row("Dato", d.date)}
+      ${row("Kommentar", d.comments)}
+    </table>
+    <p style="margin-top:20px;color:#6b7280;font-size:13px">— Crust bestillingssystem</p>
+  </body></html>`;
+}
+
+function cateringConfirmHtml(d) {
+  return `<html><body style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#1f2937">
+    <h2 style="margin:0 0 14px">Takk for din forespørsel!</h2>
+    <p>Hei ${d.name || ""},</p>
+    <p>Vi har mottatt din cateringforespørsel for <strong>${d.date || "ønsket dato"}</strong>.</p>
+    <p>Vi tar kontakt med deg snart for å bekrefte detaljer.</p>
+    <p style="margin-top:20px;color:#6b7280;font-size:13px">— Crust n' Trust</p>
+  </body></html>`;
+}
+
+function largeOrderInternalHtml(d) {
+  const snap = d.priceSnapshot || {};
+  const row = (label, val) => val ? `<tr><td style="padding:6px 0;font-weight:700;width:130px;">${label}</td><td style="padding:6px 0;">${val}</td></tr>` : "";
+  return `<html><body style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#1f2937">
+    <h2 style="margin:0 0 14px">Ny storbestilling</h2>
+    <table style="width:100%;border-collapse:collapse;">
+      ${row("Navn", d.name)}${row("Telefon", d.phone)}${row("E-post", d.email)}${row("Adresse", d.address)}
+      ${row("Pizzaer", `${d.pizzaQuantity || 0} stk`)}${row("Brus", `${d.sodaQuantity || 0} stk`)}
+      ${row("Dressinger", `${d.dressingQuantity || 0} stk`)}${row("Levering", d.deliveryDate)}
+      ${row("Estimert pris", snap.estimatedTotal ? `${snap.estimatedTotal.toLocaleString("nb-NO")} kr` : "—")}
+      ${row("Leveringskomm.", d.deliveryComments)}${row("Utvalgsønsker", d.selectionComments)}
+    </table>
+    <p style="margin-top:20px;color:#6b7280;font-size:13px">— Crust bestillingssystem</p>
+  </body></html>`;
+}
+
+function largeOrderConfirmHtml(d) {
+  const snap = d.priceSnapshot || {};
+  return `<html><body style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#1f2937">
+    <h2 style="margin:0 0 14px">Takk for din bestilling!</h2>
+    <p>Hei ${d.name || ""},</p>
+    <p>Vi har mottatt din storbestilling:</p>
+    <ul>
+      <li>${d.pizzaQuantity || 0} pizzaer</li>
+      ${d.sodaQuantity ? `<li>${d.sodaQuantity} brus</li>` : ""}
+      ${d.dressingQuantity ? `<li>${d.dressingQuantity} dressinger</li>` : ""}
+    </ul>
+    ${snap.estimatedTotal ? `<p><strong>Estimert pris: ${snap.estimatedTotal.toLocaleString("nb-NO")} kr</strong></p>` : ""}
+    <p>Vi kontakter deg for å bekrefte detaljer og endelig pris.</p>
+    <p style="margin-top:20px;color:#6b7280;font-size:13px">— Crust n' Trust</p>
+  </body></html>`;
+}
+
+exports.sendCateringNotification = onCall(
+  { region: "europe-west1", invoker: "public", secrets: ["AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_TENANT_ID"] },
+  async ({ data }) => {
+    if (!data?.email || !data?.name) throw new HttpsError("invalid-argument", "email and name required");
+    try { await sendBestillingEmail(`Ny cateringforespørsel: ${data.name}`, cateringInternalHtml(data), BESTILLING_RECIPIENTS); } catch (e) { logger.error("Catering internal email failed", { error: e?.message }); }
+    try { await sendBestillingEmail("Vi har mottatt din cateringforespørsel — Crust n' Trust", cateringConfirmHtml(data), [data.email]); } catch (e) { logger.error("Catering confirm email failed", { error: e?.message }); }
+    return { sent: true };
+  },
+);
+
+exports.sendLargeOrderNotification = onCall(
+  { region: "europe-west1", invoker: "public", secrets: ["AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_TENANT_ID"] },
+  async ({ data }) => {
+    if (!data?.email || !data?.name) throw new HttpsError("invalid-argument", "email and name required");
+    try { await sendBestillingEmail(`Ny storbestilling: ${data.name} (${data.pizzaQuantity || 0} pizzaer)`, largeOrderInternalHtml(data), BESTILLING_RECIPIENTS); } catch (e) { logger.error("Large order internal email failed", { error: e?.message }); }
+    try { await sendBestillingEmail("Vi har mottatt din storbestilling — Crust n' Trust", largeOrderConfirmHtml(data), [data.email]); } catch (e) { logger.error("Large order confirm email failed", { error: e?.message }); }
+    return { sent: true };
+  },
+);
