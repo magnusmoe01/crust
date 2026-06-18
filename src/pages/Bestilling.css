@@ -1,0 +1,144 @@
+.bestilling-page {
+  padding: 50px 6vw 80px;
+  background: #ffe1c8;
+  border-radius: 24px;
+  border: 1px solid rgba(15, 14, 10, 0.08);
+}
+
+.bestilling-header {
+  text-align: center;
+  max-width: 620px;
+  margin: 0 auto 48px;
+}
+
+.bestilling-header h1 {
+  font-family: "Fraunces", serif;
+  font-size: clamp(2.2rem, 3vw + 1.2rem, 3.4rem);
+  margin: 12px 0 10px;
+  line-height: 1.1;
+}
+
+.bestilling-header p {
+  color: var(--muted);
+  font-size: 1.05rem;
+}
+
+.bestilling-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 28px;
+}
+
+.bestilling-card {
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 22px;
+  border: 1px solid rgba(15, 14, 10, 0.08);
+  box-shadow: 0 14px 34px rgba(24, 44, 60, 0.1);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.bestilling-card.is-clickable:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 44px rgba(24, 44, 60, 0.18);
+}
+
+.bestilling-card.is-clickable:focus-within {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.bestilling-card-img {
+  width: 100%;
+  height: 200px;
+  object-fit: cover;
+  background: #f5dcc6;
+}
+
+.bestilling-card-img-placeholder {
+  width: 100%;
+  height: 200px;
+  background: linear-gradient(135deg, #ffe1c8 0%, #f5d0b4 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 3rem;
+  color: var(--accent);
+}
+
+.bestilling-card-body {
+  padding: 26px 24px 30px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.bestilling-card-body h2 {
+  font-family: "Fraunces", serif;
+  font-size: 1.4rem;
+  margin: 0 0 8px;
+}
+
+.bestilling-card-body p {
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.6;
+  margin: 0 0 20px;
+  flex: 1;
+}
+
+.bestilling-card-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  padding: 12px 22px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 8px 20px rgba(231, 92, 62, 0.3);
+  align-self: flex-start;
+}
+
+.bestilling-card.is-clickable:hover .bestilling-card-cta {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(231, 92, 62, 0.4);
+}
+
+.bestilling-card-email {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 0.95rem;
+  padding: 12px 22px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 14, 10, 0.2);
+  background: transparent;
+  align-self: flex-start;
+}
+
+.bestilling-card-email:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+@media (max-width: 700px) {
+  .bestilling-grid {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  .bestilling-card-img,
+  .bestilling-card-img-placeholder {
+    height: 160px;
+  }
+
+  .bestilling-card-body {
+    padding: 20px 18px 24px;
+  }
+}

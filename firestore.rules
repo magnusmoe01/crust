@@ -91,6 +91,22 @@ service cloud.firestore {
       allow delete: if isCrustUser();
     }
 
+    match /cateringRequests/{docId} {
+      allow create: if true;
+      allow read, update, delete: if isCrustUser();
+    }
+
+    match /largeOrders/{docId} {
+      allow create: if true;
+      allow read, update, delete: if isCrustUser();
+    }
+
+    match /priceAuditLog/{docId} {
+      allow read: if isCrustUser();
+      allow create: if isCrustUser();
+      allow update, delete: if false;
+    }
+
     match /zettlePrivate/{docId} {
       allow read, write: if false;
     }

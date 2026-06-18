@@ -1,0 +1,335 @@
+.event-catering-page {
+  background: #ffe1c8;
+  border-radius: 24px;
+  border: 1px solid rgba(15, 14, 10, 0.08);
+  overflow: hidden;
+}
+
+/* ── Hero ─────────────────────────────────────────── */
+
+.ec-hero {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  min-height: 420px;
+}
+
+.ec-hero-text {
+  background: #182c3c;
+  color: #fbf9db;
+  padding: 60px 6vw;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.ec-hero-text .eyebrow {
+  color: #fb7f59;
+}
+
+.ec-hero-text h1 {
+  font-family: "Fraunces", serif;
+  font-size: clamp(2rem, 3vw + 1rem, 3.2rem);
+  margin: 16px 0 14px;
+  line-height: 1.08;
+  color: #fbf9db;
+}
+
+.ec-hero-text p {
+  color: rgba(251, 249, 219, 0.85);
+  font-size: 1.05rem;
+  max-width: 440px;
+  margin-bottom: 28px;
+}
+
+.ec-hero-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  padding: 14px 28px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 1rem;
+  box-shadow: 0 10px 24px rgba(231, 92, 62, 0.4);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  align-self: flex-start;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.ec-hero-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 30px rgba(231, 92, 62, 0.5);
+}
+
+.ec-hero-images {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+}
+
+.ec-hero-images img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ec-hero-images .ec-hero-img-full {
+  grid-column: 1 / -1;
+}
+
+/* ── Highlights ───────────────────────────────────── */
+
+.ec-highlights {
+  padding: 70px 6vw;
+  display: grid;
+  gap: 48px;
+}
+
+.ec-highlight {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 40px;
+  align-items: center;
+}
+
+.ec-highlight.reverse {
+  direction: rtl;
+}
+
+.ec-highlight.reverse > * {
+  direction: ltr;
+}
+
+.ec-highlight-text h2 {
+  font-family: "Fraunces", serif;
+  font-size: clamp(1.6rem, 2vw + 0.9rem, 2.2rem);
+  margin: 0 0 14px;
+}
+
+.ec-highlight-text p {
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.ec-highlight-img {
+  width: 100%;
+  height: 300px;
+  object-fit: cover;
+  border-radius: 22px;
+  border: 1px solid rgba(15, 14, 10, 0.08);
+  box-shadow: 0 14px 34px rgba(24, 44, 60, 0.1);
+}
+
+/* ── Menu section ─────────────────────────────────── */
+
+.ec-menu {
+  padding: 0 6vw 60px;
+}
+
+.ec-menu h2 {
+  font-family: "Fraunces", serif;
+  font-size: clamp(1.6rem, 2vw + 0.9rem, 2.2rem);
+  margin: 0 0 8px;
+}
+
+.ec-menu > p {
+  color: var(--muted);
+  margin: 0 0 28px;
+}
+
+/* ── Booking form ─────────────────────────────────── */
+
+.ec-booking {
+  padding: 60px 6vw 80px;
+  background: rgba(255, 255, 255, 0.35);
+  border-top: 1px solid rgba(15, 14, 10, 0.06);
+}
+
+.ec-booking h2 {
+  font-family: "Fraunces", serif;
+  font-size: clamp(1.6rem, 2vw + 0.9rem, 2.2rem);
+  margin: 0 0 6px;
+}
+
+.ec-booking > p {
+  color: var(--muted);
+  margin: 0 0 32px;
+}
+
+.ec-form {
+  display: grid;
+  gap: 20px;
+  max-width: 640px;
+}
+
+.ec-form label {
+  display: grid;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.ec-form input,
+.ec-form select,
+.ec-form textarea {
+  border-radius: 14px;
+  border: 1px solid rgba(15, 14, 10, 0.2);
+  padding: 12px 14px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  background: #fff;
+  transition: border-color 0.15s ease;
+}
+
+.ec-form input:focus,
+.ec-form select:focus,
+.ec-form textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(251, 127, 89, 0.15);
+}
+
+.ec-form input.is-invalid,
+.ec-form select.is-invalid,
+.ec-form textarea.is-invalid {
+  border-color: #b23c2a;
+}
+
+.ec-form textarea {
+  resize: vertical;
+  min-height: 90px;
+}
+
+.ec-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.ec-form-note {
+  color: var(--muted);
+  font-size: 0.88rem;
+  margin: 0;
+}
+
+.ec-form-submit {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  padding: 14px 32px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 1rem;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: 0 10px 24px rgba(231, 92, 62, 0.35);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  justify-self: start;
+}
+
+.ec-form-submit:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 30px rgba(231, 92, 62, 0.45);
+}
+
+.ec-form-submit:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.ec-form-error {
+  color: #b23c2a;
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.ec-field-error {
+  color: #b23c2a;
+  font-size: 0.8rem;
+  margin: 0;
+}
+
+/* ── Success state ────────────────────────────────── */
+
+.ec-success {
+  text-align: center;
+  padding: 48px 24px;
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.ec-success-icon {
+  font-size: 3rem;
+  color: #1f7a45;
+  margin-bottom: 16px;
+}
+
+.ec-success h3 {
+  font-family: "Fraunces", serif;
+  font-size: 1.6rem;
+  margin: 0 0 10px;
+}
+
+.ec-success p {
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+/* ── Honeypot ─────────────────────────────────────── */
+
+.ec-hp {
+  position: absolute;
+  left: -9999px;
+  opacity: 0;
+  height: 0;
+  width: 0;
+  overflow: hidden;
+  pointer-events: none;
+  tab-index: -1;
+}
+
+/* ── Responsive ───────────────────────────────────── */
+
+@media (max-width: 900px) {
+  .ec-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .ec-hero-images {
+    max-height: 240px;
+    overflow: hidden;
+  }
+
+  .ec-highlight {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  .ec-highlight.reverse {
+    direction: ltr;
+  }
+
+  .ec-highlight-img {
+    height: 220px;
+    order: -1;
+  }
+}
+
+@media (max-width: 600px) {
+  .ec-hero-text {
+    padding: 36px 6vw;
+  }
+
+  .ec-form-row {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+}
