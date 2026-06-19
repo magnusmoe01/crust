@@ -7,7 +7,7 @@ import haakon300 from "../assets/optimized/haakon-300.jpeg";
 import haakon600 from "../assets/optimized/haakon-600.jpeg";
 import magnus300 from "../assets/optimized/magnus-300.jpeg";
 import magnus600 from "../assets/optimized/magnus-600.jpeg";
-import silje from "../assets/silje.jpeg";
+import silje from "../assets/silje.png";
 import historie600 from "../assets/optimized/historie-600.jpeg";
 import historie1200 from "../assets/optimized/historie-1200.jpeg";
 import iVogna from "../assets/i-vogna.jpeg";
@@ -77,6 +77,7 @@ function About() {
       image: {
         src: silje,
         srcSet: `${silje} 600w`,
+        style: { objectPosition: "center 20%" },
       },
     },
   ];
@@ -194,6 +195,7 @@ function About() {
                 alt={`Portrett av ${member.name}`}
                 loading="lazy"
                 decoding="async"
+                style={member.image?.style}
               />
               <div className="team-card">
                 <h3>{member.name}</h3>
