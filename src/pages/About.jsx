@@ -7,8 +7,7 @@ import haakon300 from "../assets/optimized/haakon-300.jpeg";
 import haakon600 from "../assets/optimized/haakon-600.jpeg";
 import magnus300 from "../assets/optimized/magnus-300.jpeg";
 import magnus600 from "../assets/optimized/magnus-600.jpeg";
-import jostein300 from "../assets/optimized/jostein-300.jpeg";
-import jostein600 from "../assets/optimized/jostein-600.jpeg";
+import silje from "../assets/silje.jpeg";
 import historie600 from "../assets/optimized/historie-600.jpeg";
 import historie1200 from "../assets/optimized/historie-1200.jpeg";
 import iVogna from "../assets/i-vogna.jpeg";
@@ -71,13 +70,13 @@ function About() {
       },
     },
     {
-      name: "Jostein Hjellegjerde",
+      name: "Silje Johansen",
       role: "Styreleder",
       email: "",
       phone: "",
       image: {
-        src: jostein600,
-        srcSet: `${jostein300} 300w, ${jostein600} 600w`,
+        src: silje,
+        srcSet: `${silje} 600w`,
       },
     },
   ];
