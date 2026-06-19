@@ -7,11 +7,10 @@ import haakon300 from "../assets/optimized/haakon-300.jpeg";
 import haakon600 from "../assets/optimized/haakon-600.jpeg";
 import magnus300 from "../assets/optimized/magnus-300.jpeg";
 import magnus600 from "../assets/optimized/magnus-600.jpeg";
-import silje from "../assets/silje.png";
+import silje from "../assets/silje.jpeg";
 import historie600 from "../assets/optimized/historie-600.jpeg";
 import historie1200 from "../assets/optimized/historie-1200.jpeg";
 import iVogna from "../assets/i-vogna.jpeg";
-import werner from "../assets/werner.jpeg";
 import brandon from "../assets/brandon.jpeg";
 
 function About() {
@@ -57,16 +56,6 @@ function About() {
       image: {
         src: christian600,
         srcSet: `${christian300} 300w, ${christian600} 600w`,
-      },
-    },
-    {
-      name: "Christian W. Hansen",
-      role: "Styremedlem",
-      email: "",
-      phone: "",
-      image: {
-        src: werner,
-        srcSet: `${werner} 600w`,
       },
     },
     {
@@ -179,8 +168,8 @@ function About() {
             Christian Træland som gir ungdom sommerjobb med is i LICC, bestemte
             de seg i 2024 for å gjøre noe for ungdommen som faller utenfor.
             Haakon kom inn for å vokse selskapet, og hans driv for å hjelpe
-            ungdommen har gjort han en integrert del av Crust. Hansen, Træland
-            og Hjellegjerde har alle erfaringer som løfter teamet i Crust opp og
+            ungdommen har gjort han en integrert del av Crust. Træland
+            og Johansen har alle erfaringer som løfter teamet i Crust opp og
             fram. Resultatet er solid erfaring kombinert med ung energi - og
             snart flere hundre ungdom i jobb.
           </p>
