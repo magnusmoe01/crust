@@ -13,6 +13,7 @@ import historie600 from "../assets/optimized/historie-600.jpeg";
 import historie1200 from "../assets/optimized/historie-1200.jpeg";
 import iVogna from "../assets/i-vogna.jpeg";
 import werner from "../assets/werner.jpeg";
+import brandon from "../assets/brandon.jpeg";
 
 function About() {
   const placeholder =
@@ -37,6 +38,16 @@ function About() {
       image: {
         src: haakon600,
         srcSet: `${haakon300} 300w, ${haakon600} 600w`,
+      },
+    },
+    {
+      name: "Brandon Okoth",
+      role: "Driftsmedarbeider",
+      email: "brandon@crust.no",
+      phone: "",
+      image: {
+        src: brandon,
+        srcSet: `${brandon} 600w`,
       },
     },
     {
@@ -188,8 +199,14 @@ function About() {
               <div className="team-card">
                 <h3>{member.name}</h3>
                 <span>{member.role}</span>
-                <p className="team-contact-line">{member.email || ""}</p>
-                <p className="team-contact-line">{member.phone || ""}</p>
+                {member.email && (
+                  <p className="team-contact-line">
+                    <a href={`mailto:${member.email}`}>{member.email}</a>
+                  </p>
+                )}
+                {member.phone && (
+                  <p className="team-contact-line">{member.phone}</p>
+                )}
               </div>
             </article>
           ))}

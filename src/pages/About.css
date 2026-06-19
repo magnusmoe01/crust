@@ -141,6 +141,7 @@
   height: auto;
   aspect-ratio: 1 / 1;
   object-fit: cover;
+  object-position: center center;
   display: block;
 }
 
@@ -170,6 +171,17 @@
   color: var(--muted);
   font-size: 0.86rem;
   line-height: 1.5;
+}
+
+.team-card a {
+  color: var(--accent-dark);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.team-card a:hover {
+  color: var(--accent);
+  text-decoration: underline;
 }
 
 .team-card .team-contact-line + .team-contact-line {
