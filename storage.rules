@@ -65,5 +65,12 @@ service firebase.storage {
         && isCrustUser();
       allow read: if true;
     }
+
+    match /photos/{phone}/{fileName} {
+      allow write: if request.resource != null
+        && request.resource.size < 20 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow read: if isCrustUser();
+    }
   }
 }

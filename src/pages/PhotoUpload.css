@@ -1,0 +1,241 @@
+.photo-upload-page {
+  min-height: 100vh;
+  background: #ffe1c8;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 48px 16px 80px;
+}
+
+.photo-upload-card {
+  background: #fff;
+  border-radius: 20px;
+  padding: 36px 32px;
+  width: 100%;
+  max-width: 480px;
+  box-shadow: 0 4px 24px rgba(24, 44, 60, 0.08);
+}
+
+.photo-upload-logo {
+  font-size: 1.5rem;
+  font-weight: 900;
+  color: #e06a2c;
+  margin: 0 0 28px;
+  letter-spacing: -0.02em;
+}
+
+.photo-upload-card h1 {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #182c3c;
+  margin: 0 0 6px;
+}
+
+.photo-upload-card p.photo-upload-lead {
+  color: #5f4c3f;
+  margin: 0 0 28px;
+  font-size: 0.95rem;
+}
+
+.photo-upload-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 20px;
+}
+
+.photo-upload-field label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #182c3c;
+}
+
+.photo-upload-field input[type="tel"] {
+  padding: 10px 14px;
+  border: 1.5px solid rgba(24, 44, 60, 0.2);
+  border-radius: 10px;
+  font-size: 1rem;
+  color: #182c3c;
+  background: #fff;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.photo-upload-field input[type="tel"]:focus {
+  border-color: #e06a2c;
+}
+
+.photo-upload-hint {
+  font-size: 0.78rem;
+  color: rgba(24, 44, 60, 0.5);
+}
+
+.photo-upload-drop-zone {
+  border: 2px dashed rgba(224, 106, 44, 0.4);
+  border-radius: 12px;
+  padding: 28px 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  background: rgba(255, 225, 200, 0.18);
+  position: relative;
+  margin-bottom: 20px;
+}
+
+.photo-upload-drop-zone:hover,
+.photo-upload-drop-zone.is-over {
+  border-color: #e06a2c;
+  background: rgba(224, 106, 44, 0.06);
+}
+
+.photo-upload-drop-zone input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+}
+
+.photo-upload-drop-icon {
+  font-size: 2rem;
+  margin-bottom: 8px;
+}
+
+.photo-upload-drop-text {
+  font-size: 0.9rem;
+  color: #5f4c3f;
+  font-weight: 600;
+}
+
+.photo-upload-drop-sub {
+  font-size: 0.78rem;
+  color: rgba(24, 44, 60, 0.45);
+  margin-top: 4px;
+}
+
+.photo-upload-previews {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.photo-upload-preview-item {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(24, 44, 60, 0.06);
+}
+
+.photo-upload-preview-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.photo-upload-preview-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-size: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.photo-upload-submit {
+  width: 100%;
+  padding: 13px;
+  background: #e06a2c;
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.photo-upload-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.photo-upload-progress {
+  margin-top: 14px;
+  font-size: 0.85rem;
+  color: #5f4c3f;
+  text-align: center;
+}
+
+.photo-upload-progress-bar {
+  height: 4px;
+  background: rgba(24, 44, 60, 0.1);
+  border-radius: 999px;
+  margin-top: 8px;
+  overflow: hidden;
+}
+
+.photo-upload-progress-fill {
+  height: 100%;
+  background: #e06a2c;
+  border-radius: 999px;
+  transition: width 0.2s;
+}
+
+.photo-upload-error {
+  margin-top: 12px;
+  font-size: 0.85rem;
+  color: #b42318;
+  text-align: center;
+}
+
+.photo-upload-success {
+  text-align: center;
+  padding: 20px 0 8px;
+}
+
+.photo-upload-success-icon {
+  font-size: 3rem;
+  margin-bottom: 12px;
+}
+
+.photo-upload-success h2 {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: #182c3c;
+  margin: 0 0 8px;
+}
+
+.photo-upload-success p {
+  color: #5f4c3f;
+  font-size: 0.9rem;
+  margin: 0 0 20px;
+}
+
+.photo-upload-again {
+  background: none;
+  border: 1.5px solid rgba(224, 106, 44, 0.5);
+  color: #e06a2c;
+  border-radius: 10px;
+  padding: 9px 20px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+@media (max-width: 480px) {
+  .photo-upload-card {
+    padding: 28px 20px;
+  }
+}

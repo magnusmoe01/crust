@@ -2059,6 +2059,7 @@ function FormPage() {
   const [reviewEmailOverride, setReviewEmailOverride] = useState('')
   const [reviewEmailSuggestion, setReviewEmailSuggestion] = useState('')
   const [reviewEmailSaving, setReviewEmailSaving] = useState(false)
+  const [reviewEmailSaved, setReviewEmailSaved] = useState(false)
   const [testEmailState, setTestEmailState] = useState({ sending: false, error: '', message: '' })
   const [testEmailRecipient, setTestEmailRecipient] = useState('')
   const [inventoryAlertState, setInventoryAlertState] = useState({ sending: false, error: '', message: '' })
@@ -4895,6 +4896,22 @@ function FormPage() {
       rejected: reviewRejected,
       rejectionComment: reviewRejectionComment.trim(),
     })
+  }
+
+  async function onSaveEmailForPhone() {
+    if (!selectedSubmission || !reviewEmailOverride.trim()) return
+    const phone = getSubmissionPhone(selectedSubmission.answers, formData.questions)
+    if (!phone) return
+    setReviewEmailSaving(true)
+    try {
+      await setDoc(doc(db, 'phoneEmails', phone), { email: reviewEmailOverride.trim(), updatedAt: serverTimestamp() })
+      setReviewEmailSaved(true)
+      setTimeout(() => setReviewEmailSaved(false), 3000)
+    } catch {
+      // silent
+    } finally {
+      setReviewEmailSaving(false)
+    }
   }
 
   async function onSaveSubmissionReview() {
@@ -11220,9 +11237,21 @@ function FormPage() {
                       type="email"
                       placeholder="Ingen e-post — legg til her"
                       value={reviewEmailOverride}
-                      onChange={(e) => setReviewEmailOverride(e.target.value)}
+                      onChange={(e) => { setReviewEmailOverride(e.target.value); setReviewEmailSaved(false) }}
                     />
                   </label>
+                  {reviewEmailOverride.trim() && getSubmissionPhone(selectedSubmission?.answers, formData.questions) ? (
+                    <div className="review-save-email-row">
+                      <button
+                        type="button"
+                        className="ghost review-save-email-btn"
+                        onClick={onSaveEmailForPhone}
+                        disabled={reviewEmailSaving || reviewEmailSaved}
+                      >
+                        {reviewEmailSaved ? '✓ Email saved' : reviewEmailSaving ? 'Saving…' : 'Save email for this phone number'}
+                      </button>
+                    </div>
+                  ) : null}
                   {reviewEmailSuggestion && reviewEmailSuggestion !== reviewEmailOverride ? (
                     <p className="review-email-suggestion">
                       Sist sendt til: <strong>{reviewEmailSuggestion}</strong>

@@ -13,7 +13,6 @@
 
 .history-page {
   padding-inline: 24px;
-  overflow-x: visible;
 }
 
 .forms-hero {
@@ -1369,6 +1368,7 @@
 
 .history-overview {
   width: 100%;
+  min-width: 0;
   gap: 18px;
 }
 
@@ -1424,6 +1424,8 @@
   border-radius: 12px;
   padding: 20px 20px 16px;
   margin-bottom: 24px;
+  min-width: 0;
+  overflow: clip;
 }
 .inventory-alert-summary--ok {
   background: #f0fdf4;
@@ -1448,15 +1450,20 @@
   color: #9ca3af;
 }
 .inventory-alert-location-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  display: flex;
+  flex-wrap: nowrap;
   gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  -webkit-overflow-scrolling: touch;
 }
 .inventory-alert-location-card {
   background: #f9fafb;
   border: 1px solid #e5e7eb;
   border-radius: 10px;
   padding: 12px 14px;
+  flex: 0 0 220px;
+  min-width: 0;
 }
 .inventory-alert-location-name {
   font-size: 0.82rem;
@@ -2580,6 +2587,29 @@ tr:hover .history-row-order-btns {
 
 .review-email-suggestion-btn:hover {
   background: rgba(24,44,60,0.06);
+}
+
+.review-save-email-row {
+  margin-top: 6px;
+}
+
+.review-save-email-btn {
+  font-size: 0.78rem;
+  padding: 2px 10px;
+  border: 1px solid rgba(24,44,60,0.2);
+  border-radius: 4px;
+  color: rgba(24,44,60,0.65);
+  cursor: pointer;
+  background: none;
+}
+
+.review-save-email-btn:hover:not(:disabled) {
+  background: rgba(24,44,60,0.06);
+}
+
+.review-save-email-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .email-preview-body {

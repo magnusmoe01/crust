@@ -143,5 +143,10 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    match /photoUploads/{docId} {
+      allow create: if true;
+      allow read, delete: if isCrustUser();
+    }
+
   }
 }
