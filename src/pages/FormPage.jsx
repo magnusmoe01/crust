@@ -983,6 +983,7 @@ function normalizeQuestion(question, index) {
     imageZoom: normalizeImageZoom(question?.imageZoom),
     includeInAnalysis: type === 'section' ? false : Boolean(question?.includeInAnalysis),
     excludeFromLocationStatus: type === 'section' ? false : Boolean(question?.excludeFromLocationStatus),
+    includeInVarer: type === 'section' ? false : Boolean(question?.includeInVarer),
     includeInReview: type === 'section' ? false : Boolean(question?.includeInReview),
     reviewType: type === 'section' ? '' : (String(question?.reviewType || '').trim() || (question?.includeInReview ? 'rating' : '')),
     includeRating: type === 'section' ? false : Boolean(question?.includeRating),
@@ -9071,6 +9072,20 @@ function FormPage() {
                                     Ekskluder fra status per lokasjon
                                   </label>
                                 ) : null}
+                                <label
+                                  className="checkbox-inline editor-settings-toggle-cell"
+                                  htmlFor={`q-varer-${index}`}
+                                >
+                                  <input
+                                    id={`q-varer-${index}`}
+                                    type="checkbox"
+                                    checked={Boolean(question.includeInVarer)}
+                                    onChange={(event) =>
+                                      onEditorQuestionChange(index, 'includeInVarer', event.target.checked)
+                                    }
+                                  />
+                                  Inkluder i /varer
+                                </label>
                                 <label
                                   className="checkbox-inline editor-settings-toggle-cell"
                                   htmlFor={`q-review-${index}`}

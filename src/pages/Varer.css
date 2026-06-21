@@ -1,0 +1,156 @@
+.varer-bg {
+  background: #ffe1c8;
+  min-height: 100vh;
+}
+
+.varer-page {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 36px 20px 80px;
+}
+
+.varer-title {
+  font-family: "Fraunces", serif;
+  font-size: 2rem;
+  font-weight: 700;
+  margin: 0 0 32px;
+  color: #1a1a1a;
+}
+
+.varer-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.varer-question {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.varer-question-image-frame {
+  width: 100%;
+  height: 220px;
+  border-radius: 12px;
+  border: 1px solid rgba(24, 44, 60, 0.12);
+  background: #fff;
+  overflow: hidden;
+}
+
+.varer-question-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transform: scale(var(--zoom, 1));
+  transform-origin: center center;
+}
+
+.varer-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.varer-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.varer-input,
+.varer-select,
+.varer-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1.5px solid #d1d5db;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 1rem;
+  font-family: inherit;
+  background: #fff;
+  color: #111827;
+  appearance: auto;
+}
+
+.varer-input:focus,
+.varer-select:focus,
+.varer-textarea:focus {
+  outline: none;
+  border-color: #d97706;
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.15);
+}
+
+.varer-submit {
+  margin-top: 8px;
+  padding: 14px 24px;
+  background: #d97706;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 1rem;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.varer-submit:hover:not(:disabled) {
+  background: #b45309;
+}
+
+.varer-submit:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.varer-error {
+  color: #dc2626;
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+.varer-status-text {
+  color: #6b7280;
+  margin: 0;
+}
+
+.varer-success {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 80px 0 0;
+  text-align: center;
+}
+
+.varer-success-icon {
+  font-size: 3.5rem;
+  color: #16a34a;
+  line-height: 1;
+}
+
+.varer-success-text {
+  font-family: "Fraunces", serif;
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0;
+  color: #1a1a1a;
+}
+
+.varer-btn-secondary {
+  margin-top: 8px;
+  padding: 10px 28px;
+  background: #d97706;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.varer-btn-secondary:hover {
+  background: #b45309;
+}
