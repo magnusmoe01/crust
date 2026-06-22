@@ -935,7 +935,7 @@ function normalizeImageZoom(rawZoom) {
 function normalizeQuestion(question, index) {
   const label = String(question?.label || '').trim()
   const fallbackLabel = `Spørsmål ${index + 1}`
-  const type = ['text', 'textarea', 'select', 'location', 'number', 'date', 'camera', 'name', 'phone', 'email', 'section'].includes(question?.type)
+  const type = ['text', 'textarea', 'select', 'location', 'number', 'date', 'time-start', 'time-end', 'camera', 'name', 'phone', 'email', 'section'].includes(question?.type)
     ? question.type
     : 'text'
   const options = type === 'select' ? parseQuestionOptions(question?.options) : []
@@ -987,6 +987,7 @@ function normalizeQuestion(question, index) {
     reviewType: type === 'section' ? '' : (String(question?.reviewType || '').trim() || (question?.includeInReview ? 'rating' : '')),
     includeRating: type === 'section' ? false : Boolean(question?.includeRating),
     shouldRestock: type === 'section' ? false : Boolean(question?.shouldRestock),
+    isIceProductionCount: type === 'section' ? false : Boolean(question?.isIceProductionCount),
     reviewHelpText: type === 'section' ? '' : String(question?.reviewHelpText || '').trim(),
     analysisLabel: type === 'section' ? '' : String(question?.analysisLabel || '').trim(),
     deliveryUnlimited: type === 'select' ? Boolean(question?.deliveryUnlimited) || !question?.deliveryMaxUnits : true,
@@ -1164,6 +1165,36 @@ function getSubmissionEmail(answers, questions = []) {
     }
   }
   return ''
+}
+
+function getIceProductionRate(answers, questions = []) {
+  const startQuestion = questions.find((q) => q.type === 'time-start')
+  const endQuestion = questions.find((q) => q.type === 'time-end')
+  const countQuestion = questions.find((q) => q.isIceProductionCount)
+  if (!startQuestion || !endQuestion || !countQuestion) return null
+
+  const startValue = String(answers?.[startQuestion.id] || '').trim()
+  const endValue = String(answers?.[endQuestion.id] || '').trim()
+  const countValue = Number(answers?.[countQuestion.id])
+  if (!startValue || !endValue || !Number.isFinite(countValue) || countValue <= 0) return null
+
+  const [startH, startM] = startValue.split(':').map(Number)
+  const [endH, endM] = endValue.split(':').map(Number)
+  if (!Number.isFinite(startH) || !Number.isFinite(startM)) return null
+  if (!Number.isFinite(endH) || !Number.isFinite(endM)) return null
+
+  let totalMinutes = (endH * 60 + endM) - (startH * 60 + startM)
+  if (totalMinutes <= 0) totalMinutes += 24 * 60
+  const hours = totalMinutes / 60
+  const rate = countValue / hours
+
+  return {
+    count: countValue,
+    hours: Math.round(hours * 100) / 100,
+    rate: Math.round(rate * 10) / 10,
+    startTime: startValue,
+    endTime: endValue,
+  }
 }
 
 function getSubmissionPhone(answers, questions = []) {
@@ -1964,6 +1995,7 @@ function FormPage() {
   const isHistoryView =
     location.pathname.endsWith('/analyse') || location.pathname.endsWith('/historikk') ||
     location.pathname === '/varebeholdning'
+  const isProductionView = location.pathname.endsWith('/produksjon')
   const isEditPage = location.pathname.endsWith('/edit')
   const isReceiptPage = location.pathname.includes('/kvittering/')
   const isAdminShellView =
@@ -1973,7 +2005,8 @@ function FormPage() {
     isFlaggedView ||
     isRemarksView ||
     isRatingView ||
-    isReviewView
+    isReviewView ||
+    isProductionView
   const isStandalonePublicForm =
     !isSubmissionsView &&
     !isEditPage &&
@@ -1981,7 +2014,8 @@ function FormPage() {
     !isFlaggedView &&
     !isRemarksView &&
     !isRatingView &&
-    !isReviewView
+    !isReviewView &&
+    !isProductionView
   const isSubmissionEditMode = !isReceiptPage && Boolean(editReceiptToken) && isStandalonePublicForm
   const activeReceiptLookupToken = isReceiptPage ? receiptToken : editReceiptToken
 
@@ -4218,6 +4252,7 @@ function FormPage() {
             reviewType: value === 'section' ? '' : question.reviewType,
             includeRating: value === 'section' ? false : question.includeRating,
             shouldRestock: value === 'section' ? false : question.shouldRestock,
+            isIceProductionCount: value === 'section' ? false : question.isIceProductionCount,
             deliveryUnlimited: value === 'select' ? question.deliveryUnlimited : true,
             deliveryMaxUnits: value === 'select' ? question.deliveryMaxUnits : '',
             imageUrl: question.imageUrl,
@@ -6723,6 +6758,17 @@ function FormPage() {
       )
     }
 
+    if (question.type === 'time-start' || question.type === 'time-end') {
+      return (
+        <input
+          id={question.id}
+          type="time"
+          value={value}
+          onChange={(event) => onAnswerChange(question.id, event.target.value)}
+        />
+      )
+    }
+
     return (
       <input
         id={question.id}
@@ -8419,6 +8465,21 @@ function FormPage() {
                     ) : null}
                   </div>
 
+                  {(() => {
+                    const prodRate = getIceProductionRate(receiptSubmission.answers, formData.questions)
+                    if (!prodRate) return null
+                    return (
+                      <div className="receipt-meta ice-production-rate-box">
+                        <p><strong>Iskrem produksjon</strong></p>
+                        <p>{prodRate.startTime} – {prodRate.endTime} ({prodRate.hours} timer)</p>
+                        <p>{prodRate.count} kuler totalt</p>
+                        <p className="ice-production-rate-highlight">
+                          <strong>{prodRate.rate} kuler / time</strong> (gjennomsnitt)
+                        </p>
+                      </div>
+                    )
+                  })()}
+
                   <div className="receipt-answer-list">
                     {receiptAnswerEntries.map(([key, value]) => {
                       const answerImage = getAnswerImageDetails(
@@ -8783,6 +8844,8 @@ function FormPage() {
                                 <option value="location">Lokasjon</option>
                                 <option value="number">Tall</option>
                                 <option value="date">Dato</option>
+                                <option value="time-start">Tid (starttid)</option>
+                                <option value="time-end">Tid (sluttid)</option>
                                 <option value="camera">Ta bilde fra kamera</option>
                                 <option value="name">User's name</option>
                                 <option value="phone">Telefonnummer</option>
@@ -9138,6 +9201,20 @@ function FormPage() {
                                     }
                                   />
                                   Skal fylles på
+                                </label>
+                                <label
+                                  className="checkbox-inline editor-settings-toggle-cell"
+                                  htmlFor={`q-ice-production-${index}`}
+                                >
+                                  <input
+                                    id={`q-ice-production-${index}`}
+                                    type="checkbox"
+                                    checked={Boolean(question.isIceProductionCount)}
+                                    onChange={(event) =>
+                                      onEditorQuestionChange(index, 'isIceProductionCount', event.target.checked)
+                                    }
+                                  />
+                                  Antall iskrem (produksjon/time)
                                 </label>
                               </div>
                               <div className="editor-settings-detail-row">
@@ -10793,7 +10870,7 @@ function FormPage() {
                                   </select>
                                 ) : (
                                   <input
-                                    type={selectedQuestion.type === 'date' ? 'date' : 'text'}
+                                    type={selectedQuestion.type === 'date' ? 'date' : selectedQuestion.type === 'time-start' || selectedQuestion.type === 'time-end' ? 'time' : 'text'}
                                     placeholder="Ny verdi..."
                                     value={inventoryModalAnswers[selectedQuestion.id] || ''}
                                     onChange={(e) => setInventoryModalAnswers({ [selectedQuestion.id]: e.target.value })}
@@ -10826,6 +10903,118 @@ function FormPage() {
                     </button>
                   </div>
                 </div>
+              </div>
+            ) : null}
+
+            {isProductionView ? (
+              <div className="responses-box production-stats-page" id="production-section">
+                <div className="review-page-header">
+                  <div>
+                    <h3>Iskrem produksjon per time</h3>
+                  </div>
+                  <div className="submission-modal-actions">
+                    <form action={`/skjema/${activeFormSlug}/submissions`} method="get">
+                      <button type="submit" className="ghost">
+                        Back to submissions
+                      </button>
+                    </form>
+                  </div>
+                </div>
+                {loadingSubmissions ? <p>Loading...</p> : null}
+                {!loadingSubmissions ? (() => {
+                  const hasIceQuestion = formData.questions.some((q) => q.isIceProductionCount)
+                  const hasTimeStart = formData.questions.some((q) => q.type === 'time-start')
+                  const hasTimeEnd = formData.questions.some((q) => q.type === 'time-end')
+                  if (!hasIceQuestion || !hasTimeStart || !hasTimeEnd) {
+                    return (
+                      <p className="forms-error">
+                        Skjemaet mangler nødvendige felt: {!hasTimeStart ? 'starttid, ' : ''}{!hasTimeEnd ? 'sluttid, ' : ''}{!hasIceQuestion ? 'antall iskrem (merk et spørsmål med "Antall iskrem" i editoren)' : ''}
+                      </p>
+                    )
+                  }
+                  const userMap = {}
+                  for (const sub of submissions) {
+                    const rate = getIceProductionRate(sub.answers, formData.questions)
+                    if (!rate) continue
+                    const userName = getSubmissionName(sub.answers, formData.questions) || 'Ukjent'
+                    if (!userMap[userName]) {
+                      userMap[userName] = { totalCones: 0, totalHours: 0, sessions: [] }
+                    }
+                    userMap[userName].totalCones += rate.count
+                    userMap[userName].totalHours += rate.hours
+                    userMap[userName].sessions.push({
+                      id: sub.id,
+                      date: sub.submittedAt
+                        ? new Date((sub.submittedAt.seconds || 0) * 1000).toLocaleDateString('nb-NO', { timeZone: 'Europe/Oslo' })
+                        : '-',
+                      startTime: rate.startTime,
+                      endTime: rate.endTime,
+                      hours: rate.hours,
+                      count: rate.count,
+                      rate: rate.rate,
+                    })
+                  }
+                  const userList = Object.entries(userMap)
+                    .map(([name, data]) => ({
+                      name,
+                      totalCones: data.totalCones,
+                      totalHours: Math.round(data.totalHours * 100) / 100,
+                      avgRate: data.totalHours > 0
+                        ? Math.round((data.totalCones / data.totalHours) * 10) / 10
+                        : 0,
+                      sessions: data.sessions,
+                    }))
+                    .sort((a, b) => b.avgRate - a.avgRate)
+                  if (userList.length === 0) {
+                    return <p>Ingen innsendinger med iskrem-data funnet.</p>
+                  }
+                  return (
+                    <div className="production-stats-list">
+                      {userList.map((user) => (
+                        <article key={user.name} className="production-user-card">
+                          <div className="production-user-header">
+                            <h4>{user.name}</h4>
+                            <span className="production-user-avg">
+                              {user.avgRate} kuler / time (gjennomsnitt)
+                            </span>
+                          </div>
+                          <div className="production-user-totals">
+                            <span>{user.totalCones} kuler totalt</span>
+                            <span>{user.totalHours} timer totalt</span>
+                            <span>{user.sessions.length} {user.sessions.length === 1 ? 'økt' : 'økter'}</span>
+                          </div>
+                          <details className="production-sessions-details">
+                            <summary>Vis økter</summary>
+                            <table className="submissions-table production-sessions-table">
+                              <thead>
+                                <tr>
+                                  <th>Dato</th>
+                                  <th>Start</th>
+                                  <th>Slutt</th>
+                                  <th>Timer</th>
+                                  <th>Kuler</th>
+                                  <th>Kuler/time</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {user.sessions.map((session) => (
+                                  <tr key={session.id}>
+                                    <td>{session.date}</td>
+                                    <td>{session.startTime}</td>
+                                    <td>{session.endTime}</td>
+                                    <td>{session.hours}</td>
+                                    <td>{session.count}</td>
+                                    <td><strong>{session.rate}</strong></td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </details>
+                        </article>
+                      ))}
+                    </div>
+                  )
+                })() : null}
               </div>
             ) : null}
 
@@ -10867,6 +11056,21 @@ function FormPage() {
                         <strong>Status:</strong> {getSubmissionStatusLabel(selectedSubmission.status)}
                       </p>
                     </div>
+
+                    {(() => {
+                      const prodRate = getIceProductionRate(selectedSubmission.answers, formData.questions)
+                      if (!prodRate) return null
+                      return (
+                        <div className="receipt-meta ice-production-rate-box">
+                          <p><strong>Iskrem produksjon</strong></p>
+                          <p>{prodRate.startTime} – {prodRate.endTime} ({prodRate.hours} timer)</p>
+                          <p>{prodRate.count} kuler totalt</p>
+                          <p className="ice-production-rate-highlight">
+                            <strong>{prodRate.rate} kuler / time</strong> (gjennomsnitt)
+                          </p>
+                        </div>
+                      )
+                    })()}
 
                     {reviewQuestions.length === 0 ? (
                       <p>No questions are marked with "Should be reviewed" in this form.</p>
