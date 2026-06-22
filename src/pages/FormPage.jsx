@@ -2272,7 +2272,12 @@ function FormPage() {
       return englishTranslations[text] || englishTranslations[text.trim()] || text
     }
 
-    return norwegianTranslations[text] || norwegianTranslations[text.trim()] || text
+    const norwegianValue = norwegianTranslations[text] || norwegianTranslations[text.trim()]
+    if (norwegianValue && norwegianValue !== text) {
+      return norwegianValue
+    }
+
+    return text
   }
 
   function getLocalizedInputPlaceholder(question, fallback = '') {
@@ -2484,8 +2489,9 @@ function FormPage() {
     }
 
     const allTexts = collectFormTranslationTexts(formData)
+    const cached = readNorwegianTranslationCache()
     const englishTexts = allTexts.filter(
-      (text) => looksEnglish(text) && !String(norwegianTranslations[text] || '').trim(),
+      (text) => looksEnglish(text) && !String(cached[text] || '').trim(),
     )
 
     if (englishTexts.length === 0) {
@@ -2496,7 +2502,7 @@ function FormPage() {
     const controller = typeof AbortController === 'function' ? new AbortController() : null
 
     async function loadNorwegianTranslations() {
-      const nextTranslations = { ...norwegianTranslations }
+      const nextTranslations = { ...cached }
 
       for (const text of englishTexts) {
         try {
@@ -2519,7 +2525,7 @@ function FormPage() {
       cancelled = true
       controller?.abort()
     }
-  }, [formData, loadingForm, norwegianTranslations, shouldTranslateToEnglish])
+  }, [formData, loadingForm, shouldTranslateToEnglish])
 
   useEffect(() => {
     if (!isSubmissionEditMode) {
