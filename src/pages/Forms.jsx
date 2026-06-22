@@ -405,7 +405,13 @@ function Forms() {
                     className="ghost"
                     href={`/skjema/${form.slug}/analyse`}
                   >
-                    Varebeholdning
+                    Inventory
+                  </a>
+                  <a
+                    className="ghost"
+                    href={`/skjema/${form.slug}/produksjon`}
+                  >
+                    Production
                   </a>
                 </div>
               ) : null}

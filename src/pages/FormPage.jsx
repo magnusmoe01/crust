@@ -73,6 +73,7 @@ const PUBLIC_FORM_COPY = {
     takePhoto: 'Ta bilde',
     uploadNewPhoto: 'Last opp nytt bilde',
     uploadingPhoto: 'Laster opp bilde...',
+    uploadAdditionalPhoto: 'Last opp flere bilder',
     waitForPhotoUpload: 'Vent til bildeopplastingen er ferdig før du sender inn.',
     describeMore: 'Beskriv nærmere',
     fullName: 'Fullt navn',
@@ -100,7 +101,7 @@ const PUBLIC_FORM_COPY = {
     receiptTitleSuffix: 'has been submitted',
     submissionLabel: 'Submission',
     submittedLabel: 'Submitted',
-    loadingImage: 'Loading image...',
+    loadingImage: 'Laster bilde...',
     loadingForm: 'Loading form...',
     loadingReceipt: 'Loading receipt...',
     preparingReceipt: 'Submitting the form and preparing your receipt...',
@@ -123,6 +124,7 @@ const PUBLIC_FORM_COPY = {
     takePhoto: 'Take photo',
     uploadNewPhoto: 'Upload a new photo',
     uploadingPhoto: 'Uploading image...',
+    uploadAdditionalPhoto: 'Upload additional image',
     waitForPhotoUpload: 'Wait for the image upload to finish before submitting.',
     describeMore: 'Describe in more detail',
     fullName: 'Full name',
@@ -557,6 +559,53 @@ async function translateNorwegianTextToEnglish(text, signal) {
   return translated || value
 }
 
+async function translateTextToNorwegian(text, signal) {
+  const value = String(text || '').trim()
+  if (!value) {
+    return ''
+  }
+
+  const params = new URLSearchParams({
+    client: 'gtx',
+    sl: 'auto',
+    tl: 'no',
+    dt: 't',
+    q: value,
+  })
+
+  const response = await fetch(`https://translate.googleapis.com/translate_a/single?${params.toString()}`, {
+    signal,
+  })
+
+  if (!response.ok) {
+    throw new Error(`Translate request failed (${response.status})`)
+  }
+
+  const payload = await response.json()
+  const translated = Array.isArray(payload?.[0])
+    ? payload[0].map((part) => String(part?.[0] || '')).join('').trim()
+    : ''
+
+  return translated || value
+}
+
+const NORWEGIAN_TRANSLATION_CACHE_KEY = 'crust-public-form-norwegian-cache'
+
+function readNorwegianTranslationCache() {
+  try {
+    const raw = window.localStorage.getItem(NORWEGIAN_TRANSLATION_CACHE_KEY)
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeNorwegianTranslationCache(translations) {
+  try {
+    window.localStorage.setItem(NORWEGIAN_TRANSLATION_CACHE_KEY, JSON.stringify(translations))
+  } catch {}
+}
+
 function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -935,7 +984,7 @@ function normalizeImageZoom(rawZoom) {
 function normalizeQuestion(question, index) {
   const label = String(question?.label || '').trim()
   const fallbackLabel = `Spørsmål ${index + 1}`
-  const type = ['text', 'textarea', 'select', 'location', 'number', 'date', 'camera', 'name', 'phone', 'email', 'section'].includes(question?.type)
+  const type = ['text', 'textarea', 'select', 'location', 'number', 'date', 'time-start', 'time-end', 'camera', 'multi-camera', 'name', 'phone', 'email', 'section'].includes(question?.type)
     ? question.type
     : 'text'
   const options = type === 'select' ? parseQuestionOptions(question?.options) : []
@@ -988,6 +1037,7 @@ function normalizeQuestion(question, index) {
     reviewType: type === 'section' ? '' : (String(question?.reviewType || '').trim() || (question?.includeInReview ? 'rating' : '')),
     includeRating: type === 'section' ? false : Boolean(question?.includeRating),
     shouldRestock: type === 'section' ? false : Boolean(question?.shouldRestock),
+    isIceProductionCount: type === 'section' ? false : Boolean(question?.isIceProductionCount),
     reviewHelpText: type === 'section' ? '' : String(question?.reviewHelpText || '').trim(),
     analysisLabel: type === 'section' ? '' : String(question?.analysisLabel || '').trim(),
     deliveryUnlimited: type === 'select' ? Boolean(question?.deliveryUnlimited) || !question?.deliveryMaxUnits : true,
@@ -1167,6 +1217,36 @@ function getSubmissionEmail(answers, questions = []) {
   return ''
 }
 
+function getIceProductionRate(answers, questions = []) {
+  const startQuestion = questions.find((q) => q.type === 'time-start')
+  const endQuestion = questions.find((q) => q.type === 'time-end')
+  const countQuestion = questions.find((q) => q.isIceProductionCount)
+  if (!startQuestion || !endQuestion || !countQuestion) return null
+
+  const startValue = String(answers?.[startQuestion.id] || '').trim()
+  const endValue = String(answers?.[endQuestion.id] || '').trim()
+  const countValue = Number(answers?.[countQuestion.id])
+  if (!startValue || !endValue || !Number.isFinite(countValue) || countValue <= 0) return null
+
+  const [startH, startM] = startValue.split(':').map(Number)
+  const [endH, endM] = endValue.split(':').map(Number)
+  if (!Number.isFinite(startH) || !Number.isFinite(startM)) return null
+  if (!Number.isFinite(endH) || !Number.isFinite(endM)) return null
+
+  let totalMinutes = (endH * 60 + endM) - (startH * 60 + startM)
+  if (totalMinutes <= 0) totalMinutes += 24 * 60
+  const hours = totalMinutes / 60
+  const rate = countValue / hours
+
+  return {
+    count: countValue,
+    hours: Math.round(hours * 100) / 100,
+    rate: Math.round(rate * 10) / 10,
+    startTime: startValue,
+    endTime: endValue,
+  }
+}
+
 function getSubmissionPhone(answers, questions = []) {
   const phoneQuestion = questions.find((question) => question.type === 'phone')
   if (phoneQuestion?.id && answers?.[phoneQuestion.id] && String(answers[phoneQuestion.id]).trim()) {
@@ -1277,6 +1357,16 @@ function isDirectImageUrl(value) {
 
 function isPersistedImageValue(value) {
   return isStorageImagePath(value) || isDirectImageUrl(value)
+}
+
+function parseMultiCameraAnswer(value) {
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string' && item.trim()) : []
+  } catch {
+    return []
+  }
 }
 
 function getPathFileName(value) {
@@ -1965,6 +2055,7 @@ function FormPage() {
   const isHistoryView =
     location.pathname.endsWith('/analyse') || location.pathname.endsWith('/historikk') ||
     location.pathname === '/varebeholdning'
+  const isProductionView = location.pathname.endsWith('/produksjon')
   const isEditPage = location.pathname.endsWith('/edit')
   const isReceiptPage = location.pathname.includes('/kvittering/')
   const isAdminShellView =
@@ -1974,7 +2065,8 @@ function FormPage() {
     isFlaggedView ||
     isRemarksView ||
     isRatingView ||
-    isReviewView
+    isReviewView ||
+    isProductionView
   const isStandalonePublicForm =
     !isSubmissionsView &&
     !isEditPage &&
@@ -1982,7 +2074,8 @@ function FormPage() {
     !isFlaggedView &&
     !isRemarksView &&
     !isRatingView &&
-    !isReviewView
+    !isReviewView &&
+    !isProductionView
   const isSubmissionEditMode = !isReceiptPage && Boolean(editReceiptToken) && isStandalonePublicForm
   const activeReceiptLookupToken = isReceiptPage ? receiptToken : editReceiptToken
 
@@ -1999,6 +2092,9 @@ function FormPage() {
   const [cameraPreviews, setCameraPreviews] = useState({})
   const [cameraCapturedAt, setCameraCapturedAt] = useState({})
   const [cameraUploadState, setCameraUploadState] = useState({})
+  const [multiCameraFiles, setMultiCameraFiles] = useState({})
+  const [multiCameraPreviews, setMultiCameraPreviews] = useState({})
+  const [multiCameraUploadState, setMultiCameraUploadState] = useState({})
   const [selectDetailUploadState, setSelectDetailUploadState] = useState({})
   const [formInstanceKey, setFormInstanceKey] = useState(0)
   const [loadingForm, setLoadingForm] = useState(true)
@@ -2012,6 +2108,7 @@ function FormPage() {
   const [submitOverlay, setSubmitOverlay] = useState({ open: false, status: 'idle' })
   const [displayLanguage, setDisplayLanguage] = useState(readPreferredPublicFormLanguage)
   const [englishTranslations, setEnglishTranslations] = useState(readEnglishTranslationCache)
+  const [norwegianTranslations, setNorwegianTranslations] = useState(readNorwegianTranslationCache)
   const [translationState, setTranslationState] = useState({ loading: false, error: '' })
 
   const [editorTitle, setEditorTitle] = useState(defaultStengeskjema.title)
@@ -2085,6 +2182,9 @@ function FormPage() {
   const [editPhoneSubmissionId, setEditPhoneSubmissionId] = useState('')
   const [editPhoneDraft, setEditPhoneDraft] = useState('')
   const [editPhoneState, setEditPhoneState] = useState({ saving: false, error: '' })
+  const [editIceCountEditing, setEditIceCountEditing] = useState(false)
+  const [editIceCountDraft, setEditIceCountDraft] = useState('')
+  const [editIceCountState, setEditIceCountState] = useState({ saving: false, error: '' })
   const [inventoryUpdates, setInventoryUpdates] = useState({})
   const [hideUpdatedValues, setHideUpdatedValues] = useState(false)
   const [showInventoryModal, setShowInventoryModal] = useState(false)
@@ -2148,10 +2248,10 @@ function FormPage() {
     activeFormSlug === STENGESKJEMA_ID && isStandalonePublicForm
   const hasPendingImageUploads = useMemo(
     () =>
-      [...Object.values(cameraUploadState), ...Object.values(selectDetailUploadState)].some(
+      [...Object.values(cameraUploadState), ...Object.values(multiCameraUploadState), ...Object.values(selectDetailUploadState)].some(
         (state) => Boolean(state?.uploading),
       ),
-    [cameraUploadState, selectDetailUploadState],
+    [cameraUploadState, multiCameraUploadState, selectDetailUploadState],
   )
 
   function translateText(value) {
@@ -2160,11 +2260,16 @@ function FormPage() {
       return ''
     }
 
-    if (!shouldTranslateToEnglish) {
-      return text
+    if (shouldTranslateToEnglish) {
+      return englishTranslations[text] || englishTranslations[text.trim()] || text
     }
 
-    return englishTranslations[text] || englishTranslations[text.trim()] || text
+    const norwegianValue = norwegianTranslations[text] || norwegianTranslations[text.trim()]
+    if (norwegianValue && norwegianValue !== text) {
+      return norwegianValue
+    }
+
+    return text
   }
 
   function getLocalizedInputPlaceholder(question, fallback = '') {
@@ -2371,6 +2476,50 @@ function FormPage() {
   ])
 
   useEffect(() => {
+    if (shouldTranslateToEnglish || loadingForm) {
+      return
+    }
+
+    const allTexts = collectFormTranslationTexts(formData)
+    const cached = readNorwegianTranslationCache()
+    const untranslatedTexts = allTexts.filter(
+      (text) => !String(cached[text] || '').trim(),
+    )
+
+    if (untranslatedTexts.length === 0) {
+      return
+    }
+
+    let cancelled = false
+    const controller = typeof AbortController === 'function' ? new AbortController() : null
+
+    async function loadNorwegianTranslations() {
+      const nextTranslations = { ...cached }
+
+      for (const text of untranslatedTexts) {
+        try {
+          nextTranslations[text] = await translateTextToNorwegian(text, controller?.signal)
+        } catch (error) {
+          if (error?.name === 'AbortError') return
+          nextTranslations[text] = text
+        }
+      }
+
+      if (cancelled) return
+
+      setNorwegianTranslations(nextTranslations)
+      writeNorwegianTranslationCache(nextTranslations)
+    }
+
+    loadNorwegianTranslations()
+
+    return () => {
+      cancelled = true
+      controller?.abort()
+    }
+  }, [formData, loadingForm, shouldTranslateToEnglish])
+
+  useEffect(() => {
     if (!isSubmissionEditMode) {
       setHydratedEditReceiptToken('')
     }
@@ -2514,6 +2663,9 @@ function FormPage() {
       setCameraPreviews(nextCameraPreviews)
       setCameraCapturedAt(nextCameraCapturedAt)
       setCameraUploadState({})
+      setMultiCameraFiles({})
+      setMultiCameraPreviews({})
+      setMultiCameraUploadState({})
       setSelfDeclarationAccepted(Boolean(receiptAnswers[SELF_DECLARATION_ACCEPTED_KEY]))
       setHydratedEditReceiptToken(editReceiptToken)
       setDraftReady(true)
@@ -2596,6 +2748,9 @@ function FormPage() {
     setCameraPreviews({})
     setCameraCapturedAt(nextCameraCapturedAt)
     setCameraUploadState({})
+    setMultiCameraFiles({})
+    setMultiCameraPreviews({})
+    setMultiCameraUploadState({})
     setSelfDeclarationAccepted(
       Boolean(formData.enableSelfDeclaration) && Boolean(draft.selfDeclarationAccepted),
     )
@@ -2719,7 +2874,7 @@ function FormPage() {
           ? String(answers[question.id] || '')
           : ''
       accumulator[question.id] =
-        question.type === 'camera' && !isStorageImagePath(answerValue) ? '' : answerValue
+        (question.type === 'camera' || question.type === 'multi-camera') && !isStorageImagePath(answerValue) ? '' : answerValue
       return accumulator
     }, {})
 
@@ -3453,6 +3608,62 @@ function FormPage() {
     }
   }
 
+  async function onMultiCameraFileAdd(questionId, file) {
+    if (!file) {
+      return
+    }
+
+    setMultiCameraUploadState((previous) => ({
+      ...previous,
+      [questionId]: { uploading: true, error: '' },
+    }))
+
+    try {
+      const nextFile = await compressUploadedImage(file)
+      const previewUrl = await readFileAsDataUrl(nextFile)
+
+      setMultiCameraFiles((previous) => ({
+        ...previous,
+        [questionId]: [...(previous[questionId] || []), nextFile],
+      }))
+      setMultiCameraPreviews((previous) => ({
+        ...previous,
+        [questionId]: [...(previous[questionId] || []), previewUrl],
+      }))
+
+      const existingPaths = parseMultiCameraAnswer(answers[questionId])
+      const placeholderEntry = `pending:${nextFile.name}`
+      onAnswerChange(questionId, JSON.stringify([...existingPaths, placeholderEntry]))
+
+      setMultiCameraUploadState((previous) => ({
+        ...previous,
+        [questionId]: { uploading: false, error: '' },
+      }))
+    } catch {
+      setMultiCameraUploadState((previous) => ({
+        ...previous,
+        [questionId]: { uploading: false, error: 'Kunne ikke lese bildet. Prøv en annen fil.' },
+      }))
+    }
+  }
+
+  function onMultiCameraFileRemove(questionId, indexToRemove) {
+    setMultiCameraFiles((previous) => {
+      const list = [...(previous[questionId] || [])]
+      list.splice(indexToRemove, 1)
+      return { ...previous, [questionId]: list }
+    })
+    setMultiCameraPreviews((previous) => {
+      const list = [...(previous[questionId] || [])]
+      list.splice(indexToRemove, 1)
+      return { ...previous, [questionId]: list }
+    })
+
+    const existingPaths = parseMultiCameraAnswer(answers[questionId])
+    const updated = existingPaths.filter((_, i) => i !== indexToRemove)
+    onAnswerChange(questionId, updated.length > 0 ? JSON.stringify(updated) : '')
+  }
+
   async function onSelectDetailCameraFileChange(questionId, file) {
     if (!file) {
       selectDetailUploadRequestIdsRef.current[questionId] = `${Date.now()}-cleared`
@@ -3654,6 +3865,9 @@ function FormPage() {
     setCameraPreviews({})
     setCameraCapturedAt({})
     setCameraUploadState({})
+    setMultiCameraFiles({})
+    setMultiCameraPreviews({})
+    setMultiCameraUploadState({})
     setFormInstanceKey((previous) => previous + 1)
     clearFormDraft(activeFormSlug)
     setSubmitErrorQuestionId('')
@@ -3679,6 +3893,10 @@ function FormPage() {
 
     if (question.type === 'camera') {
       return `${question.id}-camera-button`
+    }
+
+    if (question.type === 'multi-camera') {
+      return `${question.id}-multi-camera-button`
     }
 
     if (question.type === 'location' && answers[question.id] === LOCATION_OTHER_VALUE) {
@@ -3739,6 +3957,15 @@ function FormPage() {
         return true
       }
       return !cameraFiles[question.id] && !isPersistedImageValue(answerValue)
+    }
+
+    if (question.type === 'multi-camera') {
+      if (multiCameraUploadState[question.id]?.uploading) {
+        return true
+      }
+      const files = multiCameraFiles[question.id] || []
+      const paths = parseMultiCameraAnswer(answerValue)
+      return files.length === 0 && paths.filter((p) => isStorageImagePath(p)).length === 0
     }
 
     if (question.type === 'location') {
@@ -3884,6 +4111,10 @@ function FormPage() {
           submissionAnswers[question.id] = ''
         }
 
+        if (question.type === 'multi-camera') {
+          submissionAnswers[question.id] = ''
+        }
+
         if (question.type === 'location') {
           submissionAnswers[question.id] =
             answers[question.id] === LOCATION_OTHER_VALUE
@@ -3953,6 +4184,32 @@ function FormPage() {
           imagePaths.push(path)
           submissionAnswers[question.id] = path
           receiptImageMap[path] = downloadUrl
+        }),
+      )
+
+      await Promise.all(
+        visibleInputQuestions.map(async (question) => {
+          if (question.type !== 'multi-camera') {
+            return
+          }
+          const files = multiCameraFiles[question.id] || []
+          if (files.length === 0) {
+            return
+          }
+          const uploadedPaths = await Promise.all(
+            files.map(async (file, fileIndex) => {
+              const fileName = sanitizeFileName(file.name)
+              const path = `forms/images/${activeFormSlug}/${submissionRef.id}-${question.id}-${fileIndex}-${fileName}`
+              await uploadBytes(ref(storage, path), file, {
+                contentType: file.type || 'image/jpeg',
+              })
+              const downloadUrl = await getDownloadURL(ref(storage, path))
+              imagePaths.push(path)
+              receiptImageMap[path] = downloadUrl
+              return path
+            }),
+          )
+          submissionAnswers[question.id] = JSON.stringify(uploadedPaths)
         }),
       )
 
@@ -4107,6 +4364,9 @@ function FormPage() {
       setCameraPreviews({})
       setCameraCapturedAt({})
       setCameraUploadState({})
+      setMultiCameraFiles({})
+      setMultiCameraPreviews({})
+      setMultiCameraUploadState({})
       setFormInstanceKey((previous) => previous + 1)
       setSubmitState({
         submitting: false,
@@ -4219,6 +4479,7 @@ function FormPage() {
             reviewType: value === 'section' ? '' : question.reviewType,
             includeRating: value === 'section' ? false : question.includeRating,
             shouldRestock: value === 'section' ? false : question.shouldRestock,
+            isIceProductionCount: value === 'section' ? false : question.isIceProductionCount,
             deliveryUnlimited: value === 'select' ? question.deliveryUnlimited : true,
             deliveryMaxUnits: value === 'select' ? question.deliveryMaxUnits : '',
             imageUrl: question.imageUrl,
@@ -4747,6 +5008,33 @@ function FormPage() {
       setEditPhoneState({ saving: false, error: '' })
     } catch (err) {
       setEditPhoneState({ saving: false, error: `Could not save: ${err.message}` })
+    }
+  }
+
+  async function onSaveIceCountEdit(submissionId) {
+    const countQuestion = formData.questions.find((q) => q.isIceProductionCount)
+    if (!countQuestion?.id) return
+    const newValue = editIceCountDraft.trim()
+    if (!newValue || !Number.isFinite(Number(newValue)) || Number(newValue) < 0) {
+      setEditIceCountState({ saving: false, error: 'Enter a valid number.' })
+      return
+    }
+    setEditIceCountState({ saving: true, error: '' })
+    try {
+      await updateDoc(doc(db, 'formSubmissions', submissionId), {
+        [`answers.${countQuestion.id}`]: newValue,
+      })
+      setSubmissions((prev) =>
+        prev.map((s) =>
+          s.id === submissionId
+            ? { ...s, answers: { ...s.answers, [countQuestion.id]: newValue } }
+            : s,
+        ),
+      )
+      setEditIceCountEditing(false)
+      setEditIceCountState({ saving: false, error: '' })
+    } catch (err) {
+      setEditIceCountState({ saving: false, error: `Could not save: ${err.message}` })
     }
   }
 
@@ -6680,6 +6968,63 @@ function FormPage() {
       )
     }
 
+    if (question.type === 'multi-camera') {
+      const fileInputId = `${question.id}-multi-camera-input`
+      const previews = multiCameraPreviews[question.id] || []
+      const files = multiCameraFiles[question.id] || []
+      const uploadState = multiCameraUploadState[question.id] || { uploading: false, error: '' }
+
+      return (
+        <div className="camera-upload-control">
+          <button
+            type="button"
+            id={`${question.id}-multi-camera-button`}
+            className="ghost camera-upload-button"
+            onClick={() => document.getElementById(fileInputId)?.click()}
+          >
+            {previews.length > 0 || files.length > 0 ? publicCopy.uploadAdditionalPhoto : publicCopy.takePhoto}
+          </button>
+          <input
+            id={fileInputId}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="camera-upload-input"
+            onChange={async (event) => {
+              const file = event.target.files?.[0] || null
+              if (file) {
+                await onMultiCameraFileAdd(question.id, file)
+              }
+              event.target.value = ''
+            }}
+          />
+          {previews.length > 0 ? (
+            <div className="multi-camera-preview-list">
+              {previews.map((previewUrl, previewIndex) => (
+                <div key={`${question.id}-preview-${previewIndex}`} className="multi-camera-preview-item">
+                  <div className="camera-upload-preview">
+                    <img
+                      src={previewUrl}
+                      alt={`${translateText(question.label)} ${displayLanguage === 'en' ? 'image' : 'bilde'} ${previewIndex + 1}`}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="ghost multi-camera-remove-button"
+                    onClick={() => onMultiCameraFileRemove(question.id, previewIndex)}
+                  >
+                    {displayLanguage === 'en' ? 'Remove' : 'Fjern'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {uploadState.uploading ? <small className="question-help">{publicCopy.uploadingPhoto}</small> : null}
+          {uploadState.error ? <small className="question-help forms-error">{uploadState.error}</small> : null}
+        </div>
+      )
+    }
+
     if (question.type === 'name') {
       return (
         <input
@@ -6719,6 +7064,17 @@ function FormPage() {
           value={value}
           placeholder={getLocalizedInputPlaceholder(question, publicCopy.emailAddress)}
           autoComplete="email"
+          onChange={(event) => onAnswerChange(question.id, event.target.value)}
+        />
+      )
+    }
+
+    if (question.type === 'time-start' || question.type === 'time-end') {
+      return (
+        <input
+          id={question.id}
+          type="time"
+          value={value}
           onChange={(event) => onAnswerChange(question.id, event.target.value)}
         />
       )
@@ -7459,7 +7815,7 @@ function FormPage() {
                   <strong>Lokasjon:</strong> {getSubmissionPlace(submission.answers)}
                 </p>
                 <p>
-                  <strong>Sendt inn:</strong> {formatTime(submission.submittedAt)}
+                  <strong>Submitted:</strong> {formatTime(submission.submittedAt)}
                 </p>
                 <p>
                   <strong>Status:</strong>{' '}
@@ -7476,7 +7832,7 @@ function FormPage() {
                     target="_blank"
                     rel="noreferrer"
                   >
-                    Vis kvittering
+                    View receipt
                   </a>
                 ) : null}
                 <button
@@ -7543,7 +7899,7 @@ function FormPage() {
                         <p className="review-answer-value">
                           {existingWarnings.length > 0
                             ? `${existingWarnings.length} registrert tidligere`
-                            : 'Ingen registrerte advarsler ennå.'}
+                            : 'No recorded warnings yet.'}
                         </p>
                       </div>
                       <button
@@ -7670,7 +8026,7 @@ function FormPage() {
                               className="ghost"
                               onClick={() => setFlaggedCategoryPopupOpenId('')}
                             >
-                              Lukk
+                              Close
                             </button>
                             <button
                               type="button"
@@ -7678,7 +8034,7 @@ function FormPage() {
                               onClick={() => onAddWarningCategory(submission)}
                               disabled={flaggedState.categorySaving}
                             >
-                              {flaggedState.categorySaving ? 'Lagrer...' : 'Lagre kategori'}
+                              {flaggedState.categorySaving ? 'Saving...' : 'Save category'}
                             </button>
                           </div>
                           {flaggedState.categoryError ? (
@@ -7693,7 +8049,7 @@ function FormPage() {
                       onClick={() => onCompleteFlaggedSubmission(submission)}
                       disabled={flaggedState.saving}
                     >
-                      {flaggedState.saving ? 'Lagrer...' : 'Set complete'}
+                      {flaggedState.saving ? 'Saving...' : 'Set complete'}
                     </button>
                   </div>
                   {flaggedState.error ? <p className="forms-error">{flaggedState.error}</p> : null}
@@ -8420,6 +8776,21 @@ function FormPage() {
                     ) : null}
                   </div>
 
+                  {(() => {
+                    const prodRate = getIceProductionRate(receiptSubmission.answers, formData.questions)
+                    if (!prodRate) return null
+                    return (
+                      <div className="receipt-meta ice-production-rate-box">
+                        <p><strong>Iskrem produksjon</strong></p>
+                        <p>{prodRate.startTime} – {prodRate.endTime} ({prodRate.hours} timer)</p>
+                        <p>{prodRate.count} kuler totalt</p>
+                        <p className="ice-production-rate-highlight">
+                          <strong>{prodRate.rate} kuler / time</strong> (gjennomsnitt)
+                        </p>
+                      </div>
+                    )
+                  })()}
+
                   <div className="receipt-answer-list">
                     {receiptAnswerEntries.map(([key, value]) => {
                       const answerImage = getAnswerImageDetails(
@@ -8664,20 +9035,20 @@ function FormPage() {
               <div className="admin-editor">
                 <div className="editor-mode-header">
                   <h3>Rediger skjema</h3>
-                  <div className="editor-mode-switch" role="group" aria-label="Visningsmodus">
+                  <div className="editor-mode-switch" role="group" aria-label="View modesmodus">
                     <button
                       type="button"
                       className={!editorEditMode ? 'is-active' : ''}
                       onClick={() => setEditorEditMode(false)}
                     >
-                      Ikke edit mode
+                      View mode
                     </button>
                     <button
                       type="button"
                       className={editorEditMode ? 'is-active' : ''}
                       onClick={() => setEditorEditMode(true)}
                     >
-                      Edit-mode
+                      Edit mode
                     </button>
                   </div>
                 </div>
@@ -8742,7 +9113,7 @@ function FormPage() {
                     onClick={onSaveForm}
                     disabled={saveState.saving}
                   >
-                    {saveState.saving ? 'Lagrer...' : 'Lagre skjema'}
+                    {saveState.saving ? 'Saving...' : 'Lagre skjema'}
                   </button>
                 </div>
 
@@ -8784,7 +9155,10 @@ function FormPage() {
                                 <option value="location">Lokasjon</option>
                                 <option value="number">Tall</option>
                                 <option value="date">Dato</option>
+                                <option value="time-start">Tid (starttid)</option>
+                                <option value="time-end">Tid (sluttid)</option>
                                 <option value="camera">Ta bilde fra kamera</option>
+                                <option value="multi-camera">Flere bilder</option>
                                 <option value="name">User's name</option>
                                 <option value="phone">Telefonnummer</option>
                                 <option value="email">E-post</option>
@@ -9120,7 +9494,7 @@ function FormPage() {
                                         checked={question.reviewType === 'flagging'}
                                         onChange={() => onEditorQuestionChange(index, 'reviewType', 'flagging')}
                                       />
-                                      Flagging
+                                      Flaging
                                     </label>
                                   </div>
                                 ) : null}
@@ -9153,6 +9527,20 @@ function FormPage() {
                                     }
                                   />
                                   Skal fylles på
+                                </label>
+                                <label
+                                  className="checkbox-inline editor-settings-toggle-cell"
+                                  htmlFor={`q-ice-production-${index}`}
+                                >
+                                  <input
+                                    id={`q-ice-production-${index}`}
+                                    type="checkbox"
+                                    checked={Boolean(question.isIceProductionCount)}
+                                    onChange={(event) =>
+                                      onEditorQuestionChange(index, 'isIceProductionCount', event.target.checked)
+                                    }
+                                  />
+                                  Antall iskrem (produksjon/time)
                                 </label>
                               </div>
                               <div className="editor-settings-detail-row">
@@ -9289,7 +9677,7 @@ function FormPage() {
                               onClick={() => onSaveForm(index)}
                               disabled={saveState.saving}
                             >
-                              {saveState.saving ? 'Lagrer...' : 'Lagre spørsmål'}
+                              {saveState.saving ? 'Saving...' : 'Lagre spørsmål'}
                             </button>
                             <button
                               type="button"
@@ -9728,7 +10116,7 @@ function FormPage() {
                                   </span>
                                   {flaggedCount > 0 ? (
                                     <span className="submission-status-badge is-flagged">
-                                      Flagged
+                                      Flaged
                                     </span>
                                   ) : null}
                                 </div>
@@ -9768,7 +10156,7 @@ function FormPage() {
             {isSubmissionsView && isAdmin && (submissionErrors.length > 0 || loadingErrors) ? (
               <div className="responses-box submissions-overview">
                 <h3>Innsendingsfeil</h3>
-                {loadingErrors ? <p>Laster...</p> : null}
+                {loadingErrors ? <p>Loading...</p> : null}
                 {!loadingErrors && submissionErrors.length > 0 ? (
                   <table className="submissions-table" style={{ fontSize: '0.82rem' }}>
                     <thead>
@@ -10034,7 +10422,7 @@ function FormPage() {
                       <tr>
                         <th>Bekreftet lest</th>
                         <th>Score</th>
-                        <th>Generell tilbakemelding</th>
+                        <th>General feedback</th>
                         <th>Kvittering</th>
                       </tr>
                     </thead>
@@ -10082,7 +10470,7 @@ function FormPage() {
             {isFlaggedView ? (
               <div className="responses-box submissions-overview" id="flagged-section">
                 <h3>Flagget &amp; vurdert</h3>
-                {loadingSubmissions ? <p>Laster...</p> : null}
+                {loadingSubmissions ? <p>Loading...</p> : null}
                 {!loadingSubmissions && flaggedSubmissions.length === 0 ? (
                   <p>Ingen flaggede eller vurderte svar ennå.</p>
                 ) : null}
@@ -10147,7 +10535,7 @@ function FormPage() {
             {isRatingView ? (
               <div className="responses-box rating-overview" id="rating-section">
                 <h3>Rating</h3>
-                {loadingSubmissions ? <p>Laster...</p> : null}
+                {loadingSubmissions ? <p>Loading...</p> : null}
                 {!loadingSubmissions && userScoreboard.length === 0 ? (
                   <p>Ingen vurderte innsendinger ennå.</p>
                 ) : null}
@@ -10225,7 +10613,7 @@ function FormPage() {
                       onClick={onSaveHistoryDefault}
                       disabled={historyDefaultState.saving}
                     >
-                      {historyDefaultState.saving ? 'Lagrer...' : 'Lagre default'}
+                      {historyDefaultState.saving ? 'Saving...' : 'Lagre default'}
                     </button>
                     {historyRows.length > 0 ? (
                       <div className="history-filter-bar">
@@ -10498,10 +10886,10 @@ function FormPage() {
 
                 {loadingSubmissions ? <p>Laster analyse...</p> : null}
                 {!loadingSubmissions && analysisQuestions.length === 0 ? (
-                  <p>Ingen spørsmål er merket med "Inkluder i analyse" ennå.</p>
+                  <p>No questions are marked with "Include in analysis" yet.</p>
                 ) : null}
                 {!loadingSubmissions && analysisQuestions.length > 0 && historyRows.length === 0 ? (
-                  <p>Ingen innsendinger ennå.</p>
+                  <p>No submissions yet.</p>
                 ) : null}
                 {!loadingSubmissions && analysisQuestions.length > 0 && visibleHistoryRows.length > 0 ? (
                   <div className="history-table-wrap">
@@ -10659,7 +11047,7 @@ function FormPage() {
                 analysisQuestions.length > 0 &&
                 visibleHistoryRows.length > 0 &&
                 visibleHistoryQuestions.length === 0 ? (
-                  <p>Ingen spørsmål er valgt i filteret.</p>
+                  <p>No questions selected in the filter.</p>
                 ) : null}
 
                 {!loadingSubmissions && (() => {
@@ -10736,7 +11124,7 @@ function FormPage() {
                   <div className="submission-modal-header">
                     <h4 id="inventory-update-modal-title">Rediger varebeholdning</h4>
                     <button type="button" className="ghost" onClick={() => setShowInventoryModal(false)}>
-                      Lukk
+                      Close
                     </button>
                   </div>
                   <div className="submission-modal-content">
@@ -10808,7 +11196,7 @@ function FormPage() {
                                   </select>
                                 ) : (
                                   <input
-                                    type={selectedQuestion.type === 'date' ? 'date' : 'text'}
+                                    type={selectedQuestion.type === 'date' ? 'date' : selectedQuestion.type === 'time-start' || selectedQuestion.type === 'time-end' ? 'time' : 'text'}
                                     placeholder="Ny verdi..."
                                     value={inventoryModalAnswers[selectedQuestion.id] || ''}
                                     onChange={(e) => setInventoryModalAnswers({ [selectedQuestion.id]: e.target.value })}
@@ -10824,7 +11212,7 @@ function FormPage() {
                   </div>
                   <div className="submission-modal-actions" style={{ padding: '10px 14px', borderTop: '1px solid rgba(24,44,60,0.12)', justifyContent: 'flex-end' }}>
                     <button type="button" className="ghost" onClick={() => setShowInventoryModal(false)}>
-                      Avbryt
+                      Cancel
                     </button>
                     <button
                       type="button"
@@ -10837,10 +11225,122 @@ function FormPage() {
                       }
                       onClick={onSaveInventoryUpdate}
                     >
-                      {inventoryModalSaving ? 'Lagrer...' : 'Lagre'}
+                      {inventoryModalSaving ? 'Saving...' : 'Lagre'}
                     </button>
                   </div>
                 </div>
+              </div>
+            ) : null}
+
+            {isProductionView ? (
+              <div className="responses-box production-stats-page" id="production-section">
+                <div className="review-page-header">
+                  <div>
+                    <h3>Ice cream production per hour</h3>
+                  </div>
+                  <div className="submission-modal-actions">
+                    <form action={`/skjema/${activeFormSlug}/submissions`} method="get">
+                      <button type="submit" className="ghost">
+                        Back to submissions
+                      </button>
+                    </form>
+                  </div>
+                </div>
+                {loadingSubmissions ? <p>Loading...</p> : null}
+                {!loadingSubmissions ? (() => {
+                  const hasIceQuestion = formData.questions.some((q) => q.isIceProductionCount)
+                  const hasTimeStart = formData.questions.some((q) => q.type === 'time-start')
+                  const hasTimeEnd = formData.questions.some((q) => q.type === 'time-end')
+                  if (!hasIceQuestion || !hasTimeStart || !hasTimeEnd) {
+                    return (
+                      <p className="forms-error">
+                        Form is missing required fields: {!hasTimeStart ? 'start time, ' : ''}{!hasTimeEnd ? 'end time, ' : ''}{!hasIceQuestion ? 'ice cream count (mark a question with "Antall iskrem" in the editor)' : ''}
+                      </p>
+                    )
+                  }
+                  const userMap = {}
+                  for (const sub of submissions) {
+                    const rate = getIceProductionRate(sub.answers, formData.questions)
+                    if (!rate) continue
+                    const userName = getSubmissionName(sub.answers, formData.questions) || 'Unknown'
+                    if (!userMap[userName]) {
+                      userMap[userName] = { totalCones: 0, totalHours: 0, sessions: [] }
+                    }
+                    userMap[userName].totalCones += rate.count
+                    userMap[userName].totalHours += rate.hours
+                    userMap[userName].sessions.push({
+                      id: sub.id,
+                      date: sub.submittedAt
+                        ? new Date((sub.submittedAt.seconds || 0) * 1000).toLocaleDateString('nb-NO', { timeZone: 'Europe/Oslo' })
+                        : '-',
+                      startTime: rate.startTime,
+                      endTime: rate.endTime,
+                      hours: rate.hours,
+                      count: rate.count,
+                      rate: rate.rate,
+                    })
+                  }
+                  const userList = Object.entries(userMap)
+                    .map(([name, data]) => ({
+                      name,
+                      totalCones: data.totalCones,
+                      totalHours: Math.round(data.totalHours * 100) / 100,
+                      avgRate: data.totalHours > 0
+                        ? Math.round((data.totalCones / data.totalHours) * 10) / 10
+                        : 0,
+                      sessions: data.sessions,
+                    }))
+                    .sort((a, b) => b.avgRate - a.avgRate)
+                  if (userList.length === 0) {
+                    return <p>No submissions with ice cream data found.</p>
+                  }
+                  return (
+                    <div className="production-stats-list">
+                      {userList.map((user) => (
+                        <article key={user.name} className="production-user-card">
+                          <div className="production-user-header">
+                            <h4>{user.name}</h4>
+                            <span className="production-user-avg">
+                              {user.avgRate} cones / hour (average)
+                            </span>
+                          </div>
+                          <div className="production-user-totals">
+                            <span>{user.totalCones} cones total</span>
+                            <span>{user.totalHours} hours total</span>
+                            <span>{user.sessions.length} {user.sessions.length === 1 ? 'session' : 'sessions'}</span>
+                          </div>
+                          <details className="production-sessions-details">
+                            <summary>Show sessions</summary>
+                            <table className="submissions-table production-sessions-table">
+                              <thead>
+                                <tr>
+                                  <th>Date</th>
+                                  <th>Start</th>
+                                  <th>End</th>
+                                  <th>Hours</th>
+                                  <th>Cones</th>
+                                  <th>Cones/hour</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {user.sessions.map((session) => (
+                                  <tr key={session.id}>
+                                    <td>{session.date}</td>
+                                    <td>{session.startTime}</td>
+                                    <td>{session.endTime}</td>
+                                    <td>{session.hours}</td>
+                                    <td>{session.count}</td>
+                                    <td><strong>{session.rate}</strong></td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </details>
+                        </article>
+                      ))}
+                    </div>
+                  )
+                })() : null}
               </div>
             ) : null}
 
@@ -10882,6 +11382,73 @@ function FormPage() {
                         <strong>Status:</strong> {getSubmissionStatusLabel(selectedSubmission.status)}
                       </p>
                     </div>
+
+                    {(() => {
+                      const prodRate = getIceProductionRate(selectedSubmission.answers, formData.questions)
+                      if (!prodRate) return null
+                      return (
+                        <div className="receipt-meta ice-production-rate-box">
+                          <p><strong>Ice cream production</strong></p>
+                          <p>{prodRate.startTime} – {prodRate.endTime} ({prodRate.hours} hours)</p>
+                          <div className="ice-count-edit-row">
+                            {editIceCountEditing ? (
+                              <>
+                                <input
+                                  type="number"
+                                  className="ice-count-edit-input"
+                                  value={editIceCountDraft}
+                                  autoFocus
+                                  min="0"
+                                  onChange={(e) => setEditIceCountDraft(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') onSaveIceCountEdit(selectedSubmission.id)
+                                    if (e.key === 'Escape') { setEditIceCountEditing(false); setEditIceCountState({ saving: false, error: '' }) }
+                                  }}
+                                />
+                                <span>cones total</span>
+                                <button
+                                  type="button"
+                                  className="ghost"
+                                  disabled={editIceCountState.saving}
+                                  onClick={() => onSaveIceCountEdit(selectedSubmission.id)}
+                                >
+                                  {editIceCountState.saving ? '…' : '✓'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="ghost"
+                                  onClick={() => { setEditIceCountEditing(false); setEditIceCountState({ saving: false, error: '' }) }}
+                                >
+                                  ✕
+                                </button>
+                                {editIceCountState.error ? (
+                                  <small className="forms-error">{editIceCountState.error}</small>
+                                ) : null}
+                              </>
+                            ) : (
+                              <>
+                                <span>{prodRate.count} cones total</span>
+                                <button
+                                  type="button"
+                                  className="ghost ice-count-edit-trigger"
+                                  title="Edit ice cream count"
+                                  onClick={() => {
+                                    setEditIceCountDraft(String(prodRate.count))
+                                    setEditIceCountEditing(true)
+                                    setEditIceCountState({ saving: false, error: '' })
+                                  }}
+                                >
+                                  ✏
+                                </button>
+                              </>
+                            )}
+                          </div>
+                          <p className="ice-production-rate-highlight">
+                            <strong>{prodRate.rate} cones / hour</strong> (average)
+                          </p>
+                        </div>
+                      )
+                    })()}
 
                     {reviewQuestions.length === 0 ? (
                       <p>No questions are marked with "Should be reviewed" in this form.</p>
