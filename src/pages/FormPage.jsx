@@ -9031,7 +9031,7 @@ function FormPage() {
                                 <option value="time-end">Tid (sluttid)</option>
                                 <option value="camera">Ta bilde fra kamera</option>
                                 <option value="multi-camera">Flere bilder</option>
-                                <option value="name">User's name</option>
+                                <option value="name">Brukerens navn</option>
                                 <option value="phone">Telefonnummer</option>
                                 <option value="email">E-post</option>
                                 <option value="section">Kategori</option>
@@ -9342,7 +9342,7 @@ function FormPage() {
                                         checked={(question.reviewType || 'rating') === 'rating'}
                                         onChange={() => onEditorQuestionChange(index, 'reviewType', 'rating')}
                                       />
-                                      Rating
+                                      Vurdering
                                     </label>
                                     <label className="radio-inline">
                                       <input
