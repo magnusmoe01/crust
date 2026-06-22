@@ -567,7 +567,7 @@ async function translateTextToNorwegian(text, signal) {
 
   const params = new URLSearchParams({
     client: 'gtx',
-    sl: 'en',
+    sl: 'auto',
     tl: 'no',
     dt: 't',
     q: value,
@@ -604,18 +604,6 @@ function writeNorwegianTranslationCache(translations) {
   try {
     window.localStorage.setItem(NORWEGIAN_TRANSLATION_CACHE_KEY, JSON.stringify(translations))
   } catch {}
-}
-
-function looksEnglish(text) {
-  const t = String(text || '').trim().toLowerCase()
-  if (!t) return false
-  const englishWords = ['the', 'is', 'are', 'what', 'how', 'many', 'your', 'name', 'number', 'phone', 'email', 'date', 'time', 'start', 'end', 'location', 'address', 'please', 'enter', 'select', 'choose', 'describe', 'write', 'total', 'count', 'produced', 'shift', 'employee', 'ice cream', 'cones', 'during', 'between', 'from', 'until', 'photo', 'picture', 'take', 'upload', 'submit', 'full', 'first', 'last', 'comments', 'notes', 'other', 'yes', 'no']
-  const words = t.split(/\s+/)
-  let matches = 0
-  for (const word of words) {
-    if (englishWords.includes(word)) matches++
-  }
-  return matches >= 1 && matches / words.length >= 0.3
 }
 
 function readFileAsDataUrl(file) {
@@ -2490,11 +2478,11 @@ function FormPage() {
 
     const allTexts = collectFormTranslationTexts(formData)
     const cached = readNorwegianTranslationCache()
-    const englishTexts = allTexts.filter(
-      (text) => looksEnglish(text) && !String(cached[text] || '').trim(),
+    const untranslatedTexts = allTexts.filter(
+      (text) => !String(cached[text] || '').trim(),
     )
 
-    if (englishTexts.length === 0) {
+    if (untranslatedTexts.length === 0) {
       return
     }
 
@@ -2504,7 +2492,7 @@ function FormPage() {
     async function loadNorwegianTranslations() {
       const nextTranslations = { ...cached }
 
-      for (const text of englishTexts) {
+      for (const text of untranslatedTexts) {
         try {
           nextTranslations[text] = await translateTextToNorwegian(text, controller?.signal)
         } catch (error) {
