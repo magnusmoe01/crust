@@ -2759,6 +2759,29 @@ tr:hover .history-row-order-btns {
   font-size: 1.1em;
 }
 
+.ice-count-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0;
+}
+
+.ice-count-edit-input {
+  width: 80px;
+  padding: 2px 6px;
+  font-size: 0.95em;
+}
+
+.ice-count-edit-trigger {
+  font-size: 0.85em;
+  padding: 0 4px;
+  opacity: 0.6;
+}
+
+.ice-count-edit-trigger:hover {
+  opacity: 1;
+}
+
 .production-stats-page {
   padding: 16px;
 }

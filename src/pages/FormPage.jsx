@@ -2181,6 +2181,9 @@ function FormPage() {
   const [editPhoneSubmissionId, setEditPhoneSubmissionId] = useState('')
   const [editPhoneDraft, setEditPhoneDraft] = useState('')
   const [editPhoneState, setEditPhoneState] = useState({ saving: false, error: '' })
+  const [editIceCountEditing, setEditIceCountEditing] = useState(false)
+  const [editIceCountDraft, setEditIceCountDraft] = useState('')
+  const [editIceCountState, setEditIceCountState] = useState({ saving: false, error: '' })
   const [inventoryUpdates, setInventoryUpdates] = useState({})
   const [hideUpdatedValues, setHideUpdatedValues] = useState(false)
   const [showInventoryModal, setShowInventoryModal] = useState(false)
@@ -5004,6 +5007,33 @@ function FormPage() {
       setEditPhoneState({ saving: false, error: '' })
     } catch (err) {
       setEditPhoneState({ saving: false, error: `Could not save: ${err.message}` })
+    }
+  }
+
+  async function onSaveIceCountEdit(submissionId) {
+    const countQuestion = formData.questions.find((q) => q.isIceProductionCount)
+    if (!countQuestion?.id) return
+    const newValue = editIceCountDraft.trim()
+    if (!newValue || !Number.isFinite(Number(newValue)) || Number(newValue) < 0) {
+      setEditIceCountState({ saving: false, error: 'Enter a valid number.' })
+      return
+    }
+    setEditIceCountState({ saving: true, error: '' })
+    try {
+      await updateDoc(doc(db, 'formSubmissions', submissionId), {
+        [`answers.${countQuestion.id}`]: newValue,
+      })
+      setSubmissions((prev) =>
+        prev.map((s) =>
+          s.id === submissionId
+            ? { ...s, answers: { ...s.answers, [countQuestion.id]: newValue } }
+            : s,
+        ),
+      )
+      setEditIceCountEditing(false)
+      setEditIceCountState({ saving: false, error: '' })
+    } catch (err) {
+      setEditIceCountState({ saving: false, error: `Could not save: ${err.message}` })
     }
   }
 
@@ -11345,7 +11375,59 @@ function FormPage() {
                         <div className="receipt-meta ice-production-rate-box">
                           <p><strong>Ice cream production</strong></p>
                           <p>{prodRate.startTime} – {prodRate.endTime} ({prodRate.hours} hours)</p>
-                          <p>{prodRate.count} cones total</p>
+                          <div className="ice-count-edit-row">
+                            {editIceCountEditing ? (
+                              <>
+                                <input
+                                  type="number"
+                                  className="ice-count-edit-input"
+                                  value={editIceCountDraft}
+                                  autoFocus
+                                  min="0"
+                                  onChange={(e) => setEditIceCountDraft(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') onSaveIceCountEdit(selectedSubmission.id)
+                                    if (e.key === 'Escape') { setEditIceCountEditing(false); setEditIceCountState({ saving: false, error: '' }) }
+                                  }}
+                                />
+                                <span>cones total</span>
+                                <button
+                                  type="button"
+                                  className="ghost"
+                                  disabled={editIceCountState.saving}
+                                  onClick={() => onSaveIceCountEdit(selectedSubmission.id)}
+                                >
+                                  {editIceCountState.saving ? '…' : '✓'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="ghost"
+                                  onClick={() => { setEditIceCountEditing(false); setEditIceCountState({ saving: false, error: '' }) }}
+                                >
+                                  ✕
+                                </button>
+                                {editIceCountState.error ? (
+                                  <small className="forms-error">{editIceCountState.error}</small>
+                                ) : null}
+                              </>
+                            ) : (
+                              <>
+                                <span>{prodRate.count} cones total</span>
+                                <button
+                                  type="button"
+                                  className="ghost ice-count-edit-trigger"
+                                  title="Edit ice cream count"
+                                  onClick={() => {
+                                    setEditIceCountDraft(String(prodRate.count))
+                                    setEditIceCountEditing(true)
+                                    setEditIceCountState({ saving: false, error: '' })
+                                  }}
+                                >
+                                  ✏
+                                </button>
+                              </>
+                            )}
+                          </div>
                           <p className="ice-production-rate-highlight">
                             <strong>{prodRate.rate} cones / hour</strong> (average)
                           </p>
