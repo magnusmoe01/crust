@@ -559,53 +559,6 @@ async function translateNorwegianTextToEnglish(text, signal) {
   return translated || value
 }
 
-async function translateTextToNorwegian(text, signal) {
-  const value = String(text || '').trim()
-  if (!value) {
-    return ''
-  }
-
-  const params = new URLSearchParams({
-    client: 'gtx',
-    sl: 'auto',
-    tl: 'no',
-    dt: 't',
-    q: value,
-  })
-
-  const response = await fetch(`https://translate.googleapis.com/translate_a/single?${params.toString()}`, {
-    signal,
-  })
-
-  if (!response.ok) {
-    throw new Error(`Translate request failed (${response.status})`)
-  }
-
-  const payload = await response.json()
-  const translated = Array.isArray(payload?.[0])
-    ? payload[0].map((part) => String(part?.[0] || '')).join('').trim()
-    : ''
-
-  return translated || value
-}
-
-const NORWEGIAN_TRANSLATION_CACHE_KEY = 'crust-public-form-norwegian-cache'
-
-function readNorwegianTranslationCache() {
-  try {
-    const raw = window.localStorage.getItem(NORWEGIAN_TRANSLATION_CACHE_KEY)
-    return raw ? JSON.parse(raw) : {}
-  } catch {
-    return {}
-  }
-}
-
-function writeNorwegianTranslationCache(translations) {
-  try {
-    window.localStorage.setItem(NORWEGIAN_TRANSLATION_CACHE_KEY, JSON.stringify(translations))
-  } catch {}
-}
-
 function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -2108,7 +2061,6 @@ function FormPage() {
   const [submitOverlay, setSubmitOverlay] = useState({ open: false, status: 'idle' })
   const [displayLanguage, setDisplayLanguage] = useState(readPreferredPublicFormLanguage)
   const [englishTranslations, setEnglishTranslations] = useState(readEnglishTranslationCache)
-  const [norwegianTranslations, setNorwegianTranslations] = useState(readNorwegianTranslationCache)
   const [translationState, setTranslationState] = useState({ loading: false, error: '' })
 
   const [editorTitle, setEditorTitle] = useState(defaultStengeskjema.title)
@@ -2260,16 +2212,11 @@ function FormPage() {
       return ''
     }
 
-    if (shouldTranslateToEnglish) {
-      return englishTranslations[text] || englishTranslations[text.trim()] || text
+    if (!shouldTranslateToEnglish) {
+      return text
     }
 
-    const norwegianValue = norwegianTranslations[text] || norwegianTranslations[text.trim()]
-    if (norwegianValue && norwegianValue !== text) {
-      return norwegianValue
-    }
-
-    return text
+    return englishTranslations[text] || englishTranslations[text.trim()] || text
   }
 
   function getLocalizedInputPlaceholder(question, fallback = '') {
@@ -2474,50 +2421,6 @@ function FormPage() {
     publicCopy.translationError,
     shouldTranslateToEnglish,
   ])
-
-  useEffect(() => {
-    if (shouldTranslateToEnglish || loadingForm) {
-      return
-    }
-
-    const allTexts = collectFormTranslationTexts(formData)
-    const cached = readNorwegianTranslationCache()
-    const untranslatedTexts = allTexts.filter(
-      (text) => !String(cached[text] || '').trim(),
-    )
-
-    if (untranslatedTexts.length === 0) {
-      return
-    }
-
-    let cancelled = false
-    const controller = typeof AbortController === 'function' ? new AbortController() : null
-
-    async function loadNorwegianTranslations() {
-      const nextTranslations = { ...cached }
-
-      for (const text of untranslatedTexts) {
-        try {
-          nextTranslations[text] = await translateTextToNorwegian(text, controller?.signal)
-        } catch (error) {
-          if (error?.name === 'AbortError') return
-          nextTranslations[text] = text
-        }
-      }
-
-      if (cancelled) return
-
-      setNorwegianTranslations(nextTranslations)
-      writeNorwegianTranslationCache(nextTranslations)
-    }
-
-    loadNorwegianTranslations()
-
-    return () => {
-      cancelled = true
-      controller?.abort()
-    }
-  }, [formData, loadingForm, shouldTranslateToEnglish])
 
   useEffect(() => {
     if (!isSubmissionEditMode) {
