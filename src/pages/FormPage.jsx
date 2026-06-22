@@ -1452,7 +1452,7 @@ function getAnswerImageDetails(answerKey, value, submission, imageUrls, question
     return {
       isImageAnswer: true,
       imageUrl: normalizedValue,
-      fileLabel: getPathFileName(normalizedValue) || 'Åpne bilde',
+      fileLabel: getPathFileName(normalizedValue) || 'Open image',
     }
   }
 
@@ -1478,7 +1478,7 @@ function getAnswerImageDetails(answerKey, value, submission, imageUrls, question
     return {
       isImageAnswer: true,
       imageUrl: String(imageUrls?.[imagePath] || ''),
-      fileLabel: fileLabel || getPathFileName(normalizedValue) || 'Åpne bilde',
+      fileLabel: fileLabel || getPathFileName(normalizedValue) || 'Open image',
     }
   }
 
@@ -1626,16 +1626,16 @@ function getHistoryCellCategory(question, submission) {
 function getSubmissionStatusLabel(status) {
   switch (String(status || '').trim()) {
     case 'reviewed':
-      return 'Vurdert'
+      return 'Reviewed'
     case 'awaiting review':
-      return 'Venter på vurdering'
+      return 'Awaiting review'
     default:
-      return status ? String(status) : 'Venter på vurdering'
+      return status ? String(status) : 'Awaiting review'
   }
 }
 
 function getFlaggedStatusLabel(status) {
-  return String(status || '').trim().toLowerCase() === 'complete' ? 'Fullført' : 'Åpen'
+  return String(status || '').trim().toLowerCase() === 'complete' ? 'Complete' : 'Open'
 }
 
 function getEffectiveInventoryValue(questionId, locationUpdate, latestSubmittedAt) {
@@ -5093,7 +5093,7 @@ function FormPage() {
     )
 
     if (hasPendingDecisions) {
-      alert('Velg en vurdering for hvert spørsmål før du markerer innsendingen som vurdert.')
+      alert('Select a rating for each question before marking the submission as reviewed.')
       return
     }
 
@@ -5435,7 +5435,7 @@ function FormPage() {
       })[0]
 
     if (!latestFlagged) {
-      setTestEmailState({ sending: false, error: 'Ingen vurdert innsending med flaggede svar funnet.', message: '' })
+      setTestEmailState({ sending: false, error: 'No reviewed submission with flagged answers found.', message: '' })
       return
     }
 
@@ -7784,7 +7784,7 @@ function FormPage() {
                   <strong>Lokasjon:</strong> {getSubmissionPlace(submission.answers)}
                 </p>
                 <p>
-                  <strong>Sendt inn:</strong> {formatTime(submission.submittedAt)}
+                  <strong>Submitted:</strong> {formatTime(submission.submittedAt)}
                 </p>
                 <p>
                   <strong>Status:</strong>{' '}
@@ -7801,7 +7801,7 @@ function FormPage() {
                     target="_blank"
                     rel="noreferrer"
                   >
-                    Vis kvittering
+                    View receipt
                   </a>
                 ) : null}
                 <button
@@ -7868,7 +7868,7 @@ function FormPage() {
                         <p className="review-answer-value">
                           {existingWarnings.length > 0
                             ? `${existingWarnings.length} registrert tidligere`
-                            : 'Ingen registrerte advarsler ennå.'}
+                            : 'No recorded warnings yet.'}
                         </p>
                       </div>
                       <button
@@ -7995,7 +7995,7 @@ function FormPage() {
                               className="ghost"
                               onClick={() => setFlaggedCategoryPopupOpenId('')}
                             >
-                              Lukk
+                              Close
                             </button>
                             <button
                               type="button"
@@ -8003,7 +8003,7 @@ function FormPage() {
                               onClick={() => onAddWarningCategory(submission)}
                               disabled={flaggedState.categorySaving}
                             >
-                              {flaggedState.categorySaving ? 'Lagrer...' : 'Lagre kategori'}
+                              {flaggedState.categorySaving ? 'Saving...' : 'Save category'}
                             </button>
                           </div>
                           {flaggedState.categoryError ? (
@@ -8018,7 +8018,7 @@ function FormPage() {
                       onClick={() => onCompleteFlaggedSubmission(submission)}
                       disabled={flaggedState.saving}
                     >
-                      {flaggedState.saving ? 'Lagrer...' : 'Set complete'}
+                      {flaggedState.saving ? 'Saving...' : 'Set complete'}
                     </button>
                   </div>
                   {flaggedState.error ? <p className="forms-error">{flaggedState.error}</p> : null}
@@ -8219,8 +8219,8 @@ function FormPage() {
                       {remarkState.categorySaving &&
                       remarkCategoryPendingAction === 'create' &&
                       remarkCategoryPendingName === String(newRemarkCategoryDraft || '').trim()
-                        ? 'Lagrer...'
-                        : 'Lagre kategori'}
+                        ? 'Saving...'
+                        : 'Save category'}
                     </button>
                   </div>
                 </div>
@@ -8232,10 +8232,10 @@ function FormPage() {
               onClick={openRemarkCategoryManager}
               disabled={remarkState.categorySaving}
             >
-              Administrer kategorier
+              Manage categories
             </button>
             <button type="submit" className="cta" disabled={remarkState.saving}>
-              {remarkState.saving ? 'Lagrer...' : 'Lagre merknad'}
+              {remarkState.saving ? 'Saving...' : 'Save remark'}
             </button>
           </div>
           {remarkState.categoryError && !remarkCategoryManagerOpen ? (
@@ -8305,7 +8305,7 @@ function FormPage() {
                       </small>
                     </>
                   ) : (
-                    <p className="review-answer-value">Ingen kategorier ennå.</p>
+                    <p className="review-answer-value">No categories yet.</p>
                   )}
                   {remarkCategoryModalCategory ? (
                     <>
@@ -8352,7 +8352,7 @@ function FormPage() {
                           remarkCategoryPendingAction === 'rename' &&
                           remarkCategoryPendingName.toLowerCase() ===
                             remarkCategoryModalCategory.toLowerCase()
-                            ? 'Lagrer...'
+                            ? 'Saving...'
                             : 'Save new name'}
                         </button>
                         <button
@@ -8386,9 +8386,9 @@ function FormPage() {
           </div>
         ) : null}
 
-        {loadingRemarks ? <p>Laster merknader...</p> : null}
+        {loadingRemarks ? <p>Loading remarks...</p> : null}
         {!loadingRemarks && remarksOverview.totalWarnings === 0 ? (
-          <p>Ingen registrerte advarsler ennå.</p>
+          <p>No recorded warnings yet.</p>
         ) : null}
         {!loadingRemarks && remarksOverview.totalWarnings > 0 ? (
           <>
@@ -8620,7 +8620,7 @@ function FormPage() {
       {isAdminShellView ? (
         <form action="/skjema" method="get">
           <button type="submit" className="admin-login-link">
-            Tilbake til hovedmeny
+            Back to main menu
           </button>
         </form>
       ) : !isStandalonePublicForm ? (
@@ -8799,7 +8799,7 @@ function FormPage() {
                               {answerImage.imageUrl ? (
                                 <p className="receipt-answer-value receipt-answer-file-link">
                                   <a href={answerImage.imageUrl} target="_blank" rel="noreferrer">
-                                    {answerImage.fileLabel || 'Åpne bilde'}
+                                    {answerImage.fileLabel || 'Open image'}
                                   </a>
                                 </p>
                               ) : (
@@ -9004,20 +9004,20 @@ function FormPage() {
               <div className="admin-editor">
                 <div className="editor-mode-header">
                   <h3>Rediger skjema</h3>
-                  <div className="editor-mode-switch" role="group" aria-label="Visningsmodus">
+                  <div className="editor-mode-switch" role="group" aria-label="View modesmodus">
                     <button
                       type="button"
                       className={!editorEditMode ? 'is-active' : ''}
                       onClick={() => setEditorEditMode(false)}
                     >
-                      Visning
+                      View mode
                     </button>
                     <button
                       type="button"
                       className={editorEditMode ? 'is-active' : ''}
                       onClick={() => setEditorEditMode(true)}
                     >
-                      Redigeringsmodus
+                      Edit mode
                     </button>
                   </div>
                 </div>
@@ -9082,7 +9082,7 @@ function FormPage() {
                     onClick={onSaveForm}
                     disabled={saveState.saving}
                   >
-                    {saveState.saving ? 'Lagrer...' : 'Lagre skjema'}
+                    {saveState.saving ? 'Saving...' : 'Lagre skjema'}
                   </button>
                 </div>
 
@@ -9128,7 +9128,7 @@ function FormPage() {
                                 <option value="time-end">Tid (sluttid)</option>
                                 <option value="camera">Ta bilde fra kamera</option>
                                 <option value="multi-camera">Flere bilder</option>
-                                <option value="name">Brukerens navn</option>
+                                <option value="name">User's name</option>
                                 <option value="phone">Telefonnummer</option>
                                 <option value="email">E-post</option>
                                 <option value="section">Kategori</option>
@@ -9439,7 +9439,7 @@ function FormPage() {
                                         checked={(question.reviewType || 'rating') === 'rating'}
                                         onChange={() => onEditorQuestionChange(index, 'reviewType', 'rating')}
                                       />
-                                      Vurdering
+                                      Rating
                                     </label>
                                     <label className="radio-inline">
                                       <input
@@ -9449,7 +9449,7 @@ function FormPage() {
                                         checked={question.reviewType === 'flagging'}
                                         onChange={() => onEditorQuestionChange(index, 'reviewType', 'flagging')}
                                       />
-                                      Flagging
+                                      Flaging
                                     </label>
                                   </div>
                                 ) : null}
@@ -9632,7 +9632,7 @@ function FormPage() {
                               onClick={() => onSaveForm(index)}
                               disabled={saveState.saving}
                             >
-                              {saveState.saving ? 'Lagrer...' : 'Lagre spørsmål'}
+                              {saveState.saving ? 'Saving...' : 'Lagre spørsmål'}
                             </button>
                             <button
                               type="button"
@@ -9752,7 +9752,7 @@ function FormPage() {
             {isSubmissionsView ? (
               <div className="responses-box submissions-overview" id="submissions-section">
                 <div className="submissions-section-header">
-                  <h3>Innsendinger</h3>
+                  <h3>Submissions</h3>
                   <div className="submissions-section-actions">
                     <input
                       type="email"
@@ -9767,7 +9767,7 @@ function FormPage() {
                       onClick={onSendTestReviewEmail}
                       disabled={testEmailState.sending}
                     >
-                      {testEmailState.sending ? 'Sender…' : 'Send test-e-post'}
+                      {testEmailState.sending ? 'Sending…' : 'Send test email'}
                     </button>
                     <button
                       type="button"
@@ -9775,7 +9775,7 @@ function FormPage() {
                       onClick={onSendTestRejectionEmail}
                       disabled={testEmailState.sending}
                     >
-                      {testEmailState.sending ? 'Sender…' : 'Send test avvisnings-e-post'}
+                      {testEmailState.sending ? 'Sending…' : 'Send test rejection email'}
                     </button>
                     {testEmailState.message ? (
                       <span className="test-email-feedback test-email-feedback--ok">{testEmailState.message}</span>
@@ -9785,7 +9785,7 @@ function FormPage() {
                     ) : null}
                   </div>
                 </div>
-                {loadingSubmissions ? <p>Laster innsendinger...</p> : null}
+                {loadingSubmissions ? <p>Loading submissions...</p> : null}
                 {!loadingSubmissions && reviewedSubmissionMonthlyStats.length > 0 ? (() => {
                   const currentMonthKey = getSubmissionMonthKey(new Date())
                   const thisMonth = reviewedSubmissionMonthlyStats.find((m) => m.monthKey === currentMonthKey)
@@ -9794,19 +9794,19 @@ function FormPage() {
                     <div className="reviewed-monthly-summary">
                       <div className="reviewed-monthly-this-month">
                         <span>
-                          Vurdert denne måneden: <strong>{thisMonth?.reviewedCount ?? 0}</strong>
-                          {thisMonth?.flaggedCount > 0 ? <span className="reviewed-monthly-flagged-note"> ({thisMonth.flaggedCount} flagget)</span> : null}
+                          Reviewed this month: <strong>{thisMonth?.reviewedCount ?? 0}</strong>
+                          {thisMonth?.flaggedCount > 0 ? <span className="reviewed-monthly-flagged-note"> ({thisMonth.flaggedCount} flagged)</span> : null}
                         </span>
                         {missingReviewsByDay.map(([dayKey, count]) => {
                           const todayKey = new Date().toLocaleDateString('sv', { timeZone: 'Europe/Oslo' })
                           const isToday = dayKey === todayKey
                           return isToday ? (
                             <span key={dayKey} className="reviewed-monthly-ready">
-                              {count} innsending{count !== 1 ? 'er' : ''} klar til vurdering
+                              {count} submission{count !== 1 ? 's' : ''} ready to review
                             </span>
                           ) : (
                             <span key={dayKey} className="reviewed-monthly-missing">
-                              ⚠ {count} manglende vurdering{count !== 1 ? 'er' : ''} for {formatSubmissionDayLabel(dayKey)}
+                              ⚠ {count} missing review{count !== 1 ? 's' : ''} for {formatSubmissionDayLabel(dayKey)}
                             </span>
                           )
                         })}
@@ -9816,7 +9816,7 @@ function FormPage() {
                             className="submissions-action-button submissions-action-button--small"
                             onClick={() => setShowPastMonths((v) => !v)}
                           >
-                            {showPastMonths ? 'Skjul tidligere måneder' : 'Tidligere måneder'}
+                            {showPastMonths ? 'Hide past months' : 'Past months'}
                           </button>
                         ) : null}
                       </div>
@@ -9825,7 +9825,7 @@ function FormPage() {
                           {pastMonths.map((month) => (
                             <div key={month.monthKey} className="reviewed-monthly-past-row">
                               <span>{formatSubmissionMonthLabel(month.monthKey)}</span>
-                              <span><strong>{month.reviewedCount}</strong> vurdert{month.flaggedCount > 0 ? `, ${month.flaggedCount} flagget` : ''}</span>
+                              <span><strong>{month.reviewedCount}</strong> reviewed{month.flaggedCount > 0 ? `, ${month.flaggedCount} flagged` : ''}</span>
                             </div>
                           ))}
                         </div>
@@ -9836,7 +9836,7 @@ function FormPage() {
                 {!loadingSubmissions && availableSubmissionDays.length > 0 ? (
                   <div className="submissions-filter-bar">
                     <label className="field-block" htmlFor="submission-day-filter">
-                      <span>Dag</span>
+                      <span>Day</span>
                       <select
                         id="submission-day-filter"
                         value={effectiveSubmissionDay}
@@ -9858,7 +9858,7 @@ function FormPage() {
                         fetchLastPhotoMeta(submissions, () => setTimingIssuesFetching(false))
                       }}
                     >
-                      Sjekk tidspunkt
+                      Check timing
                     </button>
                   </div>
                 ) : null}
@@ -9875,12 +9875,12 @@ function FormPage() {
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div className="submission-modal-header">
-                        <h4>Tidsavvik (&gt;5 min forskjell)</h4>
-                        <button type="button" className="ghost" onClick={() => setShowTimingIssues(false)}>Lukk</button>
+                        <h4>Timing issues (&gt;5 min difference)</h4>
+                        <button type="button" className="ghost" onClick={() => setShowTimingIssues(false)}>Close</button>
                       </div>
                       <div className="submission-modal-content">
                         {timingIssuesFetching ? (
-                          <p style={{color:'var(--muted)'}}>Henter bildetidspunkter…</p>
+                          <p style={{color:'var(--muted)'}}>Fetching photo times…</p>
                         ) : (() => {
                           const FIVE_MIN = 5 * 60 * 1000
                           const issues = submissions.filter((s) => {
@@ -9891,15 +9891,15 @@ function FormPage() {
                             if (!submittedMs || !photoMs) return false
                             return Math.abs(submittedMs - photoMs) > FIVE_MIN
                           })
-                          if (issues.length === 0) return <p>Ingen tidsavvik funnet.</p>
+                          if (issues.length === 0) return <p>No timing issues found.</p>
                           return (
                             <table className="submissions-table timing-issues-table">
                               <thead>
                                 <tr>
-                                  <th>Navn</th>
-                                  <th>Sendt inn</th>
-                                  <th>Siste bilde</th>
-                                  <th>Avvik</th>
+                                  <th>Name</th>
+                                  <th>Submitted</th>
+                                  <th>Last photo</th>
+                                  <th>Diff</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -9931,23 +9931,23 @@ function FormPage() {
                   </div>
                 ) : null}
                 {!loadingSubmissions && submissions.length === 0 ? (
-                  <p>Ingen innsendinger ennå.</p>
+                  <p>No submissions yet.</p>
                 ) : null}
                 {!loadingSubmissions && submissions.length > 0 && visibleSubmissions.length === 0 ? (
-                  <p>Ingen innsendinger for valgt dag.</p>
+                  <p>No submissions for the selected day.</p>
                 ) : null}
                 {!loadingSubmissions && visibleSubmissions.length > 0 ? (
                   <div className="submissions-table-wrap">
                     <table className="submissions-table">
                       <thead>
                         <tr>
-                          <th>Sendt inn</th>
-                          <th>Siste bilde tatt</th>
-                          <th>Lokasjon</th>
-                          <th>Telefon</th>
-                          <th>Kvittering</th>
+                          <th>Submitted</th>
+                          <th>Last photo taken</th>
+                          <th>Location</th>
+                          <th>Phone</th>
+                          <th>Receipt</th>
                           <th>Status</th>
-                          <th>Handlinger</th>
+                          <th>Actions</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -10032,7 +10032,7 @@ function FormPage() {
                                     <button
                                       type="button"
                                       className="ghost phone-edit-trigger"
-                                      title="Rediger telefonnummer"
+                                      title="Edit phone number"
                                       onClick={() => {
                                         setEditPhoneSubmissionId(submission.id)
                                         setEditPhoneDraft(getSubmissionPhone(submission.answers, formData.questions) || '')
@@ -10052,7 +10052,7 @@ function FormPage() {
                                     target="_blank"
                                     rel="noreferrer"
                                   >
-                                    Vis kvittering
+                                    View receipt
                                   </a>
                                 ) : (
                                   '-'
@@ -10071,7 +10071,7 @@ function FormPage() {
                                   </span>
                                   {flaggedCount > 0 ? (
                                     <span className="submission-status-badge is-flagged">
-                                      Flagget
+                                      Flaged
                                     </span>
                                   ) : null}
                                 </div>
@@ -10082,7 +10082,7 @@ function FormPage() {
                                     className="ghost"
                                     href={`/skjema/${activeFormSlug}/review/${submission.id}`}
                                   >
-                                    Vurder
+                                    Review
                                   </a>
                                   <button
                                     type="button"
@@ -10090,7 +10090,7 @@ function FormPage() {
                                     onClick={() => onDeleteSubmission(submission.id)}
                                     disabled={deleteState.deleting}
                                   >
-                                    {deleteState.deleting ? 'Sletter...' : 'Slett'}
+                                    {deleteState.deleting ? 'Deleting...' : 'Delete'}
                                   </button>
                                   {deleteState.error ? (
                                     <small className="forms-error">{deleteState.error}</small>
@@ -10111,7 +10111,7 @@ function FormPage() {
             {isSubmissionsView && isAdmin && (submissionErrors.length > 0 || loadingErrors) ? (
               <div className="responses-box submissions-overview">
                 <h3>Innsendingsfeil</h3>
-                {loadingErrors ? <p>Laster...</p> : null}
+                {loadingErrors ? <p>Loading...</p> : null}
                 {!loadingErrors && submissionErrors.length > 0 ? (
                   <table className="submissions-table" style={{ fontSize: '0.82rem' }}>
                     <thead>
@@ -10169,7 +10169,7 @@ function FormPage() {
                       <tr>
                         <th>Reviewed</th>
                         <th>Score</th>
-                        <th>Generell tilbakemelding</th>
+                        <th>General feedback</th>
                         <th>Receipt</th>
                         <th>Register follow-up</th>
                       </tr>
@@ -10238,7 +10238,7 @@ function FormPage() {
                                     setFollowUpSavingId('')
                                   }}
                                 >
-                                  {followUpSavingId === sub.id ? 'Lagrer...' : 'Merk oppfølging som fullført'}
+                                  {followUpSavingId === sub.id ? 'Saving...' : 'Mark follow-up done'}
                                 </button>
                               </div>
                             </td>
@@ -10377,7 +10377,7 @@ function FormPage() {
                       <tr>
                         <th>Bekreftet lest</th>
                         <th>Score</th>
-                        <th>Generell tilbakemelding</th>
+                        <th>General feedback</th>
                         <th>Kvittering</th>
                       </tr>
                     </thead>
@@ -10425,7 +10425,7 @@ function FormPage() {
             {isFlaggedView ? (
               <div className="responses-box submissions-overview" id="flagged-section">
                 <h3>Flagget &amp; vurdert</h3>
-                {loadingSubmissions ? <p>Laster...</p> : null}
+                {loadingSubmissions ? <p>Loading...</p> : null}
                 {!loadingSubmissions && flaggedSubmissions.length === 0 ? (
                   <p>Ingen flaggede eller vurderte svar ennå.</p>
                 ) : null}
@@ -10490,7 +10490,7 @@ function FormPage() {
             {isRatingView ? (
               <div className="responses-box rating-overview" id="rating-section">
                 <h3>Rating</h3>
-                {loadingSubmissions ? <p>Laster...</p> : null}
+                {loadingSubmissions ? <p>Loading...</p> : null}
                 {!loadingSubmissions && userScoreboard.length === 0 ? (
                   <p>Ingen vurderte innsendinger ennå.</p>
                 ) : null}
@@ -10568,7 +10568,7 @@ function FormPage() {
                       onClick={onSaveHistoryDefault}
                       disabled={historyDefaultState.saving}
                     >
-                      {historyDefaultState.saving ? 'Lagrer...' : 'Lagre default'}
+                      {historyDefaultState.saving ? 'Saving...' : 'Lagre default'}
                     </button>
                     {historyRows.length > 0 ? (
                       <div className="history-filter-bar">
@@ -10841,10 +10841,10 @@ function FormPage() {
 
                 {loadingSubmissions ? <p>Laster analyse...</p> : null}
                 {!loadingSubmissions && analysisQuestions.length === 0 ? (
-                  <p>Ingen spørsmål er merket med "Inkluder i analyse" ennå.</p>
+                  <p>No questions are marked with "Include in analysis" yet.</p>
                 ) : null}
                 {!loadingSubmissions && analysisQuestions.length > 0 && historyRows.length === 0 ? (
-                  <p>Ingen innsendinger ennå.</p>
+                  <p>No submissions yet.</p>
                 ) : null}
                 {!loadingSubmissions && analysisQuestions.length > 0 && visibleHistoryRows.length > 0 ? (
                   <div className="history-table-wrap">
@@ -11002,7 +11002,7 @@ function FormPage() {
                 analysisQuestions.length > 0 &&
                 visibleHistoryRows.length > 0 &&
                 visibleHistoryQuestions.length === 0 ? (
-                  <p>Ingen spørsmål er valgt i filteret.</p>
+                  <p>No questions selected in the filter.</p>
                 ) : null}
 
                 {!loadingSubmissions && (() => {
@@ -11079,7 +11079,7 @@ function FormPage() {
                   <div className="submission-modal-header">
                     <h4 id="inventory-update-modal-title">Rediger varebeholdning</h4>
                     <button type="button" className="ghost" onClick={() => setShowInventoryModal(false)}>
-                      Lukk
+                      Close
                     </button>
                   </div>
                   <div className="submission-modal-content">
@@ -11167,7 +11167,7 @@ function FormPage() {
                   </div>
                   <div className="submission-modal-actions" style={{ padding: '10px 14px', borderTop: '1px solid rgba(24,44,60,0.12)', justifyContent: 'flex-end' }}>
                     <button type="button" className="ghost" onClick={() => setShowInventoryModal(false)}>
-                      Avbryt
+                      Cancel
                     </button>
                     <button
                       type="button"
@@ -11180,7 +11180,7 @@ function FormPage() {
                       }
                       onClick={onSaveInventoryUpdate}
                     >
-                      {inventoryModalSaving ? 'Lagrer...' : 'Lagre'}
+                      {inventoryModalSaving ? 'Saving...' : 'Lagre'}
                     </button>
                   </div>
                 </div>
@@ -11191,17 +11191,17 @@ function FormPage() {
               <div className="responses-box production-stats-page" id="production-section">
                 <div className="review-page-header">
                   <div>
-                    <h3>Iskrem produksjon per time</h3>
+                    <h3>Ice cream production per hour</h3>
                   </div>
                   <div className="submission-modal-actions">
                     <form action={`/skjema/${activeFormSlug}/submissions`} method="get">
                       <button type="submit" className="ghost">
-                        Tilbake til innsendinger
+                        Back to submissions
                       </button>
                     </form>
                   </div>
                 </div>
-                {loadingSubmissions ? <p>Laster...</p> : null}
+                {loadingSubmissions ? <p>Loading...</p> : null}
                 {!loadingSubmissions ? (() => {
                   const hasIceQuestion = formData.questions.some((q) => q.isIceProductionCount)
                   const hasTimeStart = formData.questions.some((q) => q.type === 'time-start')
@@ -11209,7 +11209,7 @@ function FormPage() {
                   if (!hasIceQuestion || !hasTimeStart || !hasTimeEnd) {
                     return (
                       <p className="forms-error">
-                        Skjemaet mangler nødvendige felt: {!hasTimeStart ? 'starttid, ' : ''}{!hasTimeEnd ? 'sluttid, ' : ''}{!hasIceQuestion ? 'antall iskrem (merk et spørsmål med "Antall iskrem" i editoren)' : ''}
+                        Form is missing required fields: {!hasTimeStart ? 'start time, ' : ''}{!hasTimeEnd ? 'end time, ' : ''}{!hasIceQuestion ? 'ice cream count (mark a question with "Antall iskrem" in the editor)' : ''}
                       </p>
                     )
                   }
@@ -11217,7 +11217,7 @@ function FormPage() {
                   for (const sub of submissions) {
                     const rate = getIceProductionRate(sub.answers, formData.questions)
                     if (!rate) continue
-                    const userName = getSubmissionName(sub.answers, formData.questions) || 'Ukjent'
+                    const userName = getSubmissionName(sub.answers, formData.questions) || 'Unknown'
                     if (!userMap[userName]) {
                       userMap[userName] = { totalCones: 0, totalHours: 0, sessions: [] }
                     }
@@ -11247,7 +11247,7 @@ function FormPage() {
                     }))
                     .sort((a, b) => b.avgRate - a.avgRate)
                   if (userList.length === 0) {
-                    return <p>Ingen innsendinger med iskrem-data funnet.</p>
+                    return <p>No submissions with ice cream data found.</p>
                   }
                   return (
                     <div className="production-stats-list">
@@ -11256,25 +11256,25 @@ function FormPage() {
                           <div className="production-user-header">
                             <h4>{user.name}</h4>
                             <span className="production-user-avg">
-                              {user.avgRate} kuler / time (gjennomsnitt)
+                              {user.avgRate} cones / hour (average)
                             </span>
                           </div>
                           <div className="production-user-totals">
-                            <span>{user.totalCones} kuler totalt</span>
-                            <span>{user.totalHours} timer totalt</span>
-                            <span>{user.sessions.length} {user.sessions.length === 1 ? 'økt' : 'økter'}</span>
+                            <span>{user.totalCones} cones total</span>
+                            <span>{user.totalHours} hours total</span>
+                            <span>{user.sessions.length} {user.sessions.length === 1 ? 'session' : 'sessions'}</span>
                           </div>
                           <details className="production-sessions-details">
-                            <summary>Vis økter</summary>
+                            <summary>Show sessions</summary>
                             <table className="submissions-table production-sessions-table">
                               <thead>
                                 <tr>
-                                  <th>Dato</th>
+                                  <th>Date</th>
                                   <th>Start</th>
-                                  <th>Slutt</th>
-                                  <th>Timer</th>
-                                  <th>Kuler</th>
-                                  <th>Kuler/time</th>
+                                  <th>End</th>
+                                  <th>Hours</th>
+                                  <th>Cones</th>
+                                  <th>Cones/hour</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -11303,7 +11303,7 @@ function FormPage() {
               <div className="responses-box review-page" id="review-section">
                 <div className="review-page-header">
                   <div>
-                    <h3>Vurder innsending</h3>
+                    <h3>Review submission</h3>
                     {selectedSubmission ? (
                       <p>
                         {getSubmissionLocation(selectedSubmission.answers, formData.questions)} |{' '}
@@ -11314,24 +11314,24 @@ function FormPage() {
                   <div className="submission-modal-actions">
                     <form action={`/skjema/${activeFormSlug}/submissions`} method="get">
                       <button type="submit" className="ghost">
-                        Tilbake til innsendinger
+                        Back to submissions
                       </button>
                     </form>
                   </div>
                 </div>
 
-                {loadingSubmissions ? <p>Laster innsending...</p> : null}
+                {loadingSubmissions ? <p>Loading submission...</p> : null}
                 {!loadingSubmissions && !selectedSubmission ? (
-                  <p>Fant ikke innsendingen.</p>
+                  <p>Could not find the submission.</p>
                 ) : null}
                 {selectedSubmission ? (
                   <>
                     <div className="receipt-meta review-meta-grid">
                       <p>
-                        <strong>Innsending:</strong> {selectedSubmission.id}
+                        <strong>Submission:</strong> {selectedSubmission.id}
                       </p>
                       <p>
-                        <strong>Sendt inn:</strong> {formatTime(selectedSubmission.submittedAt)}
+                        <strong>Submitted:</strong> {formatTime(selectedSubmission.submittedAt)}
                       </p>
                       <p>
                         <strong>Status:</strong> {getSubmissionStatusLabel(selectedSubmission.status)}
@@ -11343,27 +11343,27 @@ function FormPage() {
                       if (!prodRate) return null
                       return (
                         <div className="receipt-meta ice-production-rate-box">
-                          <p><strong>Iskrem produksjon</strong></p>
-                          <p>{prodRate.startTime} – {prodRate.endTime} ({prodRate.hours} timer)</p>
-                          <p>{prodRate.count} kuler totalt</p>
+                          <p><strong>Ice cream production</strong></p>
+                          <p>{prodRate.startTime} – {prodRate.endTime} ({prodRate.hours} hours)</p>
+                          <p>{prodRate.count} cones total</p>
                           <p className="ice-production-rate-highlight">
-                            <strong>{prodRate.rate} kuler / time</strong> (gjennomsnitt)
+                            <strong>{prodRate.rate} cones / hour</strong> (average)
                           </p>
                         </div>
                       )
                     })()}
 
                     {reviewQuestions.length === 0 ? (
-                      <p>Ingen spørsmål er merket med «Skal vurderes» i dette skjemaet.</p>
+                      <p>No questions are marked with "Should be reviewed" in this form.</p>
                     ) : null}
 
                     {reviewQuestions.length > 0 && selectedSubmissionAnswerEntries.length === 0 ? (
-                      <p>Ingen vurderingsspørsmål har svar i denne innsendingen.</p>
+                      <p>No review questions have answers in this submission.</p>
                     ) : null}
 
                     {selectedSubmissionAnswerEntries.length > 0 && hasPendingReviewDecisions ? (
                       <p className="review-pending-note">
-                        Velg <FaceHappy size={16} />, <FaceNeutral size={16} /> eller <FaceSad size={16} /> for hvert spørsmål før du markerer innsendingen som vurdert.
+                        Select <FaceHappy size={16} />, <FaceNeutral size={16} /> or <FaceSad size={16} /> for each question before marking the submission as reviewed.
                       </p>
                     ) : null}
 
@@ -11426,7 +11426,7 @@ function FormPage() {
                                   ),
                                 )}
                               </p>
-                              <p className="review-panel-title">Brukerens svar</p>
+                              <p className="review-panel-title">User answer</p>
                               {reviewImage.isImageAnswer ? (
                                 <>
                                   {reviewImage.imageUrl ? (
@@ -11456,14 +11456,14 @@ function FormPage() {
                                         target="_blank"
                                         rel="noreferrer"
                                       >
-                                        {reviewImage.fileLabel || 'Åpne bilde'}
+                                        {reviewImage.fileLabel || 'Open image'}
                                       </a>
                                     </p>
                                   ) : (
                                     <p className="review-answer-value">
                                       {selectedSubmissionImagesLoading
-                                        ? 'Laster bilde...'
-                                        : reviewImage.fileLabel || 'Kunne ikke laste bilde.'}
+                                        ? 'Loading image...'
+                                        : reviewImage.fileLabel || 'Could not load image.'}
                                     </p>
                                   )}
                                 </>
@@ -11480,7 +11480,7 @@ function FormPage() {
                             </div>
 
                             <div className="review-comparison-panel">
-                              <p className="review-panel-title">Referansebilde</p>
+                              <p className="review-panel-title">Reference image</p>
                               {question?.imageUrl ? (
                                 renderQuestionImage(
                                   question.imageUrl,
@@ -11488,7 +11488,7 @@ function FormPage() {
                                   question.imageZoom,
                                 )
                               ) : (
-                                <p className="review-answer-value">Ingen referansebilde</p>
+                                <p className="review-answer-value">No reference image</p>
                               )}
                             </div>
 
@@ -11496,7 +11496,7 @@ function FormPage() {
                               {question?.reviewHelpText ? (
                                 <p className="review-help-text">{translateText(question.reviewHelpText)}</p>
                               ) : null}
-                              <p className="review-panel-title">Vurdering</p>
+                              <p className="review-panel-title">Review</p>
                               {isFlaggingQuestion ? (
                                 <>
                                   <div className="review-action-row">
@@ -11505,14 +11505,14 @@ function FormPage() {
                                       className={`review-status-button is-approve is-text ${isApproved ? 'is-active' : ''}`}
                                       onClick={() => onSetReviewStatus(answerKey, 'approved')}
                                     >
-                                      Godkjenn
+                                      Approve
                                     </button>
                                     <button
                                       type="button"
                                       className={`review-status-button is-flag is-text ${isNeutral ? 'is-active' : ''}`}
                                       onClick={() => onSetReviewStatus(answerKey, 'flagged')}
                                     >
-                                      Flagg
+                                      Flag
                                     </button>
                                   </div>
                                   {isFlagged ? (
@@ -11520,7 +11520,7 @@ function FormPage() {
                                       className="field-block review-comment-field"
                                       htmlFor={`review-comment-${answerKey}`}
                                     >
-                                      <span>Kommentar</span>
+                                      <span>Comment</span>
                                       <textarea
                                         id={`review-comment-${answerKey}`}
                                         rows={4}
@@ -11616,13 +11616,13 @@ function FormPage() {
                   <div className="review-general-feedback">
                     {!reviewRejected ? (
                       <label className="review-general-feedback-label">
-                        <span>Generell tilbakemelding til ansatt <span className="review-general-feedback-optional">(valgfritt)</span></span>
+                        <span>General feedback to employee <span className="review-general-feedback-optional">(optional)</span></span>
                         <textarea
                           className="review-general-feedback-textarea"
                           rows={3}
                           value={reviewGeneralFeedback}
                           onChange={(e) => setReviewGeneralFeedback(e.target.value)}
-                          placeholder="Skriv overordnet tilbakemelding som vises øverst i e-posten…"
+                          placeholder="Write overall feedback shown at the top of the email…"
                         />
                       </label>
                     ) : null}
@@ -11633,17 +11633,17 @@ function FormPage() {
                         checked={reviewRejected}
                         onChange={(e) => setReviewRejected(e.target.checked)}
                       />
-                      <span>Avvis dette stengeskjemaet</span>
+                      <span>Reject this closing form</span>
                     </label>
                     {reviewRejected ? (
                       <label className="review-general-feedback-label">
-                        <span>Begrunnelse for avvisning <span className="review-general-feedback-required">*</span></span>
+                        <span>Rejection reason <span className="review-general-feedback-required">*</span></span>
                         <textarea
                           className="review-general-feedback-textarea"
                           rows={3}
                           value={reviewRejectionComment}
                           onChange={(e) => setReviewRejectionComment(e.target.value)}
-                          placeholder="Forklar hvorfor skjemaet blir avvist…"
+                          placeholder="Explain why the form is being rejected…"
                         />
                       </label>
                     ) : null}
@@ -11654,7 +11654,7 @@ function FormPage() {
                         checked={reviewSendEmail}
                         onChange={(e) => setReviewSendEmail(e.target.checked)}
                       />
-                      <span>Send vurdering til bruker på e-post</span>
+                      <span>Send review to user on email</span>
                     </label>
 
                     <div className="review-general-feedback-actions">
@@ -11668,7 +11668,7 @@ function FormPage() {
                           (!reviewRejected && hasPendingReviewDecisions)
                         }
                       >
-                        Merk som vurdert
+                        Set as reviewed
                       </button>
                     </div>
                   </div>
@@ -11683,7 +11683,7 @@ function FormPage() {
           className="submission-modal-backdrop"
           role="dialog"
           aria-modal="true"
-          aria-label="Forhåndsvisning av e-post"
+          aria-label="Email preview"
           onClick={() => setReviewEmailPreviewData(null)}
         >
           <div
@@ -11691,7 +11691,7 @@ function FormPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="submission-modal-header">
-              <h4>Forhåndsvisning av e-post</h4>
+              <h4>Email preview</h4>
               <div className="submission-modal-actions">
                 <button
                   type="button"
@@ -11699,7 +11699,7 @@ function FormPage() {
                   onClick={() => setReviewEmailPreviewData(null)}
                   disabled={reviewSubmissionState.saving}
                 >
-                  Avbryt
+                  Cancel
                 </button>
                 <button
                   type="button"
@@ -11707,7 +11707,7 @@ function FormPage() {
                   onClick={onSaveSubmissionReview}
                   disabled={reviewSubmissionState.saving}
                 >
-                  {reviewSubmissionState.saving ? 'Lagrer…' : 'Send e-post og merk som vurdert'}
+                  {reviewSubmissionState.saving ? 'Saving…' : 'Send email & mark as reviewed'}
                 </button>
               </div>
             </div>
@@ -11716,7 +11716,7 @@ function FormPage() {
               <div className="email-preview-envelope">
                 <div className="email-preview-recipients">
                   <label className="review-email-override-label">
-                    <strong>Til:</strong>
+                    <strong>To:</strong>
                     <input
                       className="review-email-override-input"
                       type="email"
@@ -11733,7 +11733,7 @@ function FormPage() {
                         onClick={onSaveEmailForPhone}
                         disabled={reviewEmailSaving || reviewEmailSaved}
                       >
-                        {reviewEmailSaved ? '✓ E-post lagret' : reviewEmailSaving ? 'Lagrer…' : 'Lagre e-post for dette telefonnummeret'}
+                        {reviewEmailSaved ? '✓ Email saved' : reviewEmailSaving ? 'Saving…' : 'Save email for this phone number'}
                       </button>
                     </div>
                   ) : null}

@@ -370,13 +370,13 @@ function Forms() {
                       className="ghost"
                       href={`/skjema/${form.slug}/submissions`}
                     >
-                      Innsendinger ({pendingReviewCounts[form.slug] || 0})
+                      Submissions ({pendingReviewCounts[form.slug] || 0})
                     </a>
                     <a
                       className="ghost"
                       href={`/skjema/${form.slug}/edit`}
                     >
-                      Rediger skjema
+                      Edit form
                     </a>
                   </>
                 ) : null}
@@ -387,31 +387,31 @@ function Forms() {
                     className="ghost"
                     href={`/skjema/${form.slug}/flagget`}
                   >
-                    Flagget ({flaggedCounts[form.slug] || 0})
+                    Flagged ({flaggedCounts[form.slug] || 0})
                   </a>
                   <a
                     className="ghost"
                     href={`/skjema/${form.slug}/rating`}
                   >
-                    Vurdering
+                    Rating
                   </a>
                   <a
                     className="ghost"
                     href={`/skjema/${form.slug}/remarks`}
                   >
-                    Merknader ({remarkCounts[form.slug] || 0})
+                    Remarks ({remarkCounts[form.slug] || 0})
                   </a>
                   <a
                     className="ghost"
                     href={`/skjema/${form.slug}/analyse`}
                   >
-                    Varebeholdning
+                    Inventory
                   </a>
                   <a
                     className="ghost"
                     href={`/skjema/${form.slug}/produksjon`}
                   >
-                    Produksjon
+                    Production
                   </a>
                 </div>
               ) : null}
