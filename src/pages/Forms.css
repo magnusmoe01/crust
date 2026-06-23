@@ -677,6 +677,23 @@
   border: 0;
 }
 
+.multi-camera-preview-list {
+  display: grid;
+  gap: 12px;
+}
+
+.multi-camera-preview-item {
+  display: grid;
+  gap: 4px;
+}
+
+.multi-camera-remove-button {
+  font-size: 0.85em;
+  color: #c0392b;
+  text-align: left;
+  padding: 2px 0;
+}
+
 .field-block input,
 .field-block textarea,
 .field-block select {

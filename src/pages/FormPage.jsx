@@ -28,7 +28,7 @@ const SUBMISSION_DATE_KEY = 'Innsendt dato'
 const SUBMISSION_TIME_KEY = 'Innsendt tid'
 const SELECT_DETAIL_SUFFIX = '__details'
 const IMAGE_CAPTURED_AT_SUFFIX = '__capturedAt'
-const SELF_DECLARATION_ACCEPTED_KEY = 'Egenerklæring bekreftet'
+const SELF_DECLARATION_ACCEPTED_KEY = 'EgenerklÃ¦ring bekreftet'
 const SELECT_OPTION_HISTORY_CATEGORIES = ['normal', 'orange', 'red']
 const RECEIPT_EDIT_WINDOW_MS = 30 * 60 * 1000
 const MAX_UPLOADED_IMAGE_BYTES = 500 * 1024
@@ -37,12 +37,12 @@ const IMAGE_COMPRESSION_QUALITIES = [0.82, 0.74, 0.66, 0.58, 0.5]
 const IMAGE_COMPRESSION_SCALES = [1, 0.9, 0.8, 0.7]
 const PUBLIC_FORM_COPY = {
   no: {
-    languageLabel: 'Språk',
+    languageLabel: 'SprÃ¥k',
     norwegian: 'Norsk',
     english: 'English',
     translating: 'Oversetter skjemaet til engelsk...',
     translatingHint: 'Dette kan ta noen sekunder.',
-    translationError: 'Kunne ikke oversette alt akkurat nå. Noe vises fortsatt på norsk.',
+    translationError: 'Kunne ikke oversette alt akkurat nÃ¥. Noe vises fortsatt pÃ¥ norsk.',
     formEyebrow: 'Skjema',
     receiptEyebrow: 'Kvittering',
     receiptLead: 'Her er en kopi av akkurat denne innsendingen.',
@@ -53,10 +53,10 @@ const PUBLIC_FORM_COPY = {
     loadingImage: 'Laster bilde...',
     loadingForm: 'Laster skjema...',
     loadingReceipt: 'Laster kvittering...',
-    preparingReceipt: 'Sender skjemaet og klargjør kvittering...',
-    preparingReceiptHint: 'Ikke lukk eller oppdater siden. Kvitteringen åpnes automatisk.',
+    preparingReceipt: 'Sender skjemaet og klargjÃ¸r kvittering...',
+    preparingReceiptHint: 'Ikke lukk eller oppdater siden. Kvitteringen Ã¥pnes automatisk.',
     editSubmission: 'Rediger',
-    editWindowExpired: 'Redigeringsfristen på 30 minutter er utløpt.',
+    editWindowExpired: 'Redigeringsfristen pÃ¥ 30 minutter er utlÃ¸pt.',
     editingSubmission: 'Du redigerer en tidligere innsending.',
     resetAnswers: 'Nullstill alle svar',
     resetAnswersConfirm: 'Nullstill alle svar i skjemaet?',
@@ -67,24 +67,24 @@ const PUBLIC_FORM_COPY = {
     loadingLocations: 'Laster lokasjoner...',
     chooseLocation: 'Velg lokasjon',
     other: 'Annet',
-    noLocationsHelp: 'Ingen lagrede lokasjoner funnet. Velg "Annet" for å skrive inn manuelt.',
+    noLocationsHelp: 'Ingen lagrede lokasjoner funnet. Velg "Annet" for Ã¥ skrive inn manuelt.',
     writeHere: 'Skriv her',
     enterLocation: 'Skriv inn lokasjon',
     takePhoto: 'Ta bilde',
     uploadNewPhoto: 'Last opp nytt bilde',
     uploadingPhoto: 'Laster opp bilde...',
     uploadAdditionalPhoto: 'Last opp flere bilder',
-    waitForPhotoUpload: 'Vent til bildeopplastingen er ferdig før du sender inn.',
-    describeMore: 'Beskriv nærmere',
+    waitForPhotoUpload: 'Vent til bildeopplastingen er ferdig fÃ¸r du sender inn.',
+    describeMore: 'Beskriv nÃ¦rmere',
     fullName: 'Fullt navn',
     phoneNumber: 'Telefonnummer',
     phoneNumberPlaceholder: '8 siffer',
     phoneNumberHelp: 'Oppgi 8 sifre uten +47.',
-    phoneMustBeEightDigits: 'Telefonnummer må være 8 sifre uten +47.',
+    phoneMustBeEightDigits: 'Telefonnummer mÃ¥ vÃ¦re 8 sifre uten +47.',
     emailAddress: 'E-postadresse',
     selfDeclarationFallback: 'Jeg bekrefter opplysningene i skjemaet.',
-    confirmSelfDeclaration: 'Jeg bekrefter egenerklæringen',
-    goToQuestion: 'Gå til spørsmålet',
+    confirmSelfDeclaration: 'Jeg bekrefter egenerklÃ¦ringen',
+    goToQuestion: 'GÃ¥ til spÃ¸rsmÃ¥let',
     optionalNote: ' (ikke obligatorisk)',
   },
   en: {
@@ -983,7 +983,7 @@ function normalizeImageZoom(rawZoom) {
 
 function normalizeQuestion(question, index) {
   const label = String(question?.label || '').trim()
-  const fallbackLabel = `Spørsmål ${index + 1}`
+  const fallbackLabel = `SpÃ¸rsmÃ¥l ${index + 1}`
   const type = ['text', 'textarea', 'select', 'location', 'number', 'date', 'time-start', 'time-end', 'camera', 'multi-camera', 'name', 'phone', 'email', 'section'].includes(question?.type)
     ? question.type
     : 'text'
@@ -1009,7 +1009,7 @@ function normalizeQuestion(question, index) {
               typeof rawDetail?.text === 'string'
                 ? rawDetail.text
                 : legacySelectDetailEnabled && kind === 'input'
-                  ? 'Beskriv nærmere'
+                  ? 'Beskriv nÃ¦rmere'
                   : '',
             messageColor: typeof rawDetail?.messageColor === 'string' ? rawDetail.messageColor : '',
             messageBold: Boolean(rawDetail?.messageBold),
@@ -1788,7 +1788,7 @@ function getReviewDisplayValue(answerKey, value, question, translate) {
 function createEditorQuestion(seed) {
   return {
     id: toQuestionId(seed),
-    label: 'Nytt spørsmål',
+    label: 'Nytt spÃ¸rsmÃ¥l',
     type: 'text',
     required: false,
     placeholder: '',
@@ -1912,18 +1912,18 @@ function toSortOrder(item) {
 function getFormSaveErrorMessage(error) {
   const code = error?.code || ''
   if (code === 'storage/unauthorized') {
-    return 'Kunne ikke laste opp spørsmålsbildet. Mangler tilgang i Firebase Storage-regler.'
+    return 'Kunne ikke laste opp spÃ¸rsmÃ¥lsbildet. Mangler tilgang i Firebase Storage-regler.'
   }
   if (code === 'storage/canceled') {
     return 'Bildeopplastingen ble avbrutt.'
   }
   if (code === 'storage/unknown') {
-    return 'Ukjent Storage-feil ved opplasting av spørsmålsbildet.'
+    return 'Ukjent Storage-feil ved opplasting av spÃ¸rsmÃ¥lsbildet.'
   }
   if (code === 'permission-denied') {
     return 'Kunne ikke lagre skjema. Mangler tilgang i Firestore-regler.'
   }
-  return code ? `Kunne ikke lagre skjema (${code}).` : 'Kunne ikke lagre skjema. Prøv igjen.'
+  return code ? `Kunne ikke lagre skjema (${code}).` : 'Kunne ikke lagre skjema. PrÃ¸v igjen.'
 }
 
 function getSubmitErrorMessage(error) {
@@ -1937,7 +1937,7 @@ function getSubmitErrorMessage(error) {
     return 'Kunne ikke laste opp bilde. Mangler tilgang i Firebase Storage-regler.'
   }
 
-  return code ? `Noe gikk galt ved innsending (${code}). Prøv igjen.` : 'Noe gikk galt ved innsending. Prøv igjen.'
+  return code ? `Noe gikk galt ved innsending (${code}). PrÃ¸v igjen.` : 'Noe gikk galt ved innsending. PrÃ¸v igjen.'
 }
 
 function getImmediateImageUploadErrorMessage(error) {
@@ -1955,7 +1955,7 @@ function getImmediateImageUploadErrorMessage(error) {
     return 'Ukjent Storage-feil ved opplasting av bilde.'
   }
 
-  return code ? `Kunne ikke laste opp bilde (${code}). Prøv igjen.` : 'Kunne ikke laste opp bilde. Prøv igjen.'
+  return code ? `Kunne ikke laste opp bilde (${code}). PrÃ¸v igjen.` : 'Kunne ikke laste opp bilde. PrÃ¸v igjen.'
 }
 
 function getRemarkSaveErrorMessage(error) {
@@ -1998,10 +1998,10 @@ function getLocationsLoadErrorMessage(error) {
   }
 
   if (code === 'unauthenticated') {
-    return 'Du må være logget inn som admin for å hente lokasjoner her.'
+    return 'Du mÃ¥ vÃ¦re logget inn som admin for Ã¥ hente lokasjoner her.'
   }
 
-  return code ? `Kunne ikke hente lokasjoner (${code}).` : 'Kunne ikke hente lokasjoner akkurat nå.'
+  return code ? `Kunne ikke hente lokasjoner (${code}).` : 'Kunne ikke hente lokasjoner akkurat nÃ¥.'
 }
 
 function FaceHappy({ size = 22 }) {
@@ -2682,7 +2682,7 @@ function FormPage() {
           ? String(storedValue)
           : ''
       accumulator[question.id] =
-        question.type === 'camera' && !isStorageImagePath(normalizedValue) ? '' : normalizedValue
+        (question.type === 'camera' || question.type === 'multi-camera') && !isStorageImagePath(normalizedValue) ? '' : normalizedValue
       return accumulator
     }, {})
 
@@ -3129,7 +3129,7 @@ function FormPage() {
         if (String(data?.formSlug || '').trim().toLowerCase() !== activeFormSlug) {
           if (!cancelled) {
             setReceiptSubmission(null)
-            setReceiptError('Kvitteringen tilhører et annet skjema.')
+            setReceiptError('Kvitteringen tilhÃ¸rer et annet skjema.')
           }
           return
         }
@@ -3152,7 +3152,7 @@ function FormPage() {
       } catch {
         if (!cancelled) {
           setReceiptSubmission(null)
-          setReceiptError('Kunne ikke laste kvitteringen akkurat nå.')
+          setReceiptError('Kunne ikke laste kvitteringen akkurat nÃ¥.')
         }
       } finally {
         if (!cancelled) {
@@ -3184,7 +3184,10 @@ function FormPage() {
     const imagePaths = Array.from(
       new Set([
         ...(Array.isArray(receiptSubmission.imagePaths) ? receiptSubmission.imagePaths : []),
-        ...Object.values(receiptSubmission.answers || {}).filter((value) => isStorageImagePath(value)),
+        ...Object.values(receiptSubmission.answers || {}).flatMap((value) => {
+          if (isStorageImagePath(value)) return [value]
+          return parseMultiCameraAnswer(value).filter((p) => isStorageImagePath(p))
+        }),
       ]),
     )
 
@@ -3309,7 +3312,10 @@ function FormPage() {
 
     const allPaths = [
       ...(Array.isArray(selectedSubmission.imagePaths) ? selectedSubmission.imagePaths : []),
-      ...Object.values(selectedSubmission.answers || {}).filter((value) => isStorageImagePath(value)),
+      ...Object.values(selectedSubmission.answers || {}).flatMap((value) => {
+        if (isStorageImagePath(value)) return [value]
+        return parseMultiCameraAnswer(value).filter((p) => isStorageImagePath(p))
+      }),
     ]
     const uniquePaths = Array.from(new Set(allPaths))
 
@@ -3641,7 +3647,7 @@ function FormPage() {
     } catch {
       setMultiCameraUploadState((previous) => ({
         ...previous,
-        [questionId]: { uploading: false, error: 'Kunne ikke lese bildet. Prøv en annen fil.' },
+        [questionId]: { uploading: false, error: 'Kunne ikke lese bildet. PrÃ¸v en annen fil.' },
       }))
     }
   }
@@ -3996,7 +4002,7 @@ function FormPage() {
     if (formData.enableSelfDeclaration && !selfDeclarationAccepted) {
       const msg = displayLanguage === 'en'
         ? 'You must confirm the self-declaration.'
-        : 'Du må bekrefte egenerklæringen.'
+        : 'Du mÃ¥ bekrefte egenerklÃ¦ringen.'
       window.alert(msg)
       setSubmitErrorQuestionId('')
       setSubmitErrorTargetId('self-declaration-checkbox')
@@ -4240,7 +4246,13 @@ function FormPage() {
       )
 
       const allImagePaths = Array.from(
-        new Set(Object.values(submissionAnswers).filter((value) => isStorageImagePath(value))),
+        new Set(
+          Object.values(submissionAnswers).flatMap((value) => {
+            if (isStorageImagePath(value)) return [value]
+            const parsed = parseMultiCameraAnswer(value)
+            return parsed.filter((p) => isStorageImagePath(p))
+          }),
+        ),
       )
       const mergedReceiptImageMap = allImagePaths.reduce((accumulator, path) => {
         accumulator[path] =
@@ -4659,7 +4671,7 @@ function FormPage() {
   }
 
   function removeQuestion(index) {
-    const confirmed = window.confirm('Fjerne dette spørsmålet?')
+    const confirmed = window.confirm('Fjerne dette spÃ¸rsmÃ¥let?')
     if (!confirmed) {
       return
     }
@@ -4851,7 +4863,7 @@ function FormPage() {
         saving: false,
         message:
           typeof targetIndex === 'number'
-            ? `Spørsmål ${targetIndex + 1} lagret.`
+            ? `SpÃ¸rsmÃ¥l ${targetIndex + 1} lagret.`
             : 'Skjema oppdatert.',
         error: '',
       })
@@ -5300,7 +5312,7 @@ function FormPage() {
         selectedSubmission.submitterEmail ||
         getSubmissionEmail(selectedSubmission.answers, formData.questions)
 
-      // Persist phone→email mapping if reviewer entered one
+      // Persist phoneâ†’email mapping if reviewer entered one
       const phone = getSubmissionPhone(selectedSubmission.answers, formData.questions)
       if (phone && reviewEmailOverride) {
         setDoc(doc(db, 'phoneEmails', phone), { email: reviewEmailOverride, updatedAt: serverTimestamp() })
@@ -5700,7 +5712,7 @@ function FormPage() {
         ...previous,
         [submission.id]: {
           saving: false,
-          error: 'Beskriv hva som ble gjort før flagget settes til complete.',
+          error: 'Beskriv hva som ble gjort fÃ¸r flagget settes til complete.',
           message: '',
           categorySaving: previous[submission.id]?.categorySaving || false,
           categoryError: previous[submission.id]?.categoryError || '',
@@ -5714,7 +5726,7 @@ function FormPage() {
         ...previous,
         [submission.id]: {
           saving: false,
-          error: 'Velg kategori for alle nye advarsler før saken fullføres.',
+          error: 'Velg kategori for alle nye advarsler fÃ¸r saken fullfÃ¸res.',
           message: '',
           categorySaving: previous[submission.id]?.categorySaving || false,
           categoryError: previous[submission.id]?.categoryError || '',
@@ -5892,7 +5904,7 @@ function FormPage() {
   async function onSaveWarningCategory(nextCategoryInput, callbacks = {}) {
     const nextCategory = String(nextCategoryInput || '').trim()
     if (!nextCategory) {
-      callbacks.onValidationError?.('Skriv inn et kategorinavn før du legger det til.')
+      callbacks.onValidationError?.('Skriv inn et kategorinavn fÃ¸r du legger det til.')
       return
     }
 
@@ -6039,7 +6051,7 @@ function FormPage() {
         error: '',
         message: '',
         categorySaving: false,
-        categoryError: 'Skriv inn et kategorinavn før du lagrer.',
+        categoryError: 'Skriv inn et kategorinavn fÃ¸r du lagrer.',
       }))
       return
     }
@@ -6222,7 +6234,7 @@ function FormPage() {
         error: '',
         message: '',
         categorySaving: false,
-        categoryError: `Kan ikke slette kategorien "${category}" fordi den brukes i ${usageCount} ${usageCount === 1 ? 'remark eller advarsel' : 'remarks eller advarsler'}. Endre eller slett disse først.`,
+        categoryError: `Kan ikke slette kategorien "${category}" fordi den brukes i ${usageCount} ${usageCount === 1 ? 'remark eller advarsel' : 'remarks eller advarsler'}. Endre eller slett disse fÃ¸rst.`,
       }))
       return
     }
@@ -6631,8 +6643,8 @@ function FormPage() {
       [{ submissionId: submission?.id, questionId: question?.id }],
       'refill',
       {
-        permission: 'Kunne ikke lagre påfylling. Mangler tilgang i Firestore-regler',
-        generic: 'Kunne ikke lagre påfylling',
+        permission: 'Kunne ikke lagre pÃ¥fylling. Mangler tilgang i Firestore-regler',
+        generic: 'Kunne ikke lagre pÃ¥fylling',
       },
     )
   }
@@ -6642,8 +6654,8 @@ function FormPage() {
       [{ submissionId: submission?.id, questionId: question?.id }],
       '',
       {
-        permission: 'Kunne ikke nullstille påfylling. Mangler tilgang i Firestore-regler',
-        generic: 'Kunne ikke nullstille påfylling',
+        permission: 'Kunne ikke nullstille pÃ¥fylling. Mangler tilgang i Firestore-regler',
+        generic: 'Kunne ikke nullstille pÃ¥fylling',
       },
     )
   }
@@ -6701,7 +6713,7 @@ function FormPage() {
       )
       setFormData((prev) => ({ ...prev, analysisQuestionOrder: order }))
     } catch {
-      // silent — order stays in local state even if save fails
+      // silent â€” order stays in local state even if save fails
     } finally {
       setAnalysisRowOrderSaving(false)
     }
@@ -7099,6 +7111,10 @@ function FormPage() {
       return Boolean(cameraFiles[question.id]) || String(answers[question.id] || '').trim().length > 0
     }
 
+    if (question.type === 'multi-camera') {
+      return (multiCameraFiles[question.id] || []).length > 0 || parseMultiCameraAnswer(answers[question.id]).length > 0
+    }
+
     if (question.type === 'select') {
       const hasValue = String(answers[question.id] || '').trim().length > 0
       const selectedBehavior = getSelectOptionBehavior(question, String(answers[question.id] || '').trim())
@@ -7162,13 +7178,16 @@ function FormPage() {
   function fetchLastPhotoMeta(submissionList, onDone) {
     const toFetch = submissionList.filter((s) =>
       submissionLastPhotoMeta[s.id] === undefined &&
-      Object.values(s.answers || {}).some((v) => isStorageImagePath(v))
+      Object.values(s.answers || {}).some((v) => isStorageImagePath(v) || parseMultiCameraAnswer(v).some((p) => isStorageImagePath(p)))
     )
     if (toFetch.length === 0) { onDone?.(); return () => {} }
     let cancelled = false
     let pending = toFetch.length
     toFetch.forEach((submission) => {
-      const paths = Object.values(submission.answers || {}).filter((v) => isStorageImagePath(v))
+      const paths = Object.values(submission.answers || {}).flatMap((v) => {
+        if (isStorageImagePath(v)) return [v]
+        return parseMultiCameraAnswer(v).filter((p) => isStorageImagePath(p))
+      })
       if (!paths.length) { if (--pending === 0) onDone?.(); return }
       Promise.all(
         paths.map((path) =>
@@ -7849,10 +7868,10 @@ function FormPage() {
                     <strong>Action gjort:</strong> {submission.flaggedActionTaken}
                   </p>
                   <p>
-                    <strong>Fullført av:</strong> {submission.flaggedCompletedBy || '-'}
+                    <strong>FullfÃ¸rt av:</strong> {submission.flaggedCompletedBy || '-'}
                   </p>
                   <p>
-                    <strong>Fullført:</strong> {formatTime(submission.flaggedCompletedAt)}
+                    <strong>FullfÃ¸rt:</strong> {formatTime(submission.flaggedCompletedAt)}
                   </p>
                   <p>
                     <strong>Registrerte advarsler:</strong> {existingWarnings.length}
@@ -7870,7 +7889,7 @@ function FormPage() {
                   ) : null}
                 </div>
               ) : (
-                <p className="review-answer-value">Ingen action registrert ennå.</p>
+                <p className="review-answer-value">Ingen action registrert ennÃ¥.</p>
               )}
               {isReviewOpen ? (
                 <div className="flagged-action-box">
@@ -8016,7 +8035,7 @@ function FormPage() {
                           </label>
                           {availableWarningCategories.length === 0 ? (
                             <p className="review-answer-value">
-                              Ingen kategorier finnes ennå. Legg til den første her.
+                              Ingen kategorier finnes ennÃ¥. Legg til den fÃ¸rste her.
                             </p>
                           ) : null}
                           <div className="flagged-category-popup-actions">
@@ -8101,14 +8120,14 @@ function FormPage() {
                   <>
                     {flaggingItems.length > 0 ? (
                       <div className="flagged-content-section">
-                        <h4>Flagget spørsmål</h4>
+                        <h4>Flagget spÃ¸rsmÃ¥l</h4>
                         <div className="flagged-answer-list">
                           {flaggingItems.map(renderFlaggedAnswerItem)}
                         </div>
                       </div>
                     ) : null}
                     {flaggingItems.length === 0 ? (
-                      <p className="review-answer-value flagged-no-items-note">Ingen flaggede spørsmål.</p>
+                      <p className="review-answer-value flagged-no-items-note">Ingen flaggede spÃ¸rsmÃ¥l.</p>
                     ) : null}
                   </>
                 )
@@ -8633,8 +8652,8 @@ function FormPage() {
             key={`${question.id}-${index}-summary`}
             className={`editor-question-summary-row${isSectionQuestion(question) ? ' is-section' : ''}`}
           >
-            <strong className="editor-question-summary-number">Spørsmål {index + 1}</strong>
-            <span className="editor-question-summary-label">{question.label || `Spørsmål ${index + 1}`}</span>
+            <strong className="editor-question-summary-number">SpÃ¸rsmÃ¥l {index + 1}</strong>
+            <span className="editor-question-summary-label">{question.label || `SpÃ¸rsmÃ¥l ${index + 1}`}</span>
           </div>
         ))}
       </div>
@@ -8673,7 +8692,7 @@ function FormPage() {
               setShowInventoryModal(true)
             }}
           >
-            ✏ Rediger varebeholdning
+            âœ Rediger varebeholdning
           </button>
         </div>
       ) : null}
@@ -8742,7 +8761,7 @@ function FormPage() {
             <section className="form-entry receipt-entry">
               {feedbackConfirmDone ? (
                 <div className="receipt-confirm-thanks">
-                  <span className="receipt-confirm-thanks-icon">✓</span>
+                  <span className="receipt-confirm-thanks-icon">âœ“</span>
                   Takk for bekreftelsen!
                 </div>
               ) : null}
@@ -8781,7 +8800,7 @@ function FormPage() {
                     return (
                       <div className="receipt-meta ice-production-rate-box">
                         <p><strong>Iskrem produksjon</strong></p>
-                        <p>{prodRate.startTime} – {prodRate.endTime} ({prodRate.hours} timer)</p>
+                        <p>{prodRate.startTime} â€“ {prodRate.endTime} ({prodRate.hours} timer)</p>
                         <p>{prodRate.count} kuler totalt</p>
                         <p className="ice-production-rate-highlight">
                           <strong>{prodRate.rate} kuler / time</strong> (gjennomsnitt)
@@ -8803,6 +8822,10 @@ function FormPage() {
                         formData.questions,
                       )
 
+                      const multiPaths = parseMultiCameraAnswer(value)
+                      const isMultiImage = multiPaths.length > 0 && multiPaths.some((p) => isStorageImagePath(p))
+                      const mergedImageUrls = { ...(receiptSubmission.imageUrls || {}), ...receiptImageUrls }
+
                       return (
                         <article key={key} className="receipt-answer-row">
                           <p className="receipt-answer-label">
@@ -8810,7 +8833,22 @@ function FormPage() {
                               getAnswerDisplayLabel(key, receiptSubmission.answers, formData.questions),
                             )}
                           </p>
-                          {answerImage.isImageAnswer ? (
+                          {isMultiImage ? (
+                            <div className="multi-camera-preview-list">
+                              {multiPaths.filter((p) => isStorageImagePath(p)).map((path, pathIndex) => {
+                                const imgUrl = mergedImageUrls[path] || ''
+                                return (
+                                  <div key={`${key}-img-${pathIndex}`}>
+                                    {imgUrl ? (
+                                      <img className="receipt-answer-image" src={imgUrl} alt={`${translateText(getAnswerDisplayLabel(key, receiptSubmission.answers, formData.questions))} ${pathIndex + 1}`} loading="lazy" />
+                                    ) : (
+                                      <p className="receipt-answer-value">{publicCopy.loadingImage}</p>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          ) : answerImage.isImageAnswer ? (
                             <>
                               {answerImage.imageUrl ? (
                                 <img
@@ -8880,7 +8918,7 @@ function FormPage() {
                           <p className="receipt-feedback-general">{rd.generalFeedback}</p>
                         ) : null}
                         {alreadyConfirmed ? (
-                          <p className="receipt-feedback-confirmed">✓ Du har bekreftet at du har lest tilbakemeldingen</p>
+                          <p className="receipt-feedback-confirmed">âœ“ Du har bekreftet at du har lest tilbakemeldingen</p>
                         ) : (
                           <button
                             type="button"
@@ -9006,7 +9044,7 @@ function FormPage() {
                 ) : (
                   <>
                     <div className="submit-overlay-check" aria-hidden="true">
-                      ✓
+                      âœ“
                     </div>
                     <p>{publicCopy.formSent}</p>
                   </>
@@ -9090,12 +9128,12 @@ function FormPage() {
                     checked={editorEnableSelfDeclaration}
                     onChange={(event) => setEditorEnableSelfDeclaration(event.target.checked)}
                   />
-                  Legg til egenerklæring nederst i skjemaet
+                  Legg til egenerklÃ¦ring nederst i skjemaet
                 </label>
 
                 {editorEnableSelfDeclaration ? (
                   <label className="field-block" htmlFor="editor-self-declaration-text">
-                    <span>Egenerklæringstekst</span>
+                    <span>EgenerklÃ¦ringstekst</span>
                     <textarea
                       id="editor-self-declaration-text"
                       rows={3}
@@ -9119,7 +9157,7 @@ function FormPage() {
                 <div className="editor-questions">
                   {editorQuestions.map((question, index) => (
                     <article key={`${question.id}-${index}`} className="editor-question-card">
-                      <p>Spørsmål {index + 1}</p>
+                      <p>SpÃ¸rsmÃ¥l {index + 1}</p>
                       <div className="editor-question-layout">
                         <div className="editor-question-content">
                           <div
@@ -9178,7 +9216,7 @@ function FormPage() {
                                     setSaveState({
                                       saving: false,
                                       message: '',
-                                      error: 'Kunne ikke lese bildet. Prøv en annen fil.',
+                                      error: 'Kunne ikke lese bildet. PrÃ¸v en annen fil.',
                                     })
                                   } finally {
                                     event.target.value = ''
@@ -9274,7 +9312,7 @@ function FormPage() {
                                           >
                                             <option value="normal">Vanlig</option>
                                             <option value="orange">Oransje</option>
-                                            <option value="red">Rød</option>
+                                            <option value="red">RÃ¸d</option>
                                           </select>
                                         </label>
                                         <label
@@ -9511,7 +9549,7 @@ function FormPage() {
                                       onEditorQuestionChange(index, 'shouldRestock', event.target.checked)
                                     }
                                   />
-                                  Skal fylles på
+                                  Skal fylles pÃ¥
                                 </label>
                                 <label
                                   className="checkbox-inline editor-settings-toggle-cell"
@@ -9578,12 +9616,12 @@ function FormPage() {
                                         </div>
                                       ) : (
                                         <p className="field-help">
-                                          Ingen lokasjoner funnet ennå. Sjekk /lokasjoner.
+                                          Ingen lokasjoner funnet ennÃ¥. Sjekk /lokasjoner.
                                         </p>
                                       )}
                                     </div>
                                   ) : (
-                                    <p className="field-help">Lokasjonsspørsmålet vises alltid.</p>
+                                    <p className="field-help">LokasjonsspÃ¸rsmÃ¥let vises alltid.</p>
                                   )}
                                 </div>
                                 <div className="editor-settings-detail-cell">
@@ -9629,7 +9667,7 @@ function FormPage() {
                             </div>
                           ) : (
                             <p className="field-help">
-                              Kategorien vises som en overskrift mellom spørsmålsboksene i skjemaet.
+                              Kategorien vises som en overskrift mellom spÃ¸rsmÃ¥lsboksene i skjemaet.
                             </p>
                           )}
 
@@ -9640,21 +9678,21 @@ function FormPage() {
                               onClick={() => removeQuestion(index)}
                               disabled={editorQuestions.length <= 1}
                             >
-                              Fjern spørsmål
+                              Fjern spÃ¸rsmÃ¥l
                             </button>
                             <button
                               type="button"
                               className="ghost"
                               onClick={() => duplicateQuestion(index)}
                             >
-                              Dupliser spørsmål
+                              Dupliser spÃ¸rsmÃ¥l
                             </button>
                             <button
                               type="button"
                               className="ghost"
                               onClick={() => insertQuestionAfter(index)}
                             >
-                              Legg til spørsmål under
+                              Legg til spÃ¸rsmÃ¥l under
                             </button>
                             <button
                               type="button"
@@ -9662,7 +9700,7 @@ function FormPage() {
                               onClick={() => onSaveForm(index)}
                               disabled={saveState.saving}
                             >
-                              {saveState.saving ? 'Saving...' : 'Lagre spørsmål'}
+                              {saveState.saving ? 'Saving...' : 'Lagre spÃ¸rsmÃ¥l'}
                             </button>
                             <button
                               type="button"
@@ -9687,7 +9725,7 @@ function FormPage() {
                                 min="1"
                                 max={editorQuestions.length}
                                 inputMode="numeric"
-                                placeholder={`Flytt til spørsmål (1-${editorQuestions.length})`}
+                                placeholder={`Flytt til spÃ¸rsmÃ¥l (1-${editorQuestions.length})`}
                                 value={question.moveTarget || ''}
                                 onChange={(event) =>
                                   onEditorQuestionChange(index, 'moveTarget', event.target.value)
@@ -9751,7 +9789,7 @@ function FormPage() {
                               <p className="field-help">
                                 {isSectionQuestion(question)
                                   ? 'Ingen bilde valgt for denne kategorien.'
-                                  : 'Ingen bilde valgt for dette spørsmålet.'}
+                                  : 'Ingen bilde valgt for dette spÃ¸rsmÃ¥let.'}
                               </p>
                             </div>
                           )}
@@ -9763,7 +9801,7 @@ function FormPage() {
 
                 <div className="admin-actions">
                   <button type="button" className="ghost" onClick={addQuestion}>
-                    Legg til spørsmål
+                    Legg til spÃ¸rsmÃ¥l
                   </button>
                   <button type="button" className="ghost" onClick={addSection}>
                     Legg til kategori
@@ -9797,7 +9835,7 @@ function FormPage() {
                       onClick={onSendTestReviewEmail}
                       disabled={testEmailState.sending}
                     >
-                      {testEmailState.sending ? 'Sending…' : 'Send test email'}
+                      {testEmailState.sending ? 'Sendingâ€¦' : 'Send test email'}
                     </button>
                     <button
                       type="button"
@@ -9805,7 +9843,7 @@ function FormPage() {
                       onClick={onSendTestRejectionEmail}
                       disabled={testEmailState.sending}
                     >
-                      {testEmailState.sending ? 'Sending…' : 'Send test rejection email'}
+                      {testEmailState.sending ? 'Sendingâ€¦' : 'Send test rejection email'}
                     </button>
                     {testEmailState.message ? (
                       <span className="test-email-feedback test-email-feedback--ok">{testEmailState.message}</span>
@@ -9836,7 +9874,7 @@ function FormPage() {
                             </span>
                           ) : (
                             <span key={dayKey} className="reviewed-monthly-missing">
-                              ⚠ {count} missing review{count !== 1 ? 's' : ''} for {formatSubmissionDayLabel(dayKey)}
+                              âš  {count} missing review{count !== 1 ? 's' : ''} for {formatSubmissionDayLabel(dayKey)}
                             </span>
                           )
                         })}
@@ -9910,7 +9948,7 @@ function FormPage() {
                       </div>
                       <div className="submission-modal-content">
                         {timingIssuesFetching ? (
-                          <p style={{color:'var(--muted)'}}>Fetching photo times…</p>
+                          <p style={{color:'var(--muted)'}}>Fetching photo timesâ€¦</p>
                         ) : (() => {
                           const FIVE_MIN = 5 * 60 * 1000
                           const issues = submissions.filter((s) => {
@@ -9943,11 +9981,11 @@ function FormPage() {
                                   return (
                                     <tr key={s.id}>
                                       <td>
-                                        <div>{getSubmissionName(s.answers, formData.questions) || '—'}</div>
+                                        <div>{getSubmissionName(s.answers, formData.questions) || 'â€”'}</div>
                                         <small style={{color:'var(--muted)'}}>{getSubmissionLocation(s.answers, formData.questions)}</small>
                                       </td>
                                       <td>{new Date(submittedMs).toLocaleString('en-GB', fmtOpts)}</td>
-                                      <td>{submissionLastPhotoMeta[s.id]?.display || '—'}</td>
+                                      <td>{submissionLastPhotoMeta[s.id]?.display || 'â€”'}</td>
                                       <td><strong>{diffMin} min</strong></td>
                                     </tr>
                                   )
@@ -10015,11 +10053,11 @@ function FormPage() {
                                       </span>
                                     )
                                   }
-                                  if (meta === null) return <span style={{color:'var(--muted)'}}>—</span>
-                                  const hasPaths = Object.values(submission.answers || {}).some((v) => isStorageImagePath(v))
+                                  if (meta === null) return <span style={{color:'var(--muted)'}}>â€”</span>
+                                  const hasPaths = Object.values(submission.answers || {}).some((v) => isStorageImagePath(v) || parseMultiCameraAnswer(v).some((p) => isStorageImagePath(p)))
                                   return hasPaths
-                                    ? <span style={{color:'var(--muted)'}}>…</span>
-                                    : <span style={{color:'var(--muted)'}}>—</span>
+                                    ? <span style={{color:'var(--muted)'}}>â€¦</span>
+                                    : <span style={{color:'var(--muted)'}}>â€”</span>
                                 })()}
                               </td>
                               <td>{getSubmissionLocation(submission.answers, formData.questions)}</td>
@@ -10043,14 +10081,14 @@ function FormPage() {
                                       disabled={editPhoneState.saving}
                                       onClick={() => onSavePhoneEdit(submission.id)}
                                     >
-                                      {editPhoneState.saving ? '…' : '✓'}
+                                      {editPhoneState.saving ? 'â€¦' : 'âœ“'}
                                     </button>
                                     <button
                                       type="button"
                                       className="ghost"
                                       onClick={() => setEditPhoneSubmissionId('')}
                                     >
-                                      ✕
+                                      âœ•
                                     </button>
                                     {editPhoneState.error ? (
                                       <small className="forms-error">{editPhoneState.error}</small>
@@ -10058,7 +10096,7 @@ function FormPage() {
                                   </div>
                                 ) : (
                                   <div className="phone-edit-row">
-                                    <span>{getSubmissionPhone(submission.answers, formData.questions) || '—'}</span>
+                                    <span>{getSubmissionPhone(submission.answers, formData.questions) || 'â€”'}</span>
                                     <button
                                       type="button"
                                       className="ghost phone-edit-trigger"
@@ -10069,7 +10107,7 @@ function FormPage() {
                                         setEditPhoneState({ saving: false, error: '' })
                                       }}
                                     >
-                                      ✏
+                                      âœ
                                     </button>
                                   </div>
                                 )}
@@ -10155,7 +10193,7 @@ function FormPage() {
                     <tbody>
                       {submissionErrors.map((e) => {
                         const d = e.occurredAt?.toDate?.()
-                        const time = d ? d.toLocaleString('nb-NO', { timeZone: 'Europe/Oslo', dateStyle: 'short', timeStyle: 'short' }) : '—'
+                        const time = d ? d.toLocaleString('nb-NO', { timeZone: 'Europe/Oslo', dateStyle: 'short', timeStyle: 'short' }) : 'â€”'
                         const ua = String(e.userAgent || '').slice(0, 60)
                         return (
                           <tr key={e.id}>
@@ -10211,7 +10249,7 @@ function FormPage() {
                           : sub.reviewedAt instanceof Date ? sub.reviewedAt : null
                         const timeStr = reviewedAt
                           ? reviewedAt.toLocaleString('nb-NO', { timeZone: 'Europe/Oslo', dateStyle: 'short', timeStyle: 'short' })
-                          : '—'
+                          : 'â€”'
                         return (
                           <tr key={sub.id}>
                             <td style={{ whiteSpace: 'nowrap' }}>{timeStr}</td>
@@ -10220,7 +10258,7 @@ function FormPage() {
                               {(sub.reviewScoreSummary?.neutral || 0) > 0 ? <><FaceNeutral size={14} /> {sub.reviewScoreSummary.neutral} </> : null}
                               {(sub.reviewScoreSummary?.sad || 0) > 0 ? <><FaceSad size={14} /> {sub.reviewScoreSummary.sad}</> : null}
                             </td>
-                            <td style={{ maxWidth: 220, color: 'rgba(24,44,60,0.7)' }}>{sub.generalFeedback || '—'}</td>
+                            <td style={{ maxWidth: 220, color: 'rgba(24,44,60,0.7)' }}>{sub.generalFeedback || 'â€”'}</td>
                             <td>
                               {sub.receiptToken ? (
                                 <a
@@ -10230,9 +10268,9 @@ function FormPage() {
                                   target="_blank"
                                   rel="noreferrer"
                                 >
-                                  Åpne
+                                  Ã…pne
                                 </a>
-                              ) : '—'}
+                              ) : 'â€”'}
                             </td>
                             <td style={{ minWidth: 200 }}>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -10313,7 +10351,7 @@ function FormPage() {
                         const reviewedAt = sub.reviewedAt?.seconds ? new Date(sub.reviewedAt.seconds * 1000) : null
                         const doneAt = sub.followUpDoneAt?.seconds ? new Date(sub.followUpDoneAt.seconds * 1000) : null
                         const readAt = sub.feedbackReadAt?.seconds ? new Date(sub.feedbackReadAt.seconds * 1000) : null
-                        const fmt = (d) => d ? d.toLocaleString('nb-NO', { timeZone: 'Europe/Oslo', dateStyle: 'short', timeStyle: 'short' }) : '—'
+                        const fmt = (d) => d ? d.toLocaleString('nb-NO', { timeZone: 'Europe/Oslo', dateStyle: 'short', timeStyle: 'short' }) : 'â€”'
                         const flaggedItems = (sub.flaggedAnswers || [])
                         return (
                           <tr key={sub.id}>
@@ -10326,7 +10364,7 @@ function FormPage() {
                             <td style={{ maxWidth: 280 }}>
                               {sub.followUpNote ? (
                                 <p style={{ margin: '0 0 6px', whiteSpace: 'pre-wrap', color: 'rgba(24,44,60,0.85)' }}>{sub.followUpNote}</p>
-                              ) : <span style={{ color: 'rgba(24,44,60,0.35)' }}>—</span>}
+                              ) : <span style={{ color: 'rgba(24,44,60,0.35)' }}>â€”</span>}
                               {sub.generalFeedback ? (
                                 <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: '#1e3a5f', background: '#f0f4ff', borderLeft: '3px solid #3b82f6', padding: '4px 8px', borderRadius: '0 4px 4px 0' }}>
                                   <strong>General:</strong> {sub.generalFeedback}
@@ -10338,13 +10376,13 @@ function FormPage() {
                                   <p key={i} style={{ margin: '4px 0 0', fontSize: '0.78rem', color: isSad ? '#7f1d1d' : '#78350f', background: isSad ? '#fef2f2' : '#fffbeb', borderLeft: `3px solid ${isSad ? '#dc2626' : '#d97706'}`, padding: '4px 8px', borderRadius: '0 4px 4px 0' }}>
                                     {isSad ? <FaceSad size={12} /> : <FaceNeutral size={12} />}{' '}
                                     <strong>{a.label || a.answerKey}</strong>
-                                    {a.comment ? <> — {a.comment}</> : null}
+                                    {a.comment ? <> â€” {a.comment}</> : null}
                                   </p>
                                 )
                               })}
                             </td>
                             <td style={{ whiteSpace: 'nowrap' }}>
-                              <div style={{ fontSize: '0.8rem' }}>{sub.followUpDoneBy || '—'}</div>
+                              <div style={{ fontSize: '0.8rem' }}>{sub.followUpDoneBy || 'â€”'}</div>
                               <div style={{ fontSize: '0.75rem', color: 'rgba(24,44,60,0.45)' }}>{fmt(doneAt)}</div>
                             </td>
                             <td style={{ whiteSpace: 'nowrap', color: readAt ? '#16a34a' : 'rgba(24,44,60,0.4)' }}>
@@ -10353,7 +10391,7 @@ function FormPage() {
                             <td>
                               {sub.receiptToken ? (
                                 <a href={`/skjema/${activeFormSlug}/kvittering/${sub.receiptToken}`} className="ghost" style={{ fontSize: '0.8rem', padding: '2px 8px' }} target="_blank" rel="noreferrer">Open</a>
-                              ) : '—'}
+                              ) : 'â€”'}
                             </td>
                           </tr>
                         )
@@ -10420,7 +10458,7 @@ function FormPage() {
                             : null
                         const timeStr = readAt
                           ? readAt.toLocaleString('nb-NO', { timeZone: 'Europe/Oslo', dateStyle: 'short', timeStyle: 'short' })
-                          : '—'
+                          : 'â€”'
                         return (
                           <tr key={sub.id}>
                             <td style={{ whiteSpace: 'nowrap' }}>{timeStr}</td>
@@ -10429,7 +10467,7 @@ function FormPage() {
                               {(sub.reviewScoreSummary?.neutral || 0) > 0 ? <><FaceNeutral size={14} /> {sub.reviewScoreSummary.neutral} </> : null}
                               {(sub.reviewScoreSummary?.sad || 0) > 0 ? <><FaceSad size={14} /> {sub.reviewScoreSummary.sad}</> : null}
                             </td>
-                            <td style={{ maxWidth: 220, color: 'rgba(24,44,60,0.7)' }}>{sub.generalFeedback || '—'}</td>
+                            <td style={{ maxWidth: 220, color: 'rgba(24,44,60,0.7)' }}>{sub.generalFeedback || 'â€”'}</td>
                             <td>
                               {sub.receiptToken ? (
                                 <a
@@ -10441,7 +10479,7 @@ function FormPage() {
                                 >
                                   Open
                                 </a>
-                              ) : '—'}
+                              ) : 'â€”'}
                             </td>
                           </tr>
                         )
@@ -10457,10 +10495,10 @@ function FormPage() {
                 <h3>Flagget &amp; vurdert</h3>
                 {loadingSubmissions ? <p>Loading...</p> : null}
                 {!loadingSubmissions && flaggedSubmissions.length === 0 ? (
-                  <p>Ingen flaggede eller vurderte svar ennå.</p>
+                  <p>Ingen flaggede eller vurderte svar ennÃ¥.</p>
                 ) : null}
                 {!loadingSubmissions && flaggedSubmissions.length > 0 && openFlaggedSubmissions.length === 0 ? (
-                  <p className="flagged-empty-note">Ingen venter oppfølging. Alle saker er ferdig vurdert.</p>
+                  <p className="flagged-empty-note">Ingen venter oppfÃ¸lging. Alle saker er ferdig vurdert.</p>
                 ) : null}
                 {!loadingSubmissions && flaggedSubmissions.length > 0 ? (
                   <div className="flagged-submission-list">
@@ -10470,8 +10508,8 @@ function FormPage() {
                 {!loadingSubmissions && flaggedSubmissions.length > 0 ? (
                   <div className="flagged-history-search">
                     <div className="flagged-history-search-header">
-                      <h4>Søk i flagg-historikk</h4>
-                      <p>Velg fra- og til-dato for å vise både open og complete flaggede saker.</p>
+                      <h4>SÃ¸k i flagg-historikk</h4>
+                      <p>Velg fra- og til-dato for Ã¥ vise bÃ¥de open og complete flaggede saker.</p>
                     </div>
                     <div className="flagged-history-date-row">
                       <label className="field-block" htmlFor="flagged-history-from">
@@ -10522,7 +10560,7 @@ function FormPage() {
                 <h3>Rating</h3>
                 {loadingSubmissions ? <p>Loading...</p> : null}
                 {!loadingSubmissions && userScoreboard.length === 0 ? (
-                  <p>Ingen vurderte innsendinger ennå.</p>
+                  <p>Ingen vurderte innsendinger ennÃ¥.</p>
                 ) : null}
                 {!loadingSubmissions && userScoreboard.length > 0 ? (
                   <div className="user-scoreboard-table-wrap">
@@ -10558,7 +10596,7 @@ function FormPage() {
                                   {row.score}%
                                 </span>
                               ) : (
-                                <span className="score-badge score-none">–</span>
+                                <span className="score-badge score-none">â€“</span>
                               )}
                             </td>
                           </tr>
@@ -10577,7 +10615,7 @@ function FormPage() {
                     <h3>Varebeholdning</h3>
                     <p className="history-legend">
                       <strong>Oransje:</strong> Bestill opp mer.{' '}
-                      <strong>Rød:</strong> Nesten helt tomt.
+                      <strong>RÃ¸d:</strong> Nesten helt tomt.
                     </p>
                   </div>
                   <div className="history-controls">
@@ -10685,7 +10723,7 @@ function FormPage() {
                             aria-expanded={historyQuestionFilterOpen}
                             aria-controls="history-question-filter"
                           >
-                            Filtrer spørsmål
+                            Filtrer spÃ¸rsmÃ¥l
                             {!historyShowAllQuestions && selectedHistoryQuestionIds.length > 0
                               ? ` (${selectedHistoryQuestionIds.length})`
                               : ''}
@@ -10706,7 +10744,7 @@ function FormPage() {
                               setAnalyseEmailState({ sending: false, error: '', message: '' })
                             }}
                           >
-                            ✉ Send oversikt på epost
+                            âœ‰ Send oversikt pÃ¥ epost
                           </button>
                         </div>
                         {analyseEmailOpen ? (
@@ -10836,7 +10874,7 @@ function FormPage() {
                   if (alertRows.length === 0) {
                     return (
                       <div className="inventory-alert-summary inventory-alert-summary--ok">
-                        <span>✅ Ingen oransje eller røde varer akkurat nå.</span>
+                        <span>âœ… Ingen oransje eller rÃ¸de varer akkurat nÃ¥.</span>
                       </div>
                     )
                   }
@@ -10849,7 +10887,7 @@ function FormPage() {
                       <div className="inventory-alert-location-grid">
                         {alertRows.map(({ location, items, incidentNotes }) => (
                           <div key={location} className="inventory-alert-location-card">
-                            <p className="inventory-alert-location-name">📍 {location}</p>
+                            <p className="inventory-alert-location-name">ðŸ“ {location}</p>
                             {incidentNotes.map((note, i) => (
                               <div key={i} className="inventory-alert-incident-note">
                                 <span className="inventory-alert-incident-label">{note.label}</span>
@@ -10881,7 +10919,7 @@ function FormPage() {
                     <table className="history-table">
                       <thead>
                         <tr>
-                          <th rowSpan={2}>Spørsmål</th>
+                          <th rowSpan={2}>SpÃ¸rsmÃ¥l</th>
                           {visibleHistoryRows.map((row) => (
                             <th
                               key={`history-location-${row.location}`}
@@ -10934,7 +10972,7 @@ function FormPage() {
                                     setAnalysisRowOrder(next)
                                     onSaveAnalysisRowOrder(next)
                                   }}
-                                >▲</button>
+                                >â–²</button>
                                 <button
                                   type="button"
                                   className="ghost history-row-order-btn"
@@ -10947,7 +10985,7 @@ function FormPage() {
                                     setAnalysisRowOrder(next)
                                     onSaveAnalysisRowOrder(next)
                                   }}
-                                >▼</button>
+                                >â–¼</button>
                               </span>
                             </th>
                             {visibleHistoryRows.flatMap((row) =>
@@ -11008,7 +11046,7 @@ function FormPage() {
                                             setShowInventoryModal(true)
                                           }}
                                         >
-                                          ✏
+                                          âœ
                                         </button>
                                       ) : null}
                                     </div>
@@ -11056,7 +11094,7 @@ function FormPage() {
                   if (logEntries.length === 0) return null
                   return (
                     <div className="inventory-update-log">
-                      <h4 className="inventory-update-log-title">Logg – manuelle oppdateringer</h4>
+                      <h4 className="inventory-update-log-title">Logg â€“ manuelle oppdateringer</h4>
                       <table className="inventory-update-log-table">
                         <thead>
                           <tr>
@@ -11078,7 +11116,7 @@ function FormPage() {
                                       hour: '2-digit',
                                       minute: '2-digit',
                                     })
-                                  : '–'}
+                                  : 'â€“'}
                               </td>
                               <td>{entry.location}</td>
                               <td>{entry.label}</td>
@@ -11139,7 +11177,7 @@ function FormPage() {
 
                           {inventoryModalLocation ? (
                             <label className="field-block">
-                              <span>2. Velg spørsmål</span>
+                              <span>2. Velg spÃ¸rsmÃ¥l</span>
                               <select
                                 value={inventoryModalQuestionId}
                                 onChange={(e) => {
@@ -11147,7 +11185,7 @@ function FormPage() {
                                   setInventoryModalAnswers({})
                                 }}
                               >
-                                <option value="">Velg spørsmål...</option>
+                                <option value="">Velg spÃ¸rsmÃ¥l...</option>
                                 {analysisQuestions.map((q) => (
                                   <option key={q.id} value={q.id}>{q.analysisLabel || q.label}</option>
                                 ))}
@@ -11374,7 +11412,7 @@ function FormPage() {
                       return (
                         <div className="receipt-meta ice-production-rate-box">
                           <p><strong>Ice cream production</strong></p>
-                          <p>{prodRate.startTime} – {prodRate.endTime} ({prodRate.hours} hours)</p>
+                          <p>{prodRate.startTime} â€“ {prodRate.endTime} ({prodRate.hours} hours)</p>
                           <div className="ice-count-edit-row">
                             {editIceCountEditing ? (
                               <>
@@ -11397,14 +11435,14 @@ function FormPage() {
                                   disabled={editIceCountState.saving}
                                   onClick={() => onSaveIceCountEdit(selectedSubmission.id)}
                                 >
-                                  {editIceCountState.saving ? '…' : '✓'}
+                                  {editIceCountState.saving ? 'â€¦' : 'âœ“'}
                                 </button>
                                 <button
                                   type="button"
                                   className="ghost"
                                   onClick={() => { setEditIceCountEditing(false); setEditIceCountState({ saving: false, error: '' }) }}
                                 >
-                                  ✕
+                                  âœ•
                                 </button>
                                 {editIceCountState.error ? (
                                   <small className="forms-error">{editIceCountState.error}</small>
@@ -11423,7 +11461,7 @@ function FormPage() {
                                     setEditIceCountState({ saving: false, error: '' })
                                   }}
                                 >
-                                  ✏
+                                  âœ
                                 </button>
                               </>
                             )}
@@ -11509,56 +11547,87 @@ function FormPage() {
                                 )}
                               </p>
                               <p className="review-panel-title">User answer</p>
-                              {reviewImage.isImageAnswer ? (
-                                <>
-                                  {reviewImage.imageUrl ? (
-                                    <img
-                                      className="review-answer-image"
-                                      src={reviewImage.imageUrl}
-                                      alt={translateText(
-                                        getAnswerDisplayLabel(
-                                          answerKey,
-                                          selectedSubmission.answers,
-                                          formData.questions,
-                                        ),
+                              {(() => {
+                                const multiPaths = parseMultiCameraAnswer(value)
+                                const isMulti = multiPaths.length > 0 && multiPaths.some((p) => isStorageImagePath(p))
+                                if (isMulti) {
+                                  return (
+                                    <div className="multi-camera-preview-list">
+                                      {multiPaths.filter((p) => isStorageImagePath(p)).map((path, pathIdx) => {
+                                        const imgUrl = selectedSubmissionImageUrls[path] || ''
+                                        return (
+                                          <div key={`${answerKey}-img-${pathIdx}`}>
+                                            {imgUrl ? (
+                                              <img className="review-answer-image" src={imgUrl} alt={`${answerKey} ${pathIdx + 1}`} loading="lazy" />
+                                            ) : (
+                                              <p className="review-answer-value">{selectedSubmissionImagesLoading ? 'Loading image...' : 'Could not load image.'}</p>
+                                            )}
+                                          </div>
+                                        )
+                                      })}
+                                    </div>
+                                  )
+                                }
+                                return null
+                              })()}
+                              {(() => {
+                                const multiPaths = parseMultiCameraAnswer(value)
+                                const isMulti = multiPaths.length > 0 && multiPaths.some((p) => isStorageImagePath(p))
+                                if (isMulti) return null
+                                if (reviewImage.isImageAnswer) {
+                                  return (
+                                    <>
+                                      {reviewImage.imageUrl ? (
+                                        <img
+                                          className="review-answer-image"
+                                          src={reviewImage.imageUrl}
+                                          alt={translateText(
+                                            getAnswerDisplayLabel(
+                                              answerKey,
+                                              selectedSubmission.answers,
+                                              formData.questions,
+                                            ),
+                                          )}
+                                          loading="lazy"
+                                        />
+                                      ) : null}
+                                      {(() => {
+                                        const capturedAt = String(selectedSubmission.answers?.[getImageCapturedAtAnswerKey(answerKey)] || '').trim()
+                                        return capturedAt ? (
+                                          <p className="review-answer-captured-at">Tatt: {capturedAt}</p>
+                                        ) : null
+                                      })()}
+                                      {reviewImage.imageUrl ? (
+                                        <p className="review-answer-value review-answer-file-link">
+                                          <a
+                                            href={reviewImage.imageUrl}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                          >
+                                            {reviewImage.fileLabel || 'Open image'}
+                                          </a>
+                                        </p>
+                                      ) : (
+                                        <p className="review-answer-value">
+                                          {selectedSubmissionImagesLoading
+                                            ? 'Loading image...'
+                                            : reviewImage.fileLabel || 'Could not load image.'}
+                                        </p>
                                       )}
-                                      loading="lazy"
-                                    />
-                                  ) : null}
-                                  {(() => {
-                                    const capturedAt = String(selectedSubmission.answers?.[getImageCapturedAtAnswerKey(answerKey)] || '').trim()
-                                    return capturedAt ? (
-                                      <p className="review-answer-captured-at">Tatt: {capturedAt}</p>
-                                    ) : null
-                                  })()}
-                                  {reviewImage.imageUrl ? (
-                                    <p className="review-answer-value review-answer-file-link">
-                                      <a
-                                        href={reviewImage.imageUrl}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                      >
-                                        {reviewImage.fileLabel || 'Open image'}
-                                      </a>
-                                    </p>
-                                  ) : (
-                                    <p className="review-answer-value">
-                                      {selectedSubmissionImagesLoading
-                                        ? 'Loading image...'
-                                        : reviewImage.fileLabel || 'Could not load image.'}
-                                    </p>
-                                  )}
-                                </>
-                              ) : (
-                                <p className="review-answer-value">
-                                  {getReviewDisplayValue(
-                                    answerKey,
-                                    value,
-                                    question,
-                                    translateText,
-                                  )}
-                                </p>
-                              )}
+                                    </>
+                                  )
+                                }
+                                return (
+                                  <p className="review-answer-value">
+                                    {getReviewDisplayValue(
+                                      answerKey,
+                                      value,
+                                      question,
+                                      translateText,
+                                    )}
+                                  </p>
+                                )
+                              })()}
                             </div>
 
                             <div className="review-comparison-panel">
@@ -11660,7 +11729,7 @@ function FormPage() {
                                                 onClick={() => onReviewRatingChange(answerKey, star)}
                                                 title={`${star} stjerne${star !== 1 ? 'r' : ''}`}
                                               >
-                                                ★
+                                                â˜…
                                               </button>
                                             ))}
                                           </div>
@@ -11704,7 +11773,7 @@ function FormPage() {
                           rows={3}
                           value={reviewGeneralFeedback}
                           onChange={(e) => setReviewGeneralFeedback(e.target.value)}
-                          placeholder="Write overall feedback shown at the top of the email…"
+                          placeholder="Write overall feedback shown at the top of the emailâ€¦"
                         />
                       </label>
                     ) : null}
@@ -11725,7 +11794,7 @@ function FormPage() {
                           rows={3}
                           value={reviewRejectionComment}
                           onChange={(e) => setReviewRejectionComment(e.target.value)}
-                          placeholder="Explain why the form is being rejected…"
+                          placeholder="Explain why the form is being rejectedâ€¦"
                         />
                       </label>
                     ) : null}
@@ -11789,7 +11858,7 @@ function FormPage() {
                   onClick={onSaveSubmissionReview}
                   disabled={reviewSubmissionState.saving}
                 >
-                  {reviewSubmissionState.saving ? 'Saving…' : 'Send email & mark as reviewed'}
+                  {reviewSubmissionState.saving ? 'Savingâ€¦' : 'Send email & mark as reviewed'}
                 </button>
               </div>
             </div>
@@ -11802,7 +11871,7 @@ function FormPage() {
                     <input
                       className="review-email-override-input"
                       type="email"
-                      placeholder="Ingen e-post — legg til her"
+                      placeholder="Ingen e-post â€” legg til her"
                       value={reviewEmailOverride}
                       onChange={(e) => { setReviewEmailOverride(e.target.value); setReviewEmailSaved(false) }}
                     />
@@ -11815,7 +11884,7 @@ function FormPage() {
                         onClick={onSaveEmailForPhone}
                         disabled={reviewEmailSaving || reviewEmailSaved}
                       >
-                        {reviewEmailSaved ? '✓ Email saved' : reviewEmailSaving ? 'Saving…' : 'Save email for this phone number'}
+                        {reviewEmailSaved ? 'âœ“ Email saved' : reviewEmailSaving ? 'Savingâ€¦' : 'Save email for this phone number'}
                       </button>
                     </div>
                   ) : null}
@@ -11833,14 +11902,14 @@ function FormPage() {
                   ) : null}
                   <span><strong>CC:</strong> brandon@crust.no, magnus@crust.no</span>
                   {!reviewEmailOverride ? (
-                    <p className="email-preview-no-email">Ingen e-post — e-post sendes ikke til innsender.</p>
+                    <p className="email-preview-no-email">Ingen e-post â€” e-post sendes ikke til innsender.</p>
                   ) : null}
                 </div>
               </div>
 
               <div className="email-preview-body">
                 <h2 className="email-preview-title">
-                  {reviewEmailPreviewData.rejected ? 'Stengeskjemaet ditt ble avvist' : 'Stengeskjemaet ditt har blitt gjennomgått'}
+                  {reviewEmailPreviewData.rejected ? 'Stengeskjemaet ditt ble avvist' : 'Stengeskjemaet ditt har blitt gjennomgÃ¥tt'}
                 </h2>
 
                 {reviewEmailPreviewData.rejected ? (
@@ -11876,7 +11945,7 @@ function FormPage() {
 
                 {reviewEmailPreviewData.flaggedAnswers.length > 0 ? (
                   <div className="email-preview-section">
-                    <h3 className="email-preview-section-title email-preview-section-title--flagged">Se på dette:</h3>
+                    <h3 className="email-preview-section-title email-preview-section-title--flagged">Se pÃ¥ dette:</h3>
                     {reviewEmailPreviewData.flaggedAnswers.map((item) => (
                       <div
                         key={item.answerKey}
@@ -11902,7 +11971,7 @@ function FormPage() {
 
                 {reviewEmailPreviewData.approvedAnswers.length > 0 ? (
                   <div className="email-preview-section">
-                    <h3 className="email-preview-section-title email-preview-section-title--approved">Dette så bra ut:</h3>
+                    <h3 className="email-preview-section-title email-preview-section-title--approved">Dette sÃ¥ bra ut:</h3>
                     {reviewEmailPreviewData.approvedAnswers.map((item) => (
                       <div key={item.answerKey} className="email-preview-answer is-approved">
                         <p className="email-preview-answer-label"><FaceHappy size={18} /> {item.label}</p>
