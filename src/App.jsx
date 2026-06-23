@@ -61,6 +61,7 @@ const LargeOrder = lazy(() => import("./pages/LargeOrder"));
 const BestillingAdmin = lazy(() => import("./pages/BestillingAdmin"));
 const PhotoUpload = lazy(() => import("./pages/PhotoUpload"));
 const PhotoAdmin = lazy(() => import("./pages/PhotoAdmin"));
+const VarerPage = lazy(() => import("./pages/VarerPage"));
 
 function withPageLoader(element) {
   return (
@@ -424,6 +425,7 @@ function App() {
         <Route path="/bilder" element={withPageLoader(<PhotoUpload />)} />
         <Route path="/sales" element={withPageLoader(<Sales />)} />
         <Route path="/varebeholdning" element={withPageLoader(<RoutedFormPage />)} />
+        <Route path="/skjema/varer" element={withPageLoader(<VarerPage />)} />
         <Route path="/skjema" element={withPageLoader(<Forms />)} />
         <Route
           path="/skjema/:formSlug/kvittering/:receiptToken"
