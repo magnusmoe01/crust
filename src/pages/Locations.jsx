@@ -498,7 +498,7 @@ function Locations() {
                   className="ghost"
                   onClick={() => {
                     setBannerEditorOpen((prev) => !prev);
-                    setBannerDraft({ visible: banner.visible, text: banner.text });
+                    setBannerDraft({ visible: banner.visible, text: banner.text, bgColor: banner.bgColor || "#fef9c3", textColor: banner.textColor || "#713f12" });
                     setBannerError("");
                   }}
                 >

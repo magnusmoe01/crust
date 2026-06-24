@@ -62,6 +62,8 @@ const BestillingAdmin = lazy(() => import("./pages/BestillingAdmin"));
 const PhotoUpload = lazy(() => import("./pages/PhotoUpload"));
 const PhotoAdmin = lazy(() => import("./pages/PhotoAdmin"));
 const VarerPage = lazy(() => import("./pages/VarerPage"));
+const BonusPage = lazy(() => import("./pages/Bonus"));
+const BonusAdmin = lazy(() => import("./pages/BonusAdmin"));
 
 function withPageLoader(element) {
   return (
@@ -442,6 +444,8 @@ function App() {
       <Route path="/worker" element={withPageLoader(<OrderDashboard />)} />
       <Route path="/order" element={withPageLoader(<Order />)} />
       <Route path="/ordre" element={<Navigate to="/order" replace />} />
+      <Route path="/bonus" element={withPageLoader(<BonusPage />)} />
+      <Route path="/bonus/admin" element={withPageLoader(<BonusAdmin />)} />
     </Routes>
   );
 }

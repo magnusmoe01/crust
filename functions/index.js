@@ -1787,3 +1787,465 @@ exports.sendLargeOrderNotification = onCall(
     return result;
   },
 );
+
+// ── Bonus system ──────────────────────────────────────────────────────────────
+
+const BONUS_HOURLY_RATE = 166.34;
+// OPA model: revenue above threshold × bonus_rate → pool split proportionally by hours
+const BONUS_THRESHOLD_RATE = 400; // kr per employee-hour (normal expected revenue)
+const BONUS_RATE = 0.15;          // 15 % of surplus goes into the pool
+
+function bonusPool(revenue, totalHours) {
+  const surplus = Number(revenue) - BONUS_THRESHOLD_RATE * totalHours;
+  if (surplus <= 0) return 0;
+  return surplus * BONUS_RATE;
+}
+
+function calcShiftBonuses(shifts, approvedRevenue) {
+  const totalHours = shifts.reduce((s, sh) => s + (Number(sh.hoursWorked) || 0), 0);
+  const pool = bonusPool(approvedRevenue, totalHours);
+  if (totalHours <= 0 || pool <= 0) return shifts.map(() => 0);
+  return shifts.map((sh) => Math.round((pool * (Number(sh.hoursWorked) || 0) / totalHours) * 100) / 100);
+}
+
+function normalizePhone(raw) {
+  let p = String(raw || "").replace(/[\s\-().]/g, "");
+  if (p.startsWith("+")) p = p.slice(1);
+  if (p.length === 8 && /^\d+$/.test(p)) p = "47" + p;
+  return p;
+}
+
+async function sendBonusEmailMsg(toEmail, name, date, startTime, endTime, hoursWorked, approvedRevenue, basePayKr, bonusKr, totalKr) {
+  const axios = require("axios");
+  const accessToken = await getAzureAccessToken();
+  const h = Math.floor(hoursWorked);
+  const m = Math.round((hoursWorked - h) * 60);
+  const months = ["januar","februar","mars","april","mai","juni","juli","august","september","oktober","november","desember"];
+  const [yr, mo, da] = (date || "").split("-");
+  const dateStr = yr && mo && da ? `${parseInt(da)}. ${months[parseInt(mo) - 1]} ${yr}` : date;
+  const fmt = (n) => Number(n).toLocaleString("nb-NO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const html = `<!DOCTYPE html><html lang="no"><head><meta charset="UTF-8"></head><body style="font-family:Arial,sans-serif;background:#f4f4f4;margin:0;padding:20px"><div style="max-width:520px;margin:0 auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.12)"><div style="background:#1a3a2a;padding:28px 32px"><h1 style="color:#fff;margin:0;font-size:1.4rem">Crust n' Trust</h1><p style="color:#a8d5b5;margin:6px 0 0;font-size:.9rem">Bonusoppgjør</p></div><div style="padding:28px 32px"><p style="margin:0 0 6px;font-size:1rem;color:#222">Hei ${name}!</p><p style="margin:0 0 20px;color:#555;font-size:.9rem">Her er ditt bonusoppgjør for <strong>${dateStr}</strong>.</p><table style="width:100%;border-collapse:collapse;font-size:.9rem"><tr style="background:#f9f9f9"><td style="padding:9px 12px;border:1px solid #e5e5e5;color:#555">Vakt</td><td style="padding:9px 12px;border:1px solid #e5e5e5;font-weight:600;text-align:right">${startTime}–${endTime} (${h}t ${m}min)</td></tr><tr><td style="padding:9px 12px;border:1px solid #e5e5e5;color:#555">Omsetning</td><td style="padding:9px 12px;border:1px solid #e5e5e5;font-weight:600;text-align:right">${fmt(approvedRevenue)} kr</td></tr><tr style="background:#f9f9f9"><td style="padding:9px 12px;border:1px solid #e5e5e5;color:#555">Timelønn (${fmt(BONUS_HOURLY_RATE)} kr/t)</td><td style="padding:9px 12px;border:1px solid #e5e5e5;text-align:right">${fmt(basePayKr)} kr</td></tr><tr><td style="padding:9px 12px;border:1px solid #e5e5e5;color:#555">Omsetningsbonus</td><td style="padding:9px 12px;border:1px solid #e5e5e5;color:#16a34a;font-weight:700;text-align:right">+ ${fmt(bonusKr)} kr</td></tr><tr style="background:#f0fdf4"><td style="padding:11px 12px;border:1px solid #bbf7d0;font-weight:700;color:#222">Totalsum</td><td style="padding:11px 12px;border:1px solid #bbf7d0;font-weight:700;font-size:1.05rem;color:#16a34a;text-align:right">${fmt(totalKr)} kr</td></tr></table><p style="margin:20px 0 0;color:#888;font-size:.8rem">Spørsmål? Kontakt Crust n' Trust admin.</p></div></div></body></html>`;
+  await axios.post(
+    `https://graph.microsoft.com/v1.0/users/${REVIEW_EMAIL_FROM}/sendMail`,
+    {
+      message: {
+        subject: `Bonusoppgjør ${dateStr}`,
+        body: { contentType: "HTML", content: html },
+        toRecipients: [{ emailAddress: { address: toEmail } }],
+        ccRecipients: REVIEW_EMAIL_CC
+          .filter((e) => e.toLowerCase() !== toEmail.toLowerCase())
+          .map((e) => ({ emailAddress: { address: e } })),
+      },
+      saveToSentItems: false,
+    },
+    { headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" } },
+  );
+}
+
+exports.sendBonusOtp = onCall(
+  { region: "europe-west1", invoker: "public", secrets: ["ELKS_API_USERNAME", "ELKS_API_PASSWORD"] },
+  async ({ data }) => {
+    const phone = normalizePhone(data?.phone);
+    if (!phone || !/^\d{10,15}$/.test(phone)) throw new HttpsError("invalid-argument", "Ugyldig telefonnummer");
+    const db = admin.firestore();
+    const accessDoc = await db.doc(`bonusAccess/${phone}`).get();
+    if (!accessDoc.exists) throw new HttpsError("permission-denied", "Dette nummeret har ikke tilgang til bonussystemet");
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const expiresAt = admin.firestore.Timestamp.fromMillis(Date.now() + 10 * 60 * 1000);
+    await db.doc(`bonusOtp/${phone}`).set({ code, expiresAt, attempts: 0 });
+    await sendElksSms(`+${phone}`, `Din kode for Crust Bonus er: ${code}. Gyldig i 10 minutter.`);
+    return { sent: true };
+  },
+);
+
+exports.verifyBonusOtp = onCall(
+  { region: "europe-west1", invoker: "public" },
+  async ({ data }) => {
+    const phone = normalizePhone(data?.phone);
+    const code = String(data?.code || "").trim();
+    if (!phone || !code) throw new HttpsError("invalid-argument", "Mangler telefon eller kode");
+    const db = admin.firestore();
+    const otpRef = db.doc(`bonusOtp/${phone}`);
+    const otpDoc = await otpRef.get();
+    if (!otpDoc.exists) throw new HttpsError("not-found", "Ingen kode funnet. Send en ny kode.");
+    const otp = otpDoc.data();
+    if (otp.attempts >= 5) throw new HttpsError("resource-exhausted", "For mange forsøk. Send en ny kode.");
+    await otpRef.update({ attempts: admin.firestore.FieldValue.increment(1) });
+    if (otp.expiresAt.toMillis() < Date.now()) throw new HttpsError("deadline-exceeded", "Koden er utløpt. Send en ny kode.");
+    if (otp.code !== code) throw new HttpsError("unauthenticated", "Feil kode. Prøv igjen.");
+    await otpRef.delete();
+    const accessSnap = await db.doc(`bonusAccess/${phone}`).get();
+    const { name = "", email = "" } = accessSnap.data() || {};
+    const crypto = require("crypto");
+    const token = crypto.randomBytes(32).toString("hex");
+    await db.doc(`bonusSessions/${token}`).set({
+      phone,
+      name,
+      email,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + 7 * 24 * 3600 * 1000),
+    });
+    return { token, name, phone };
+  },
+);
+
+async function sendBonusApprovalRequestEmail(date, participantNames) {
+  const axios = require("axios");
+  const accessToken = await getAzureAccessToken();
+  const months = ["januar","februar","mars","april","mai","juni","juli","august","september","oktober","november","desember"];
+  const [yr, mo, da] = (date || "").split("-");
+  const dateStr = yr && mo && da ? `${parseInt(da)}. ${months[parseInt(mo) - 1]} ${yr}` : date;
+  const names = participantNames.join(", ");
+  const html = `<!DOCTYPE html><html lang="no"><head><meta charset="UTF-8"></head><body style="font-family:Arial,sans-serif;background:#f4f4f4;margin:0;padding:20px"><div style="max-width:520px;margin:0 auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.12)"><div style="background:#1a3a2a;padding:28px 32px"><h1 style="color:#fff;margin:0;font-size:1.4rem">Crust n' Trust</h1><p style="color:#a8d5b5;margin:6px 0 0;font-size:.9rem">Bonusgodkjenning</p></div><div style="padding:28px 32px"><p style="margin:0 0 16px;font-size:1rem;color:#222">Ny bonusregistrering venter på godkjenning.</p><table style="width:100%;border-collapse:collapse;font-size:.9rem"><tr style="background:#f9f9f9"><td style="padding:9px 12px;border:1px solid #e5e5e5;color:#555">Dato</td><td style="padding:9px 12px;border:1px solid #e5e5e5;font-weight:600">${dateStr}</td></tr><tr><td style="padding:9px 12px;border:1px solid #e5e5e5;color:#555">Ansatte</td><td style="padding:9px 12px;border:1px solid #e5e5e5;font-weight:600">${names}</td></tr></table><p style="margin:20px 0 0;color:#888;font-size:.85rem">Logg inn på bonus admin for å godkjenne.</p></div></div></body></html>`;
+  await axios.post(
+    `https://graph.microsoft.com/v1.0/users/${REVIEW_EMAIL_FROM}/sendMail`,
+    {
+      message: {
+        subject: `Bonusgodkjenning kreves – ${dateStr}`,
+        body: { contentType: "HTML", content: html },
+        toRecipients: REVIEW_EMAIL_CC.map((e) => ({ emailAddress: { address: e } })),
+      },
+      saveToSentItems: false,
+    },
+    { headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" } },
+  );
+}
+
+exports.createOrJoinBonusDay = onCall(
+  { region: "europe-west1", invoker: "public" },
+  async ({ data }) => {
+    const { sessionToken, date, startTime, endTime, revenueKr } = data || {};
+    if (!sessionToken || !date || !startTime || !endTime) {
+      throw new HttpsError("invalid-argument", "Mangler påkrevde felt");
+    }
+    const db = admin.firestore();
+    const sessionDoc = await db.doc(`bonusSessions/${sessionToken}`).get();
+    if (!sessionDoc.exists || sessionDoc.data().expiresAt.toMillis() < Date.now()) {
+      throw new HttpsError("unauthenticated", "Ugyldig eller utløpt økt. Logg inn på nytt.");
+    }
+    const { phone, name, email } = sessionDoc.data();
+
+    const myShift = await db.collection("bonusShifts").where("phone", "==", phone).where("date", "==", date).get();
+    if (!myShift.empty) throw new HttpsError("already-exists", "Du har allerede registrert en vakt for denne datoen.");
+
+    const [sh, sm] = startTime.split(":").map(Number);
+    const [eh, em] = endTime.split(":").map(Number);
+    let hoursWorked = ((eh * 60 + em) - (sh * 60 + sm)) / 60;
+    if (hoursWorked <= 0) hoursWorked += 24;
+    hoursWorked = Math.round(hoursWorked * 100) / 100;
+    if (hoursWorked > 16 || hoursWorked < 0.5) throw new HttpsError("invalid-argument", "Ugyldig vaktlengde.");
+
+    const daySnap = await db.collection("bonusDays").where("date", "==", date).get();
+    const openDayDoc = daySnap.docs.find((d) => d.data().status === "open");
+
+    let dayId;
+    let dayRevenueKr;
+
+    if (openDayDoc) {
+      dayId = openDayDoc.id;
+      dayRevenueKr = openDayDoc.data().revenueKr;
+      await db.doc(`bonusDays/${dayId}`).update({
+        participantPhones: admin.firestore.FieldValue.arrayUnion(phone),
+      });
+    } else {
+      if (revenueKr == null) throw new HttpsError("invalid-argument", "Omsetning er påkrevd");
+      const rev = Number(revenueKr);
+      if (!Number.isFinite(rev) || rev < 0 || rev > 500000) throw new HttpsError("invalid-argument", "Ugyldig omsetning.");
+      dayRevenueKr = rev;
+      const deadlineMs = new Date(date + "T23:59:59+02:00").getTime() + 24 * 3600 * 1000;
+      if (Date.now() > deadlineMs) throw new HttpsError("deadline-exceeded", "Fristen for registrering er 24 timer etter vakten.");
+      if (new Date(date + "T00:00:00").getTime() > Date.now() + 2 * 3600 * 1000) throw new HttpsError("invalid-argument", "Kan ikke registrere fremtidige vakter.");
+      const dayRef = await db.collection("bonusDays").add({
+        date,
+        revenueKr: rev,
+        status: "open",
+        participantPhones: [phone],
+        createdByPhone: phone,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        submittedForApprovalAt: null,
+        submittedBy: null,
+        approvedAt: null,
+        approvedBy: null,
+      });
+      dayId = dayRef.id;
+    }
+
+    await db.collection("bonusShifts").add({
+      dayId,
+      phone,
+      name,
+      email: email || "",
+      date,
+      startTime,
+      endTime,
+      hoursWorked,
+      submittedAt: admin.firestore.FieldValue.serverTimestamp(),
+      status: "submitted",
+      bonusKr: null,
+      basePayKr: null,
+      adminStartTime: null,
+      adminEndTime: null,
+      adminHours: null,
+      adminNote: "",
+      approvedAt: null,
+      approvedBy: null,
+      emailSent: false,
+    });
+
+    const shiftsSnap = await db.collection("bonusShifts").where("dayId", "==", dayId).get();
+    const participants = shiftsSnap.docs.map((d) => ({ name: d.data().name, phone: d.data().phone }));
+    return { dayId, hoursWorked, dayRevenueKr, participants };
+  },
+);
+
+exports.submitDayForApproval = onCall(
+  { region: "europe-west1", invoker: "public", secrets: ["AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_TENANT_ID"] },
+  async ({ data }) => {
+    const { sessionToken, dayId } = data || {};
+    if (!sessionToken || !dayId) throw new HttpsError("invalid-argument", "Mangler økt eller dag-ID");
+    const db = admin.firestore();
+    const sessionDoc = await db.doc(`bonusSessions/${sessionToken}`).get();
+    if (!sessionDoc.exists || sessionDoc.data().expiresAt.toMillis() < Date.now()) {
+      throw new HttpsError("unauthenticated", "Ugyldig eller utløpt økt. Logg inn på nytt.");
+    }
+    const { phone } = sessionDoc.data();
+    const dayDoc = await db.doc(`bonusDays/${dayId}`).get();
+    if (!dayDoc.exists) throw new HttpsError("not-found", "Dag ikke funnet");
+    const day = dayDoc.data();
+    if (day.status !== "open") throw new HttpsError("failed-precondition", "Denne dagen er allerede sendt for godkjenning");
+    if (!(day.participantPhones || []).includes(phone)) throw new HttpsError("permission-denied", "Du er ikke del av denne gruppen");
+    await db.doc(`bonusDays/${dayId}`).update({
+      status: "pending_approval",
+      submittedForApprovalAt: admin.firestore.FieldValue.serverTimestamp(),
+      submittedBy: phone,
+    });
+    const shiftsSnap = await db.collection("bonusShifts").where("dayId", "==", dayId).get();
+    const names = shiftsSnap.docs.map((d) => d.data().name);
+    await sendBonusApprovalRequestEmail(day.date, names);
+    return { submitted: true };
+  },
+);
+
+exports.getOpenDayForDate = onCall(
+  { region: "europe-west1", invoker: "public" },
+  async ({ data }) => {
+    const { sessionToken, date } = data || {};
+    if (!sessionToken || !date) return null;
+    const db = admin.firestore();
+    const sessionDoc = await db.doc(`bonusSessions/${sessionToken}`).get();
+    if (!sessionDoc.exists || sessionDoc.data().expiresAt.toMillis() < Date.now()) return null;
+    const { phone } = sessionDoc.data();
+    const daySnap = await db.collection("bonusDays").where("date", "==", date).get();
+    const openDayDoc = daySnap.docs.find((d) => d.data().status === "open");
+    if (!openDayDoc) return null;
+    const day = openDayDoc.data();
+    const shiftsSnap = await db.collection("bonusShifts").where("dayId", "==", openDayDoc.id).get();
+    const participants = shiftsSnap.docs.map((d) => ({ name: d.data().name, phone: d.data().phone }));
+    return {
+      dayId: openDayDoc.id,
+      date: day.date,
+      revenueKr: day.revenueKr,
+      participants,
+      hasJoined: participants.some((p) => p.phone === phone),
+    };
+  },
+);
+
+exports.getMyBonusShifts = onCall(
+  { region: "europe-west1", invoker: "public" },
+  async ({ data }) => {
+    const { sessionToken } = data || {};
+    if (!sessionToken) throw new HttpsError("unauthenticated", "Logg inn på nytt.");
+    const db = admin.firestore();
+    const sessionDoc = await db.doc(`bonusSessions/${sessionToken}`).get();
+    if (!sessionDoc.exists || sessionDoc.data().expiresAt.toMillis() < Date.now()) {
+      throw new HttpsError("unauthenticated", "Økten er utløpt. Logg inn på nytt.");
+    }
+    const { phone } = sessionDoc.data();
+    const snaps = await db.collection("bonusShifts").where("phone", "==", phone).get();
+    const dayIds = [...new Set(snaps.docs.map((d) => d.data().dayId).filter(Boolean))];
+    const dayDocs = dayIds.length > 0
+      ? await Promise.all(dayIds.map((id) => db.doc(`bonusDays/${id}`).get()))
+      : [];
+    const dayMap = {};
+    dayDocs.forEach((d) => { if (d.exists) dayMap[d.id] = d.data(); });
+    return snaps.docs
+      .map((d) => {
+        const raw = d.data();
+        const day = dayMap[raw.dayId] || null;
+        return {
+          id: d.id,
+          ...raw,
+          submittedAt: raw.submittedAt?.toMillis() || null,
+          approvedAt: raw.approvedAt?.toMillis() || null,
+          dayStatus: day?.status || null,
+          dayRevenueKr: day?.revenueKr || null,
+        };
+      })
+      .sort((a, b) => (b.date > a.date ? 1 : -1))
+      .slice(0, 30);
+  },
+);
+
+exports.approveBonusDay = onCall(
+  { region: "europe-west1", invoker: "public", secrets: ["AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_TENANT_ID"] },
+  async ({ data, auth }) => {
+    if (!String(auth?.token?.email || "").endsWith("@crust.no")) throw new HttpsError("permission-denied", "Admin required");
+    const { dayId, shiftUpdates, approvedRevenue } = data || {};
+    if (!dayId || !Array.isArray(shiftUpdates) || !shiftUpdates.length || approvedRevenue == null) {
+      throw new HttpsError("invalid-argument", "Mangler dag-ID, vakter eller omsetning");
+    }
+    const db = admin.firestore();
+    const dayDoc = await db.doc(`bonusDays/${dayId}`).get();
+    if (!dayDoc.exists) throw new HttpsError("not-found", "Dag ikke funnet");
+    const dayData = dayDoc.data();
+    const docs = await Promise.all(shiftUpdates.map((u) => db.doc(`bonusShifts/${u.id}`).get()));
+    const shifts = docs.map((doc, i) => {
+      if (!doc.exists) throw new HttpsError("not-found", `Vakt ikke funnet: ${shiftUpdates[i].id}`);
+      const u = shiftUpdates[i];
+      const hoursWorked = u.hoursWorked != null ? Number(u.hoursWorked) : doc.data().hoursWorked;
+      return { id: doc.id, ...doc.data(), hoursWorked, _update: u };
+    });
+    const bonuses = calcShiftBonuses(shifts, approvedRevenue);
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    const batch = db.batch();
+    shifts.forEach((shift, i) => {
+      const u = shift._update;
+      const hoursWorked = u.hoursWorked != null ? Number(u.hoursWorked) : shift.hoursWorked;
+      batch.update(db.doc(`bonusShifts/${shift.id}`), {
+        status: "approved",
+        adminStartTime: u.startTime || null,
+        adminEndTime: u.endTime || null,
+        adminHours: u.hoursWorked != null ? Number(u.hoursWorked) : null,
+        adminNote: u.adminNote || "",
+        hoursWorked,
+        bonusKr: Math.round(bonuses[i] * 100) / 100,
+        basePayKr: Math.round(hoursWorked * BONUS_HOURLY_RATE * 100) / 100,
+        approvedAt: now,
+        approvedBy: auth.token.email,
+      });
+    });
+    batch.update(db.doc(`bonusDays/${dayId}`), {
+      status: "approved",
+      approvedAt: now,
+      approvedBy: auth.token.email,
+    });
+    await batch.commit();
+    const emailResults = [];
+    for (let i = 0; i < shifts.length; i++) {
+      const shift = shifts[i];
+      const u = shiftUpdates[i];
+      const hoursWorked = u.hoursWorked != null ? Number(u.hoursWorked) : shift.hoursWorked;
+      const basePay = Math.round(hoursWorked * BONUS_HOURLY_RATE * 100) / 100;
+      const bonus = Math.round(bonuses[i] * 100) / 100;
+      const total = Math.round((basePay + bonus) * 100) / 100;
+      const start = u.startTime || shift.startTime;
+      const end = u.endTime || shift.endTime;
+      if (!shift.email) { emailResults.push({ id: shift.id, sent: false, reason: "no email" }); continue; }
+      try {
+        await sendBonusEmailMsg(shift.email, shift.name, dayData.date, start, end, hoursWorked, Number(approvedRevenue), basePay, bonus, total);
+        await db.doc(`bonusShifts/${shift.id}`).update({ emailSent: true });
+        emailResults.push({ id: shift.id, sent: true });
+      } catch (err) {
+        logger.error("Bonus email failed", { id: shift.id, err: err?.message });
+        emailResults.push({ id: shift.id, sent: false, error: err?.message });
+      }
+    }
+    return { approved: true, emailResults };
+  },
+);
+
+exports.resendBonusEmail = onCall(
+  { region: "europe-west1", invoker: "public", secrets: ["AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_TENANT_ID"] },
+  async ({ data, auth }) => {
+    if (!String(auth?.token?.email || "").endsWith("@crust.no")) throw new HttpsError("permission-denied", "Admin required");
+    const { shiftId } = data || {};
+    if (!shiftId) throw new HttpsError("invalid-argument", "shiftId required");
+    const db = admin.firestore();
+    const doc = await db.doc(`bonusShifts/${shiftId}`).get();
+    if (!doc.exists) throw new HttpsError("not-found", "Vakt ikke funnet");
+    const s = doc.data();
+    if (s.status !== "approved") throw new HttpsError("failed-precondition", "Vakten er ikke godkjent");
+    if (!s.email) throw new HttpsError("failed-precondition", "Ingen e-postadresse");
+    const dayDoc = await db.doc(`bonusDays/${s.dayId}`).get();
+    const approvedRevenue = dayDoc.exists ? dayDoc.data().revenueKr : 0;
+    const start = s.adminStartTime || s.startTime;
+    const end = s.adminEndTime || s.endTime;
+    const total = Math.round(((s.basePayKr || 0) + (s.bonusKr || 0)) * 100) / 100;
+    await sendBonusEmailMsg(s.email, s.name, s.date, start, end, s.hoursWorked, approvedRevenue, s.basePayKr || 0, s.bonusKr || 0, total);
+    await db.doc(`bonusShifts/${shiftId}`).update({ emailSent: true });
+    return { sent: true };
+  },
+);
+
+exports.adminRegisterBonusShift = onCall(
+  { region: "europe-west1", invoker: "public" },
+  async ({ data, auth }) => {
+    if (!String(auth?.token?.email || "").endsWith("@crust.no")) throw new HttpsError("permission-denied", "Admin required");
+    const { phone, date, startTime, endTime, revenueKr } = data || {};
+    if (!phone || !date || !startTime || !endTime || revenueKr == null) {
+      throw new HttpsError("invalid-argument", "Mangler påkrevde felt");
+    }
+    const db = admin.firestore();
+    const normPhone = normalizePhone(phone);
+    const accessDoc = await db.doc(`bonusAccess/${normPhone}`).get();
+    if (!accessDoc.exists) throw new HttpsError("not-found", "Ansatt ikke funnet i bonussystemet");
+    const { name = "", email = "" } = accessDoc.data();
+    const [sh, sm] = startTime.split(":").map(Number);
+    const [eh, em] = endTime.split(":").map(Number);
+    let hoursWorked = ((eh * 60 + em) - (sh * 60 + sm)) / 60;
+    if (hoursWorked <= 0) hoursWorked += 24;
+    hoursWorked = Math.round(hoursWorked * 100) / 100;
+    if (hoursWorked > 16 || hoursWorked < 0.5) throw new HttpsError("invalid-argument", "Ugyldig vaktlengde.");
+    const rev = Number(revenueKr);
+    if (!Number.isFinite(rev) || rev < 0 || rev > 500000) throw new HttpsError("invalid-argument", "Ugyldig omsetning.");
+    const existing = await db.collection("bonusShifts").where("phone", "==", normPhone).where("date", "==", date).get();
+    if (!existing.empty) throw new HttpsError("already-exists", `${name} har allerede en vakt registrert for ${date}.`);
+    const daySnap = await db.collection("bonusDays").where("date", "==", date).get();
+    const openDayDoc = daySnap.docs.find((d) => d.data().status === "open");
+    let dayId;
+    if (openDayDoc) {
+      dayId = openDayDoc.id;
+      await db.doc(`bonusDays/${dayId}`).update({
+        participantPhones: admin.firestore.FieldValue.arrayUnion(normPhone),
+      });
+    } else {
+      const dayRef = await db.collection("bonusDays").add({
+        date,
+        revenueKr: rev,
+        status: "open",
+        participantPhones: [normPhone],
+        createdByPhone: normPhone,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        submittedForApprovalAt: null,
+        submittedBy: null,
+        approvedAt: null,
+        approvedBy: null,
+      });
+      dayId = dayRef.id;
+    }
+    await db.collection("bonusShifts").add({
+      dayId,
+      phone: normPhone,
+      name,
+      email: email || "",
+      date,
+      startTime,
+      endTime,
+      hoursWorked,
+      submittedAt: admin.firestore.FieldValue.serverTimestamp(),
+      status: "submitted",
+      registeredByAdmin: auth.token.email,
+      bonusKr: null,
+      basePayKr: null,
+      adminStartTime: null,
+      adminEndTime: null,
+      adminHours: null,
+      adminNote: "",
+      approvedAt: null,
+      approvedBy: null,
+      emailSent: false,
+    });
+    return { submitted: true, hoursWorked, name };
+  },
+);

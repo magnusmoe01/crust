@@ -603,25 +603,25 @@ function Admin() {
 
       {isAdmin && (
         <section className="admin-panel">
-          {loading ? <p>Checking login...</p> : null}
-          {isAdmin ? (
-            <>
-              <p>Logged in as {user?.email}</p>
-              <div className="admin-actions">
-                <Link className="admin-button" to="/skjema">Go to /skjema</Link>
-                <Link className="admin-button admin-button-secondary" to="/admin/leverandører">Suppliers</Link>
-                <Link className="admin-button admin-button-secondary" to="/admin/ordre">Order Settings</Link>
-                <Link className="admin-button admin-button-secondary" to="/admin/all-orders">All orders</Link>
-                <Link className="admin-button admin-button-secondary" to="/order">Order Page</Link>
-                <Link className="admin-button admin-button-secondary" to="/worker">Worker Dashboard</Link>
-                <Link className="admin-button admin-button-secondary" to="/sales">Open sales</Link>
-                <Link className="admin-button admin-button-secondary" to="/admin/financial-report">Financial report</Link>
-                <Link className="admin-button admin-button-secondary" to="/admin/sms">Send SMS</Link>
-                <Link className="admin-button admin-button-secondary" to="/admin/bilder">Bilder</Link>
-                <button type="button" className="admin-button admin-button-secondary" onClick={signOutAdmin}>Log out</button>
-              </div>
-            </>
-          ) : null}
+          <p className="admin-logged-in-as">Innlogget som <strong>{user?.email}</strong></p>
+          <div className="admin-nav-grid">
+            <Link className="admin-nav-card admin-nav-card--primary" to="/skjema">
+              <span className="admin-nav-card-label">Skjema</span>
+            </Link>
+            <Link className="admin-nav-card" to="/admin/leverandører">Leverandører</Link>
+            <Link className="admin-nav-card" to="/admin/ordre">Ordreinnstillinger</Link>
+            <Link className="admin-nav-card" to="/admin/all-orders">Alle ordre</Link>
+            <Link className="admin-nav-card" to="/order">Ordreside</Link>
+            <Link className="admin-nav-card" to="/worker">Kjøkken</Link>
+            <Link className="admin-nav-card" to="/sales">Salg</Link>
+            <Link className="admin-nav-card" to="/admin/financial-report">Finansrapport</Link>
+            <Link className="admin-nav-card" to="/admin/sms">SMS</Link>
+            <Link className="admin-nav-card" to="/admin/bilder">Bilder</Link>
+            <Link className="admin-nav-card" to="/bonus/admin">Bonus</Link>
+          </div>
+          <div>
+            <button type="button" className="admin-button admin-button-secondary" onClick={signOutAdmin}>Logg ut</button>
+          </div>
         </section>
       )}
 

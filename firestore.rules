@@ -148,5 +148,25 @@ service cloud.firestore {
       allow read, delete: if isCrustUser();
     }
 
+    match /bonusAccess/{docId} {
+      allow read, write: if isCrustUser();
+    }
+
+    match /bonusShifts/{docId} {
+      allow read, write: if isCrustUser();
+    }
+
+    match /bonusDays/{docId} {
+      allow read, write: if isCrustUser();
+    }
+
+    match /bonusOtp/{docId} {
+      allow read, write: if false;
+    }
+
+    match /bonusSessions/{docId} {
+      allow read, write: if false;
+    }
+
   }
 }

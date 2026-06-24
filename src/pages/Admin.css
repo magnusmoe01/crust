@@ -124,6 +124,58 @@
   background: #fff0ea;
 }
 
+.admin-logged-in-as {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #4d697d;
+}
+
+.admin-logged-in-as strong {
+  color: #163042;
+}
+
+.admin-nav-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 8px;
+}
+
+.admin-nav-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(19, 38, 53, 0.18);
+  background: rgba(255, 255, 255, 0.82);
+  color: #163042;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+  text-align: center;
+  cursor: pointer;
+  transition: background 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+
+.admin-nav-card:hover {
+  background: #fff;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(19, 38, 53, 0.1);
+}
+
+.admin-nav-card--primary {
+  background: #163042;
+  color: #f5f9fd;
+  border-color: #163042;
+}
+
+.admin-nav-card--primary:hover {
+  background: #1e3f56;
+  box-shadow: 0 8px 20px rgba(19, 38, 53, 0.22);
+}
+
 .admin-login-link {
   background: transparent;
   border: 0;
