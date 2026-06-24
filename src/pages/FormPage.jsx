@@ -7490,7 +7490,7 @@ function FormPage() {
     historyShowAllQuestions
       ? analysisQuestions
       : analysisQuestions.filter((question) => selectedHistoryQuestionIds.includes(question.id))
-  const locationOrder = availableLocations.map((location) => String(location.name || '').trim()).filter(Boolean)
+  const locationOrder = availableLocations.filter((l) => !l.disabled).map((location) => String(location.name || '').trim()).filter(Boolean)
   const parsedHistorySubmissionLimit = Math.max(1, Number.parseInt(historySubmissionLimit, 10) || 3)
   const historyByLocation = submissions
     .reduce((accumulator, submission) => {
@@ -10796,31 +10796,114 @@ function FormPage() {
                       </div>
                     )
                   }
+                  const printInventory = () => {
+                    const root = document.querySelector('.inventory-print-root')
+                    if (!root) return
+                    const portal = document.createElement('div')
+                    portal.className = 'inventory-print-portal'
+                    portal.appendChild(root.cloneNode(true))
+                    document.body.appendChild(portal)
+                    document.body.classList.add('printing-inventory')
+                    const cleanup = () => {
+                      document.body.classList.remove('printing-inventory')
+                      if (portal.parentNode) portal.parentNode.removeChild(portal)
+                      window.removeEventListener('afterprint', cleanup)
+                    }
+                    window.addEventListener('afterprint', cleanup)
+                    window.print()
+                  }
+                  // Build table data: unique product labels as columns
+                  const allItemLabels = [...new Set(alertRows.flatMap((r) => r.items.map((i) => i.label)))]
+                  const allNoteLabels = [...new Set(alertRows.flatMap((r) => r.incidentNotes.map((n) => n.label)))]
+                  const locationItemMap = Object.fromEntries(
+                    alertRows.map(({ location, items, incidentNotes }) => [
+                      location,
+                      {
+                        items: Object.fromEntries(items.map((it) => [it.label, it])),
+                        notes: Object.fromEntries(incidentNotes.map((n) => [n.label, n])),
+                      },
+                    ])
+                  )
                   return (
-                    <div className="inventory-alert-summary">
+                    <div className="inventory-alert-summary inventory-print-root">
                       <p className="inventory-alert-summary-title">
                         Status per lokasjon
                         <span className="inventory-alert-summary-note">Sendes daglig kl. 08:00</span>
+                        <button
+                          type="button"
+                          className="inventory-print-btn"
+                          onClick={printInventory}
+                          title="Skriv ut"
+                        >
+                          🖨 Skriv ut
+                        </button>
                       </p>
                       <div className="inventory-alert-location-grid">
                         {alertRows.map(({ location, items, incidentNotes }) => (
                           <div key={location} className="inventory-alert-location-card">
                             <p className="inventory-alert-location-name">📍 {location}</p>
-                            {incidentNotes.map((note, i) => (
-                              <div key={i} className="inventory-alert-incident-note">
-                                <span className="inventory-alert-incident-label">{note.label}</span>
-                                <span className="inventory-alert-incident-text">{note.value}</span>
-                              </div>
-                            ))}
                             {items.map((item, i) => (
                               <div key={i} className={`inventory-alert-item is-${item.category} ${item.isUpdated ? 'is-updated' : ''}`}>
                                 <span className="inventory-alert-item-label">{item.label}</span>
                                 <span className="inventory-alert-item-value">{item.value}</span>
                               </div>
                             ))}
+                            {incidentNotes.map((note, i) => (
+                              <div key={i} className="inventory-alert-incident-note">
+                                <span className="inventory-alert-incident-label">{note.label}</span>
+                                <span className="inventory-alert-incident-text">{note.value}</span>
+                              </div>
+                            ))}
                           </div>
                         ))}
                       </div>
+                      <div className="inventory-print-header">
+                        <strong>Status per lokasjon</strong>
+                        <span>{new Date().toLocaleDateString('nb-NO', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+                      </div>
+                      <table className="inventory-print-table">
+                        <thead>
+                          <tr>
+                            <th className="inventory-print-th inventory-print-th--product">Produkt</th>
+                            {alertRows.map(({ location }) => (
+                              <th key={location} className="inventory-print-th inventory-print-th--location">
+                                {location}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {allItemLabels.map((label) => (
+                            <tr key={label}>
+                              <td className="inventory-print-td inventory-print-td--product">{label}</td>
+                              {alertRows.map(({ location }) => {
+                                const item = locationItemMap[location].items[label]
+                                return (
+                                  <td
+                                    key={location}
+                                    className={`inventory-print-td${item ? ` inventory-print-td--${item.category}` : ''}`}
+                                  >
+                                    {item?.value || ''}
+                                  </td>
+                                )
+                              })}
+                            </tr>
+                          ))}
+                          {allNoteLabels.map((label) => (
+                            <tr key={label}>
+                              <td className="inventory-print-td inventory-print-td--product inventory-print-td--note-label">{label}</td>
+                              {alertRows.map(({ location }) => {
+                                const note = locationItemMap[location].notes[label]
+                                return (
+                                  <td key={location} className="inventory-print-td inventory-print-td--note">
+                                    {note?.value || ''}
+                                  </td>
+                                )
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   )
                 })() : null}

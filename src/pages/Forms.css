@@ -1546,6 +1546,31 @@
   word-break: break-word;
 }
 
+/* ── Inventory print button ───────────────────────────────────────── */
+
+.inventory-print-btn {
+  margin-left: auto;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #374151;
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: background 0.15s;
+}
+.inventory-print-btn:hover {
+  background: #e5e7eb;
+}
+
+.inventory-print-header {
+  display: none;
+}
+
 /* ── Inventory update button ──────────────────────────────────────── */
 
 .inventory-update-top-bar {
@@ -4456,4 +4481,166 @@ tr:hover .history-row-order-btns {
 .inventory-log-by {
   font-size: 0.78rem;
   color: rgba(24,44,60,0.45);
+}
+
+/* ── Print table (screen: hidden) ─────────────────────────────────── */
+
+.inventory-print-header {
+  display: none;
+}
+
+.inventory-print-table {
+  display: none;
+}
+
+/* ── Print: Status per lokasjon ───────────────────────────────────── */
+
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 12mm;
+  }
+
+  /* Hide the entire React app — show only the portal appended to body */
+  body.printing-inventory > *:not(.inventory-print-portal) {
+    display: none !important;
+  }
+
+  .inventory-print-portal {
+    display: block;
+    background: white;
+  }
+
+  .inventory-print-portal .inventory-print-root {
+    border: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    background: white !important;
+  }
+
+  /* Hide screen-only parts inside the clone */
+  .inventory-print-portal .inventory-alert-summary-title,
+  .inventory-print-portal .inventory-alert-location-grid {
+    display: none !important;
+  }
+
+  /* Print header */
+  .inventory-print-portal .inventory-print-header {
+    display: flex !important;
+    justify-content: space-between;
+    align-items: baseline;
+    border-bottom: 2px solid #374151;
+    padding-bottom: 5px;
+    margin-bottom: 8px;
+  }
+  .inventory-print-portal .inventory-print-header strong {
+    font-size: 12pt;
+    font-weight: 700;
+    color: #111;
+  }
+  .inventory-print-portal .inventory-print-header span {
+    font-size: 9pt;
+    color: #555;
+  }
+
+  /* Table: fixed layout keeps columns predictable, text wraps within cells */
+  .inventory-print-portal .inventory-print-table {
+    display: table !important;
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 7.5pt;
+    table-layout: fixed;
+    word-break: break-word;
+    word-wrap: break-word;
+  }
+
+  .inventory-print-portal thead {
+    display: table-header-group; /* repeat header on each page */
+  }
+
+  .inventory-print-portal .inventory-print-th {
+    background: #f3f4f6 !important;
+    color: #111 !important;
+    font-weight: 700;
+    padding: 4px 5px;
+    border: 1px solid #c4c9d4;
+    text-align: center;
+    vertical-align: bottom;
+    overflow: hidden;
+    word-break: break-word;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .inventory-print-portal .inventory-print-th--product {
+    width: 100pt;
+    text-align: left;
+    background: #e5e7eb !important;
+  }
+
+  .inventory-print-portal .inventory-print-th--location {
+    background: #dbeafe !important;
+    color: #1e3a8a !important;
+  }
+
+  .inventory-print-portal .inventory-print-td {
+    padding: 4px 5px;
+    border: 1px solid #c4c9d4;
+    vertical-align: top;
+    text-align: center;
+    overflow: hidden;
+    word-break: break-word;
+    color: #374151;
+    font-size: 7.5pt;
+  }
+
+  .inventory-print-portal .inventory-print-td--product {
+    text-align: left;
+    font-weight: 600;
+    background: #f9fafb !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .inventory-print-portal .inventory-print-td--note-label {
+    color: #0369a1;
+    background: #f0f9ff !important;
+  }
+
+  .inventory-print-portal .inventory-print-td--note {
+    color: #0369a1;
+    background: #f0f9ff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .inventory-print-portal .inventory-print-td--red {
+    background: #fef2f2 !important;
+    color: #991b1b !important;
+    font-weight: 700;
+    border-left: 3px solid #dc2626 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .inventory-print-portal .inventory-print-td--orange {
+    background: #fffbeb !important;
+    color: #92400e !important;
+    font-weight: 600;
+    border-left: 3px solid #d97706 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .inventory-print-portal tr:nth-child(odd) .inventory-print-td {
+    background: #fafafa !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .inventory-print-portal tr:nth-child(odd) .inventory-print-td--red     { background: #fef2f2 !important; }
+  .inventory-print-portal tr:nth-child(odd) .inventory-print-td--orange   { background: #fffbeb !important; }
+  .inventory-print-portal tr:nth-child(odd) .inventory-print-td--product  { background: #f3f4f6 !important; }
+  .inventory-print-portal tr:nth-child(odd) .inventory-print-td--note     { background: #e0f2fe !important; }
 }
