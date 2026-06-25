@@ -174,32 +174,17 @@ export default function BonusPage() {
   const [otp, setOtp] = useState('')
   const [loginState, setLoginState] = useState({ loading: false, error: '' })
 
-  // Form
-  const today = new Date().toISOString().slice(0, 10)
-  const [shiftDate, setShiftDate] = useState(today)
-  const [startTime, setStartTime] = useState('')
-  const [endTime, setEndTime] = useState('')
-  const [revenue, setRevenue] = useState('')
-  const [numWorkers, setNumWorkers] = useState('')
-  const [submitState, setSubmitState] = useState({ loading: false, error: '' })
-
-  // Multi-step flow
-  const [formStep, setFormStep] = useState('form') // 'form' | 'alone_or_more' | 'waiting' | 'done'
-  const [dayInfo, setDayInfo] = useState(null) // { dayId, participants, revenueKr, hoursWorked }
-  const [approvalState, setApprovalState] = useState({ loading: false, error: '' })
-  const [deleteState, setDeleteState] = useState({})
-
-  // Open day for today (joined by others but not yet by me)
-  const [openDay, setOpenDay] = useState(null)
-  const [openDayLoading, setOpenDayLoading] = useState(false)
-
   // History
   const [history, setHistory] = useState([])
   const [historyLoading, setHistoryLoading] = useState(false)
 
+  // Month navigation
+  const today = new Date().toISOString().slice(0, 10)
+  const currentMonth = today.slice(0, 7)
+  const [viewMonth, setViewMonth] = useState(currentMonth)
+
   // Formula explainer toggle
   const [showFormula, setShowFormula] = useState(false)
-  const [showRegModal, setShowRegModal] = useState(false)
 
   // Bonus calculator
   const [bonusConfig, setBonusConfig] = useState({
@@ -228,22 +213,8 @@ export default function BonusPage() {
   }, [])
 
   useEffect(() => {
-    if (session) {
-      loadHistory()
-      checkOpenDay(today)
-    }
+    if (session) loadHistory()
   }, [session])
-
-  async function checkOpenDay(date) {
-    if (!session) return
-    setOpenDayLoading(true)
-    try {
-      const res = await httpsCallable(functions, 'getOpenDayForDate')({ sessionToken: session.token, date })
-      const day = res.data || null
-      setOpenDay(day)
-      if (day?.revenueKr != null) setRevenue(String(day.revenueKr))
-    } catch { /* ignore */ } finally { setOpenDayLoading(false) }
-  }
 
   async function loadHistory() {
     if (!session) return
@@ -280,100 +251,11 @@ export default function BonusPage() {
     }
   }
 
-  async function onSubmitShift(e) {
-    e.preventDefault()
-    setSubmitState({ loading: true, error: '' })
-    try {
-      const isJoining = openDay && !openDay.hasJoined && shiftDate === today
-      const res = await httpsCallable(functions, 'createOrJoinBonusDay')({
-        sessionToken: session.token,
-        date: shiftDate,
-        startTime,
-        endTime,
-        revenueKr: Number(revenue),
-      })
-      const { dayId, hoursWorked, dayRevenueKr, participants } = res.data
-      setDayInfo({ dayId, hoursWorked, revenueKr: dayRevenueKr, participants })
-      setFormStep('alone_or_more')
-      setShowRegModal(false)
-      setSubmitState({ loading: false, error: '' })
-    } catch (err) {
-      const msg = err?.message || 'Noe gikk galt. Prøv igjen.'
-      if (msg.includes('økt') || msg.includes('Logg inn')) { clearSession(); setSession(null) }
-      setSubmitState({ loading: false, error: msg })
-    }
+  function shiftViewMonth(dir) {
+    const [y, m] = viewMonth.split('-').map(Number)
+    const d = new Date(y, m - 1 + dir, 1)
+    setViewMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
   }
-
-  async function onDeleteShift(shiftId) {
-    if (!window.confirm('Slette denne vakten?')) return
-    setDeleteState(p => ({ ...p, [shiftId]: { loading: true } }))
-    try {
-      await httpsCallable(functions, 'deleteBonusShift')({ shiftId, sessionToken: session.token })
-      setDeleteState(p => ({ ...p, [shiftId]: { done: true } }))
-      await loadHistory()
-    } catch (err) {
-      setDeleteState(p => ({ ...p, [shiftId]: { error: err?.message || 'Noe gikk galt' } }))
-    }
-  }
-
-  async function onSendForApproval() {
-    setApprovalState({ loading: true, error: '' })
-    try {
-      await httpsCallable(functions, 'submitDayForApproval')({ sessionToken: session.token, dayId: dayInfo.dayId })
-      setFormStep('done')
-      loadHistory()
-      setApprovalState({ loading: false, error: '' })
-    } catch (err) {
-      setApprovalState({ loading: false, error: err?.message || 'Noe gikk galt. Prøv igjen.' })
-    }
-  }
-
-  async function onSendForApprovalFromHistory(dayId) {
-    setApprovalState({ loading: true, error: '' })
-    try {
-      await httpsCallable(functions, 'submitDayForApproval')({ sessionToken: session.token, dayId })
-      loadHistory()
-      setApprovalState({ loading: false, error: '' })
-    } catch (err) {
-      setApprovalState({ loading: false, error: err?.message || 'Noe gikk galt. Prøv igjen.' })
-    }
-  }
-
-  function resetForm() {
-    setFormStep('form')
-    setDayInfo(null)
-    setStartTime('')
-    setEndTime('')
-    setRevenue('')
-    setNumWorkers('')
-    setShiftDate(today)
-    setOpenDay(null)
-    checkOpenDay(today)
-    loadHistory()
-  }
-
-  function startNewDay() {
-    setFormStep('form')
-    setDayInfo(null)
-    setStartTime('')
-    setEndTime('')
-    setRevenue('')
-    setNumWorkers('')
-    setShiftDate(today)
-    setOpenDay(null)
-    checkOpenDay(today)
-  }
-
-  const previewHours = startTime && endTime ? calcHours(startTime, endTime) : null
-  const isJoiningOpenDay = openDay && !openDay.hasJoined && shiftDate === today
-  const previewRevenue = isJoiningOpenDay ? openDay.revenueKr : (revenue ? Number(revenue) : null)
-  const previewBase = previewHours ? Math.round(previewHours * BONUS_HOURLY_RATE) : 0
-  const effectiveNumWorkers = isJoiningOpenDay
-    ? (openDay.participants.length + 1)
-    : (numWorkers ? Number(numWorkers) : null)
-  const previewPoolPerPerson = (previewHours && previewRevenue && effectiveNumWorkers)
-    ? Math.max(0, bonusPool(previewRevenue, previewHours * effectiveNumWorkers) / effectiveNumWorkers)
-    : null
 
   if (!session) {
     return (
@@ -460,195 +342,6 @@ export default function BonusPage() {
           </div>
         </div>
 
-        {formStep === 'form' && (
-          <>
-            <button
-              type="button"
-              className="bonus-btn bonus-btn--register"
-              onClick={() => setShowRegModal(true)}
-            >
-              + Registrer vakt
-            </button>
-          </>
-        )}
-
-        {showRegModal && (
-          <div className="bonus-modal-overlay" onClick={e => { if (e.target === e.currentTarget) setShowRegModal(false) }}>
-            <div className="bonus-modal">
-              <div className="bonus-modal-header">
-                <span className="bonus-modal-title">Registrer vakt</span>
-                <button type="button" className="bonus-modal-close" onClick={() => setShowRegModal(false)}>×</button>
-              </div>
-
-            {openDayLoading && <p className="bonus-hint">Sjekker åpne registreringer…</p>}
-
-            {isJoiningOpenDay && (
-              <div className="bonus-open-day-banner">
-                <div className="bonus-open-day-title">Åpen registrering for i dag</div>
-                <div className="bonus-open-day-participants">
-                  {openDay.participants.map(p => p.name).join(', ')} har allerede registrert seg.
-                </div>
-              </div>
-            )}
-
-            <form onSubmit={onSubmitShift} className="bonus-form">
-              {!isJoiningOpenDay && (
-                <div className="bonus-field">
-                  <label className="bonus-label">Dato</label>
-                  <input
-                    className="bonus-input"
-                    type="date"
-                    value={shiftDate}
-                    onChange={(e) => { setShiftDate(e.target.value); setOpenDay(null); if (e.target.value) checkOpenDay(e.target.value) }}
-                    required
-                    min={BONUS_START_DATE}
-                    max={today}
-                  />
-                </div>
-              )}
-              <div className="bonus-field-row">
-                <div className="bonus-field">
-                  <label className="bonus-label">Starttid</label>
-                  <input className="bonus-input" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} required />
-                </div>
-                <div className="bonus-field">
-                  <label className="bonus-label">Sluttid</label>
-                  <input className="bonus-input" type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} required />
-                </div>
-              </div>
-              <p className="bonus-time-hint">Kopier innstempling og utstemplingstid i Planday</p>
-              {previewHours != null && (
-                <p className="bonus-hours-preview">Arbeidet tid: {fmtHours(previewHours)}</p>
-              )}
-              {!isJoiningOpenDay && (
-                <div className="bonus-field">
-                  <label className="bonus-label">Hvor mange jobbet i dag?
-                    <span className="bonus-label-hint">Gjelder ikke ekstrahelp-vakter</span>
-                  </label>
-                  <input
-                    className="bonus-input"
-                    type="number"
-                    min="1"
-                    step="1"
-                    placeholder="Antall personer"
-                    value={numWorkers}
-                    onChange={(e) => setNumWorkers(e.target.value)}
-                    required
-                  />
-                </div>
-              )}
-              <div className="bonus-field">
-                <label className="bonus-label">Omsetning for dagen (kr)
-                  {isJoiningOpenDay && <span className="bonus-label-hint">Satt av første person — oppdater hvis feil</span>}
-                </label>
-                <input
-                  className="bonus-input"
-                  type="number"
-                  min="0"
-                  step="1"
-                  placeholder="F.eks. 32 500"
-                  value={revenue}
-                  onChange={(e) => setRevenue(e.target.value)}
-                  required
-                />
-              </div>
-
-              {previewHours && previewRevenue && effectiveNumWorkers ? (
-                <div className="bonus-preview">
-                  <p className="bonus-preview-title">Estimert utbetaling for deg</p>
-                  <div className="bonus-preview-row">
-                    <span>Timelønn ({fmtHours(previewHours)})</span>
-                    <span>{fmtKr(previewBase)} kr</span>
-                  </div>
-                  {previewPoolPerPerson != null && (
-                    <div className="bonus-preview-row bonus-preview-row--bonus">
-                      <span>Bonusestimering ({effectiveNumWorkers} pers., lik arbeidstid)</span>
-                      <span>+ {fmtKr(previewPoolPerPerson)} kr</span>
-                    </div>
-                  )}
-                  <div className="bonus-preview-row bonus-preview-row--total">
-                    <span>Ca. totalsum</span>
-                    <span>{fmtKr(previewBase + (previewPoolPerPerson || 0))} kr</span>
-                  </div>
-                  <p className="bonus-preview-note">Nøyaktig bonus beregnes etter at alle har registrert tidene sine.</p>
-                </div>
-              ) : null}
-
-              {submitState.error && <p className="bonus-error">{submitState.error}</p>}
-              <button className="bonus-btn" type="submit" disabled={submitState.loading}>
-                {submitState.loading ? 'Registrerer…' : isJoiningOpenDay ? 'Bli med og registrer vakt' : 'Registrer vakt'}
-              </button>
-            </form>
-            </div>
-          </div>
-        )}
-
-        {formStep === 'alone_or_more' && dayInfo && (
-          <div className="bonus-step-card">
-            <div className="bonus-step-icon">✓</div>
-            <h2 className="bonus-step-title">Vakt registrert!</h2>
-            <p className="bonus-step-body">
-              Du har registrert <strong>{fmtHours(dayInfo.hoursWorked)}</strong> for {fmtDate(shiftDate || today)}.
-            </p>
-            <p className="bonus-step-question">Jobbet det andre {shiftDate === today ? 'i dag' : 'denne dagen'}?</p>
-            <div className="bonus-step-actions">
-              <button className="bonus-btn" onClick={() => setFormStep('waiting')}>
-                Ja, det jobbet flere
-              </button>
-              <button
-                className="bonus-btn-secondary"
-                onClick={onSendForApproval}
-                disabled={approvalState.loading}
-              >
-                {approvalState.loading ? 'Sender…' : 'Nei, bare meg — send for godkjenning'}
-              </button>
-            </div>
-            {approvalState.error && <p className="bonus-error">{approvalState.error}</p>}
-            <button type="button" className="bonus-btn-ghost bonus-btn-ghost--center" onClick={startNewDay}>
-              + Registrer en annen dag
-            </button>
-          </div>
-        )}
-
-        {formStep === 'waiting' && dayInfo && (
-          <div className="bonus-step-card">
-            <div className="bonus-step-icon bonus-step-icon--waiting">⏳</div>
-            <h2 className="bonus-step-title">Venter på andre</h2>
-            <p className="bonus-step-body">Andre kan nå logge inn og legge inn sin vakt for {fmtDate(shiftDate || today)}.</p>
-            {dayInfo.participants.length > 0 && (
-              <div className="bonus-participants">
-                <p className="bonus-participants-label">Registrert så langt:</p>
-                <div className="bonus-participants-list">
-                  {dayInfo.participants.map((p, i) => (
-                    <span key={i} className="bonus-participant-chip">{p.name}</span>
-                  ))}
-                </div>
-              </div>
-            )}
-            <button
-              className="bonus-btn bonus-btn--submit-day"
-              onClick={onSendForApproval}
-              disabled={approvalState.loading}
-            >
-              {approvalState.loading ? 'Sender…' : 'Alle har lagt inn — send for godkjenning'}
-            </button>
-            {approvalState.error && <p className="bonus-error">{approvalState.error}</p>}
-            <button type="button" className="bonus-btn-ghost bonus-btn-ghost--center" onClick={startNewDay}>
-              + Registrer en annen dag
-            </button>
-          </div>
-        )}
-
-        {formStep === 'done' && (
-          <div className="bonus-step-card">
-            <div className="bonus-step-icon">📨</div>
-            <h2 className="bonus-step-title">Sendt for godkjenning!</h2>
-            <p className="bonus-step-body">Admin vil godkjenne vakten og sende bonusinformasjon på e-post.</p>
-            <div className="bonus-step-actions">
-              <button className="bonus-btn" onClick={resetForm}>Registrer ny dag</button>
-            </div>
-          </div>
-        )}
 
         {/* Bonus calculator */}
         {session && (() => {
@@ -840,25 +533,29 @@ export default function BonusPage() {
         <hr className="bonus-section-divider" />
 
         {/* Monthly salary overview */}
-        {session && history.length > 0 && (() => {
-          const now = new Date()
-          const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-          const monthShifts = history.filter(s => s.date && s.date.startsWith(currentMonth))
+        {session && (() => {
+          const monthShifts = history.filter(s => s.date && s.date.startsWith(viewMonth))
           const approvedThisMonth = monthShifts.filter(s => (s.dayStatus || s.status) === 'approved')
           const pendingThisMonth = monthShifts.filter(s => ['open', 'pending_approval'].includes(s.dayStatus || s.status))
-          if (monthShifts.length === 0) return null
 
           const totalBase = approvedThisMonth.reduce((s, sh) => s + (sh.basePayKr || 0), 0)
           const totalBonus = approvedThisMonth.reduce((s, sh) => s + (sh.bonusKr || 0), 0)
           const totalFeriepenger = Math.round((totalBase + totalBonus) * 0.102)
           const totalHoursApproved = approvedThisMonth.reduce((s, sh) => s + (sh.hoursWorked || 0), 0)
           const totalHoursPending = pendingThisMonth.reduce((s, sh) => s + (sh.hoursWorked || 0), 0)
-          const monthName = now.toLocaleString('nb-NO', { month: 'long' })
-          const isStartMonth = currentMonth === BONUS_START_DATE.slice(0, 7)
+          const [vmY, vmM] = viewMonth.split('-').map(Number)
+          const monthName = new Date(vmY, vmM - 1, 1).toLocaleString('nb-NO', { month: 'long' })
+          const isStartMonth = viewMonth === BONUS_START_DATE.slice(0, 7)
+          const canGoPrev = viewMonth > BONUS_START_DATE.slice(0, 7)
+          const canGoNext = viewMonth < currentMonth
 
           return (
             <div className="bonus-month-overview">
-              <h2 className="bonus-month-title">Lønn {monthName}{isStartMonth && <span className="bonus-month-note"> (fra 25. juni)</span>}</h2>
+              <div className="bonus-month-nav">
+                <button type="button" className="bonus-month-nav-btn" onClick={() => shiftViewMonth(-1)} disabled={!canGoPrev}>‹</button>
+                <h2 className="bonus-month-title">Lønn {monthName}{isStartMonth && <span className="bonus-month-note"> (fra 25. juni)</span>}</h2>
+                <button type="button" className="bonus-month-nav-btn" onClick={() => shiftViewMonth(1)} disabled={!canGoNext}>›</button>
+              </div>
               {approvedThisMonth.length > 0 && (
                 <div className="bonus-month-rows">
                   <div className="bonus-month-row">
@@ -887,89 +584,63 @@ export default function BonusPage() {
                 </p>
               )}
               {approvedThisMonth.length === 0 && pendingThisMonth.length === 0 && (
-                <p className="bonus-month-empty">Ingen godkjente vakter ennå denne måneden.</p>
+                <p className="bonus-month-empty">Ingen registrerte vakter denne måneden.</p>
               )}
             </div>
           )
         })()}
 
-        {/* History — always visible once logged in */}
-        {(history.length > 0 || historyLoading) && (
-          <div className="bonus-history">
-            <div className="bonus-history-header">
-              <h2 className="bonus-history-title">Dine dager</h2>
-              {formStep !== 'form' && (
-                <button type="button" className="bonus-history-new-btn" onClick={startNewDay}>
-                  + Ny dag
-                </button>
+        {/* History — filtered by viewMonth */}
+        {(history.length > 0 || historyLoading) && (() => {
+          const viewShifts = history.filter(s => s.date && s.date.startsWith(viewMonth))
+          return (
+            <div className="bonus-history">
+              <div className="bonus-history-header">
+                <h2 className="bonus-history-title">Dine dager</h2>
+              </div>
+
+              {historyLoading && <p className="bonus-hint" style={{ margin: '0 0 8px' }}>Laster…</p>}
+
+              {viewShifts.length === 0 && !historyLoading && (
+                <p className="bonus-month-empty" style={{ margin: '0 0 8px' }}>Ingen vakter denne måneden.</p>
               )}
-            </div>
 
-            {/* Status summary */}
-            {history.length > 0 && (() => {
-              const openCount = history.filter(s => (s.dayStatus || s.status) === 'open').length
-              const pendingCount = history.filter(s => (s.dayStatus || s.status) === 'pending_approval').length
-              const approvedCount = history.filter(s => (s.dayStatus || s.status) === 'approved').length
-              const rejectedCount = history.filter(s => (s.dayStatus || s.status) === 'rejected').length
-              return (
-                <div className="bonus-history-summary">
-                  {openCount > 0 && <span className="bonus-summary-chip bonus-summary-chip--open">{openCount} åpen</span>}
-                  {pendingCount > 0 && <span className="bonus-summary-chip bonus-summary-chip--pending">{pendingCount} venter godkjenning</span>}
-                  {approvedCount > 0 && <span className="bonus-summary-chip bonus-summary-chip--approved">{approvedCount} godkjent</span>}
-                  {rejectedCount > 0 && <span className="bonus-summary-chip bonus-summary-chip--rejected">{rejectedCount} avslått</span>}
-                </div>
-              )
-            })()}
-
-            {historyLoading && <p className="bonus-hint" style={{ margin: '0 0 8px' }}>Laster…</p>}
-            {approvalState.error && <p className="bonus-error">{approvalState.error}</p>}
-
-            {history.map((shift) => {
-              const status = shift.dayStatus || shift.status
-              return (
-                <div key={shift.id} className={`bonus-history-item bonus-history-item--${status}`}>
-                  <div className="bonus-history-top">
-                    <span className="bonus-history-date">{fmtDate(shift.date)}</span>
-                    <span className={`bonus-status-badge bonus-status-badge--${status}`}>
-                      {status === 'open' ? 'Åpen' : status === 'pending_approval' ? 'Venter godkjenning' : status === 'rejected' ? 'Avslått' : 'Godkjent'}
-                    </span>
-                  </div>
-                  <div className="bonus-history-detail">
-                    {shift.startTime}–{shift.endTime} · {fmtHours(shift.hoursWorked)}
-                  </div>
-                  {status === 'open' && (
-                    <div className="bonus-history-open-actions">
-                      <button
-                        className="bonus-btn-small bonus-btn-small--send"
-                        onClick={() => onSendForApprovalFromHistory(shift.dayId)}
-                        disabled={approvalState.loading}
-                      >
-                        {approvalState.loading ? 'Sender…' : 'Alle har lagt inn — send for godkjenning'}
-                      </button>
-                      <button
-                        className="bonus-btn-small bonus-btn-small--delete"
-                        onClick={() => onDeleteShift(shift.id)}
-                        disabled={deleteState[shift.id]?.loading}
-                      >
-                        {deleteState[shift.id]?.loading ? 'Sletter…' : deleteState[shift.id]?.error ? '⚠ Feil' : 'Slett vakt'}
-                      </button>
+              {viewShifts.map((shift) => {
+                const status = shift.dayStatus || shift.status
+                return (
+                  <div key={shift.id} className={`bonus-history-item bonus-history-item--${status}`}>
+                    <div className="bonus-history-top">
+                      <span className="bonus-history-date">{fmtDate(shift.date)}</span>
+                      <span className={`bonus-status-badge bonus-status-badge--${status}`}>
+                        {status === 'open' ? 'Åpen' : status === 'pending_approval' ? 'Venter godkjenning' : status === 'rejected' ? 'Avslått' : 'Godkjent'}
+                      </span>
                     </div>
-                  )}
-                  {status === 'approved' && shift.bonusKr != null && (() => {
-                    const base = shift.basePayKr || 0
-                    const bonus = shift.bonusKr || 0
-                    const ferie = Math.round((base + bonus) * 0.102)
-                    return (
-                      <div className="bonus-history-payout">
-                        <div>Timelønn: {fmtKr(base)} kr + Bonus: {fmtKr(bonus)} kr + Feriepenger: {fmtKr(ferie)} kr = <strong>{fmtKr(base + bonus + ferie)} kr</strong></div>
-                      </div>
-                    )
-                  })()}
-                </div>
-              )
-            })}
-          </div>
-        )}
+                    <div className="bonus-history-detail">
+                      {shift.startTime}–{shift.endTime} · {fmtHours(shift.hoursWorked)}
+                    </div>
+                    {status === 'approved' && shift.bonusKr != null && (() => {
+                      const base = shift.basePayKr || 0
+                      const bonus = shift.bonusKr || 0
+                      const ferie = Math.round((base + bonus) * 0.102)
+                      const totalPoolHours = shift.totalPoolHours || 0
+                      const myShare = (totalPoolHours > 0 && shift.hoursWorked)
+                        ? Math.round((shift.hoursWorked / totalPoolHours) * 100)
+                        : null
+                      return (
+                        <div className="bonus-history-payout">
+                          <div>Timelønn: {fmtKr(base)} kr + Bonus: {fmtKr(bonus)} kr + Feriepenger: {fmtKr(ferie)} kr = <strong>{fmtKr(base + bonus + ferie)} kr</strong></div>
+                          {myShare != null && (
+                            <div className="bonus-history-share">{fmtHours(shift.hoursWorked)} / {fmtHours(totalPoolHours)} = {myShare}% av bonuspott</div>
+                          )}
+                        </div>
+                      )
+                    })()}
+                  </div>
+                )
+              })}
+            </div>
+          )
+        })()}
       </div>
     </div>
     </>

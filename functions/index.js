@@ -2193,6 +2193,10 @@ exports.approveBonusDay = onCall(
       effectiveRate = autoRatePct / 100;
     }
     const bonuses = calcShiftBonuses(shifts, approvedRevenue, effectiveThreshold, effectiveRate, nonBonusTotalHours);
+    const totalPoolHours = shifts.reduce((s, sh) => {
+      const u = sh._update;
+      return s + (u.hoursWorked != null ? Number(u.hoursWorked) : sh.hoursWorked);
+    }, 0) + nonBonusTotalHours;
     const now = admin.firestore.FieldValue.serverTimestamp();
     const batch = db.batch();
     shifts.forEach((shift, i) => {
@@ -2209,6 +2213,7 @@ exports.approveBonusDay = onCall(
         bonusKr: Math.round(bonuses[i] * 100) / 100,
         basePayKr: Math.round(hoursWorked * empRate * 100) / 100,
         hourlyRateUsed: empRate,
+        totalPoolHours: Math.round(totalPoolHours * 100) / 100,
         approvedAt: now,
         approvedBy: auth.token.email,
       });

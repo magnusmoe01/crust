@@ -10854,7 +10854,7 @@ function FormPage() {
                     const sortedItems = [...items].sort((a, b) =>
                       (a.category === 'red' ? 0 : 1) - (b.category === 'red' ? 0 : 1)
                     )
-                    return { location: row.location, items: sortedItems, incidentNotes }
+                    return { location: row.location, items: sortedItems, incidentNotes, submittedAtSeconds: latest.submittedAt?.seconds || null }
                   }).filter(Boolean).sort((a, b) => {
                     const aRed = a.items.some((i) => i.category === 'red') ? 0 : 1
                     const bRed = b.items.some((i) => i.category === 'red') ? 0 : 1
@@ -10942,6 +10942,21 @@ function FormPage() {
                                 {location}
                               </th>
                             ))}
+                          </tr>
+                          <tr>
+                            <th className="inventory-print-th inventory-print-th--product inventory-print-th--submitted-label">Innsendt</th>
+                            {alertRows.map(({ location, submittedAtSeconds }) => {
+                              const d = submittedAtSeconds ? new Date(submittedAtSeconds * 1000) : null
+                              const pad = (n) => String(n).padStart(2, '0')
+                              const label = d
+                                ? `${d.getDate()}/${d.getMonth() + 1} kl. ${pad(d.getHours())}:${pad(d.getMinutes())}`
+                                : '—'
+                              return (
+                                <th key={location} className="inventory-print-th inventory-print-th--submitted">
+                                  {label}
+                                </th>
+                              )
+                            })}
                           </tr>
                         </thead>
                         <tbody>

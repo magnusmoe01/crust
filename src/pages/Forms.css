@@ -4585,6 +4585,20 @@ tr:hover .history-row-order-btns {
     color: #1e3a8a !important;
   }
 
+  .inventory-print-portal .inventory-print-th--submitted {
+    background: #f0fdf4 !important;
+    color: #166534 !important;
+    font-weight: 400;
+    font-size: 6.5pt;
+  }
+
+  .inventory-print-portal .inventory-print-th--submitted-label {
+    background: #e5e7eb !important;
+    font-weight: 400;
+    font-size: 6.5pt;
+    color: #6b7280 !important;
+  }
+
   .inventory-print-portal .inventory-print-td {
     padding: 4px 5px;
     border: 1px solid #c4c9d4;

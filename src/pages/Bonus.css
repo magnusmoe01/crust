@@ -457,6 +457,12 @@
   margin-top: 2px;
 }
 
+.bonus-history-share {
+  color: #9ca3af;
+  font-size: 0.78rem;
+  margin-top: 3px;
+}
+
 /* ── Admin page (ba-* design system) ────────────────────────────────────── */
 
 .ba-page {
@@ -1097,13 +1103,29 @@
   border-radius: 12px;
   padding: 16px 18px;
 }
+.bonus-month-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.bonus-month-nav-btn {
+  background: none;
+  border: none;
+  font-size: 1.3rem;
+  color: #16a34a;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+.bonus-month-nav-btn:disabled { color: #d1fae5; cursor: default; }
 .bonus-month-title {
   font-size: 0.8rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: #166534;
-  margin: 0 0 10px;
+  margin: 0;
 }
 .bonus-month-rows { display: flex; flex-direction: column; gap: 2px; }
 .bonus-month-row {
@@ -1302,18 +1324,19 @@
 
 .bonus-calc-field { display: flex; flex-direction: column; gap: 4px; }
 .bonus-calc-label { font-size: 0.72rem; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.04em; }
-.bonus-calc-input-wrap { display: flex; align-items: center; gap: 5px; }
+.bonus-calc-input-wrap { display: flex; align-items: center; gap: 5px; width: 100%; }
 .bonus-calc-input {
   border: 1.5px solid #e5e7eb;
   border-radius: 7px;
   padding: 7px 9px;
   font-size: 0.92rem;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   outline: none;
   transition: border-color 0.15s;
 }
 .bonus-calc-input:focus { border-color: #7c3aed; }
-.bonus-calc-input--sm { width: 80px; }
+.bonus-calc-input--sm { flex: 1; width: auto; }
 .bonus-calc-unit { font-size: 0.82rem; color: #9ca3af; white-space: nowrap; }
 
 .bonus-calc-result {
