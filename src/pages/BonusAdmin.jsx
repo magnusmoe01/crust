@@ -169,8 +169,9 @@ function BonusChart({ thresholdKr, poolConfig, numEmployees = 1, basePay = 0, ma
 
 /* ─── Helpers ────────────────────────────────────────────────────────────── */
 
-function calcPreview(shiftsWithHours, revenue, thresholdKr, bonusRatePct, rateMap) {
-  const totalHours = shiftsWithHours.reduce((s, sh) => s + (Number(sh.hoursWorked) || 0), 0)
+function calcPreview(shiftsWithHours, revenue, thresholdKr, bonusRatePct, rateMap, nonBonusHours = 0) {
+  const bonusOnlyHours = shiftsWithHours.reduce((s, sh) => s + (Number(sh.hoursWorked) || 0), 0)
+  const totalHours = bonusOnlyHours + nonBonusHours
   const surplus = Number(revenue) - Number(thresholdKr)
   const pool = surplus > 0 ? surplus * bonusRatePct / 100 : 0
   if (totalHours <= 0) return shiftsWithHours.map(() => ({ basePay: 0, bonus: 0, total: 0 }))
@@ -189,6 +190,14 @@ function fmtKr(n) {
 function fmtHours(h) {
   const hrs = Math.floor(h); const min = Math.round((h - hrs) * 60)
   return `${hrs}h ${min}m`
+}
+function hoursFromTimes(start, end) {
+  if (!start || !end) return 0
+  const [sh, sm] = start.split(':').map(Number)
+  const [eh, em] = end.split(':').map(Number)
+  let h = ((eh * 60 + em) - (sh * 60 + sm)) / 60
+  if (h <= 0) h += 24
+  return Math.round(h * 100) / 100
 }
 function fmtDate(dateStr) {
   if (!dateStr) return ''
@@ -229,7 +238,12 @@ export default function BonusAdmin() {
   const [bonusRates, setBonusRates] = useState({})
   const [approveState, setApproveState] = useState({})
   const [rejectState, setRejectState] = useState({})
+  const [expandedDays, setExpandedDays] = useState({})
+  const toggleDay = (dayId) => setExpandedDays(p => ({ ...p, [dayId]: !p[dayId] }))
   const [deleteShiftState, setDeleteShiftState] = useState({})
+  const [unApproveState, setUnApproveState] = useState({})
+  const [nbwInputs, setNbwInputs] = useState({}) // { [dayId]: { name, startTime, endTime } }
+  const [nbwSaveState, setNbwSaveState] = useState({})
   const [resendState, setResendState] = useState({})
 
   // Employees
@@ -246,6 +260,7 @@ export default function BonusAdmin() {
   const [showSettings, setShowSettings] = useState(false)
   const [poolBaseRevenue, setPoolBaseRevenue] = useState('20000')
   const [poolBaseRatePct, setPoolBaseRatePct] = useState('20')
+  const [poolStepEnabled, setPoolStepEnabled] = useState(true)
   const [poolStepKr, setPoolStepKr] = useState('10000')
   const [poolStepRatePct, setPoolStepRatePct] = useState('5')
   const [globalFallbackRate, setGlobalFallbackRate] = useState(String(DEFAULT_HOURLY_RATE))
@@ -257,12 +272,16 @@ export default function BonusAdmin() {
   // Admin shift registration
   const today = new Date().toISOString().slice(0, 10)
   const [showRegister, setShowRegister] = useState(false)
+  const [simEmployee, setSimEmployee] = useState('')
+  const [simState, setSimState] = useState({ loading: false, error: '' })
   const [regEmployee, setRegEmployee] = useState('')
   const [regDate, setRegDate] = useState(today)
   const [regStart, setRegStart] = useState('')
   const [regEnd, setRegEnd] = useState('')
   const [regRevenue, setRegRevenue] = useState('')
   const [regState, setRegState] = useState({ loading: false, error: '', done: '' })
+  const [regNbwList, setRegNbwList] = useState([])
+  const [regNbwInput, setRegNbwInput] = useState({ name: '', startTime: '', endTime: '' })
 
   useEffect(() => {
     if (!isAdmin) return
@@ -297,6 +316,7 @@ export default function BonusAdmin() {
       const cfg = d.data()
       if (cfg.poolBaseRevenue != null) setPoolBaseRevenue(String(cfg.poolBaseRevenue))
       if (cfg.poolBaseRatePct != null) setPoolBaseRatePct(String(cfg.poolBaseRatePct))
+      if (cfg.poolStepEnabled != null) setPoolStepEnabled(cfg.poolStepEnabled)
       if (cfg.poolStepKr != null) setPoolStepKr(String(cfg.poolStepKr))
       if (cfg.poolStepRatePct != null) setPoolStepRatePct(String(cfg.poolStepRatePct))
       if (cfg.fallbackHourlyRate) setGlobalFallbackRate(String(cfg.fallbackHourlyRate))
@@ -320,18 +340,20 @@ export default function BonusAdmin() {
   const poolConfig = {
     baseRevenue: Number(poolBaseRevenue) || 20000,
     baseRatePct: Number(poolBaseRatePct) || 20,
+    stepEnabled: poolStepEnabled,
     stepKr:      Number(poolStepKr) || 10000,
-    stepRatePct: Number(poolStepRatePct) || 5,
+    stepRatePct: poolStepEnabled ? (Number(poolStepRatePct) || 5) : 0,
   }
 
   async function onSaveSettings() {
     setSettingsSaving(true)
     try {
       await setDoc(doc(db, 'siteSettings', 'bonusConfig'), {
-        poolBaseRevenue: poolConfig.baseRevenue,
-        poolBaseRatePct: poolConfig.baseRatePct,
-        poolStepKr:      poolConfig.stepKr,
-        poolStepRatePct: poolConfig.stepRatePct,
+        poolBaseRevenue:  poolConfig.baseRevenue,
+        poolBaseRatePct:  poolConfig.baseRatePct,
+        poolStepEnabled:  poolConfig.stepEnabled,
+        poolStepKr:       poolConfig.stepKr,
+        poolStepRatePct:  poolConfig.stepRatePct,
         fallbackHourlyRate: Number(globalFallbackRate),
         chartHours: Number(chartHours),
         chartNumEmployees: Number(chartNumEmployees),
@@ -373,15 +395,32 @@ export default function BonusAdmin() {
     e.preventDefault()
     setRegState({ loading: true, error: '', done: '' })
     try {
-      const res = await httpsCallable(functions, 'adminRegisterBonusShift')({ phone: regEmployee, date: regDate, startTime: regStart, endTime: regEnd, revenueKr: Number(regRevenue) })
+      const res = await httpsCallable(functions, 'adminRegisterBonusShift')({
+        phone: regEmployee, date: regDate, startTime: regStart, endTime: regEnd,
+        revenueKr: Number(regRevenue),
+        nonBonusWorkers: regNbwList,
+      })
       const { name, hoursWorked } = res.data
-      setRegState({ loading: false, error: '', done: `Shift registered for ${name} (${fmtHours(hoursWorked)})` })
+      const nbwNote = regNbwList.length > 0 ? ` + ${regNbwList.length} non-bonus worker${regNbwList.length > 1 ? 's' : ''}` : ''
+      setRegState({ loading: false, error: '', done: `Shift registered for ${name} (${fmtHours(hoursWorked)})${nbwNote}` })
       setRegStart(''); setRegEnd(''); setRegRevenue('')
+      setRegNbwList([]); setRegNbwInput({ name: '', startTime: '', endTime: '' })
     } catch (err) { setRegState({ loading: false, error: err?.message || 'Something went wrong', done: '' }) }
   }
 
+  function onAddRegNbw() {
+    const h = hoursFromTimes(regNbwInput.startTime, regNbwInput.endTime)
+    if (!regNbwInput.name.trim() || !regNbwInput.startTime || !regNbwInput.endTime || h <= 0) return
+    setRegNbwList(prev => [...prev, { name: regNbwInput.name.trim(), startTime: regNbwInput.startTime, endTime: regNbwInput.endTime, hours: h, hourlyRate: 0 }])
+    setRegNbwInput({ name: '', startTime: '', endTime: '' })
+  }
+
+  function onRemoveRegNbw(i) {
+    setRegNbwList(prev => prev.filter((_, idx) => idx !== i))
+  }
+
   const byDay = useMemo(
-    () => days.filter(d => d.status !== 'open').map(day => ({ ...day, dayShifts: shifts.filter(s => s.dayId === day.id) })),
+    () => days.map(day => ({ ...day, dayShifts: shifts.filter(s => s.dayId === day.id) })),
     [days, shifts],
   )
 
@@ -390,6 +429,19 @@ export default function BonusAdmin() {
   function getEffectiveHours(shift) { const o = edits[shift.id]?.hoursWorked; return (o != null && o !== '') ? Number(o) : shift.hoursWorked }
   function getEffectiveStart(shift) { return edits[shift.id]?.startTime ?? shift.startTime }
   function getEffectiveEnd(shift) { return edits[shift.id]?.endTime ?? shift.endTime }
+
+  async function onSimulateUser() {
+    if (!simEmployee) return
+    setSimState({ loading: true, error: '' })
+    try {
+      const res = await httpsCallable(functions, 'adminCreateSimSession')({ phone: simEmployee })
+      const { token, name, phone } = res.data
+      sessionStorage.setItem('bonusSimSession', JSON.stringify({ token, name, phone, savedAt: Date.now(), isSimulation: true }))
+      window.location.href = '/bonus'
+    } catch (err) {
+      setSimState({ loading: false, error: err?.message || 'Noe gikk galt' })
+    }
+  }
 
   async function onApproveDay(dayId, dayData, dayShifts) {
     const pending = dayShifts.filter(s => s.status !== 'approved' && s.status !== 'rejected')
@@ -412,6 +464,49 @@ export default function BonusAdmin() {
       await httpsCallable(functions, 'approveBonusDay')({ dayId, shiftUpdates, approvedRevenue: rev, thresholdKr: effectiveThreshold, bonusRatePct: effectiveBonusRatePct })
       setApproveState(p => ({ ...p, [dayId]: { loading: false, error: '', done: true } }))
     } catch (err) { setApproveState(p => ({ ...p, [dayId]: { loading: false, error: err?.message || 'Something went wrong' } })) }
+  }
+
+  async function onUnapproveDay(dayId) {
+    if (!window.confirm('Reverse this approval? Shifts will return to pending and employees will be notified by email.')) return
+    setUnApproveState(p => ({ ...p, [dayId]: { loading: true, error: '' } }))
+    try {
+      await httpsCallable(functions, 'unapproveDay')({ dayId })
+      setUnApproveState(p => ({ ...p, [dayId]: { loading: false, done: true } }))
+    } catch (err) {
+      setUnApproveState(p => ({ ...p, [dayId]: { loading: false, error: err?.message || 'Something went wrong' } }))
+    }
+  }
+
+  function getNbwInput(dayId) { return nbwInputs[dayId] || { name: '', startTime: '', endTime: '' } }
+  function setNbwInput(dayId, field, value) {
+    setNbwInputs(p => ({ ...p, [dayId]: { ...getNbwInput(dayId), [field]: value } }))
+  }
+
+  async function onAddNonBonusWorker(dayId, currentWorkers) {
+    const inp = getNbwInput(dayId)
+    const name = inp.name.trim()
+    const hours = hoursFromTimes(inp.startTime, inp.endTime)
+    if (!name || !inp.startTime || !inp.endTime || hours <= 0) return
+    const updated = [...(currentWorkers || []), { name, startTime: inp.startTime, endTime: inp.endTime, hours, hourlyRate: 0 }]
+    setNbwSaveState(p => ({ ...p, [dayId]: { loading: true } }))
+    try {
+      await httpsCallable(functions, 'setNonBonusWorkers')({ dayId, workers: updated })
+      setNbwInputs(p => ({ ...p, [dayId]: { name: '', startTime: '', endTime: '' } }))
+      setNbwSaveState(p => ({ ...p, [dayId]: { loading: false } }))
+    } catch (err) {
+      setNbwSaveState(p => ({ ...p, [dayId]: { loading: false, error: err?.message } }))
+    }
+  }
+
+  async function onRemoveNonBonusWorker(dayId, currentWorkers, idx) {
+    const updated = currentWorkers.filter((_, i) => i !== idx)
+    setNbwSaveState(p => ({ ...p, [dayId]: { loading: true } }))
+    try {
+      await httpsCallable(functions, 'setNonBonusWorkers')({ dayId, workers: updated })
+      setNbwSaveState(p => ({ ...p, [dayId]: { loading: false } }))
+    } catch (err) {
+      setNbwSaveState(p => ({ ...p, [dayId]: { loading: false, error: err?.message } }))
+    }
   }
 
   async function onDeleteShift(shiftId) {
@@ -501,33 +596,44 @@ export default function BonusAdmin() {
                       <span>%</span>
                     </div>
                   </div>
-                  <div className="ba-field">
+                  <div className="ba-field ba-field--toggle">
+                    <label className="ba-label">Steps</label>
+                    <label className="ba-toggle">
+                      <input type="checkbox" checked={poolStepEnabled} onChange={e => setPoolStepEnabled(e.target.checked)} />
+                      <span className="ba-toggle-track" />
+                    </label>
+                  </div>
+                  <div className={`ba-field${!poolStepEnabled ? ' ba-field--disabled' : ''}`}>
                     <label className="ba-label">Step size</label>
                     <div className="ba-input-suffix">
-                      <input type="number" className="ba-input ba-input--sm" min="1000" step="1000" value={poolStepKr} onChange={e => setPoolStepKr(e.target.value)} />
+                      <input type="number" className="ba-input ba-input--sm" min="1000" step="1000" value={poolStepKr} onChange={e => setPoolStepKr(e.target.value)} disabled={!poolStepEnabled} />
                       <span>kr</span>
                     </div>
                   </div>
-                  <div className="ba-field">
+                  <div className={`ba-field${!poolStepEnabled ? ' ba-field--disabled' : ''}`}>
                     <label className="ba-label">+rate per step (y%)</label>
                     <div className="ba-input-suffix">
-                      <input type="number" className="ba-input ba-input--sm" min="0" max="50" step="0.5" value={poolStepRatePct} onChange={e => setPoolStepRatePct(e.target.value)} />
+                      <input type="number" className="ba-input ba-input--sm" min="0" max="50" step="0.5" value={poolStepRatePct} onChange={e => setPoolStepRatePct(e.target.value)} disabled={!poolStepEnabled} />
                       <span>%</span>
                     </div>
                   </div>
                 </div>
                 {/* Tier preview */}
-                <div className="ba-tier-preview">
-                  {Array.from({ length: 6 }, (_, i) => {
-                    const rev = poolConfig.baseRevenue + i * poolConfig.stepKr
-                    const rate = tieredPoolRate(rev, poolConfig.baseRevenue, poolConfig.baseRatePct, poolConfig.stepKr, poolConfig.stepRatePct)
-                    return (
-                      <span key={i} className="ba-tier-chip">
-                        {fmtKr(rev / 1000)}k kr → <strong>{rate}%</strong>
-                      </span>
-                    )
-                  })}
-                </div>
+                {poolStepEnabled ? (
+                  <div className="ba-tier-preview">
+                    {Array.from({ length: 6 }, (_, i) => {
+                      const rev = poolConfig.baseRevenue + i * poolConfig.stepKr
+                      const rate = tieredPoolRate(rev, poolConfig.baseRevenue, poolConfig.baseRatePct, poolConfig.stepKr, poolConfig.stepRatePct)
+                      return (
+                        <span key={i} className="ba-tier-chip">
+                          {fmtKr(rev / 1000)}k kr → <strong>{rate}%</strong>
+                        </span>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <p className="ba-settings-hint" style={{ marginTop: 4 }}>Flat rate — {poolConfig.baseRatePct}% for all revenue above {fmtKr(poolConfig.baseRevenue)} kr.</p>
+                )}
 
                 <p className="ba-settings-section-label" style={{ marginTop: 16 }}>Fallback hourly rate</p>
                 <div className="ba-settings-row">
@@ -576,7 +682,7 @@ export default function BonusAdmin() {
               <div className="ba-chart-panel">
                 <p className="ba-chart-title">Bonus pool vs revenue</p>
                 <p className="ba-chart-subtitle">
-                  {chartN} employee{chartN !== 1 ? 's' : ''} · {fmtKr(chartTotalHours / chartN)}h each · threshold: <strong>{fmtKr(chartThreshold)} kr</strong> · rate from <strong>{poolConfig.baseRatePct}%</strong> +{poolConfig.stepRatePct}% per {fmtKr(poolConfig.stepKr / 1000)}k
+                  {chartN} employee{chartN !== 1 ? 's' : ''} · {fmtKr(chartTotalHours / chartN)}h each · threshold: <strong>{fmtKr(chartThreshold)} kr</strong> · rate: <strong>{poolConfig.baseRatePct}%{poolConfig.stepEnabled ? ` +${poolConfig.stepRatePct}% per ${fmtKr(poolConfig.stepKr / 1000)}k` : ' (flat)'}</strong>
                 </p>
                 <BonusChart thresholdKr={chartThreshold} poolConfig={poolConfig} numEmployees={chartN} basePay={chartBasePay} />
 
@@ -703,11 +809,23 @@ export default function BonusAdmin() {
                 <div className="ba-field"><label className="ba-label">Revenue (kr)</label><input className="ba-input" type="number" min="0" step="1" placeholder="32 500" value={regRevenue} onChange={e => setRegRevenue(e.target.value)} required /></div>
                 <div className="ba-field ba-field--submit"><label className="ba-label">&nbsp;</label><button type="submit" className="ba-btn ba-btn--primary" disabled={regState.loading}>{regState.loading ? 'Registering…' : 'Register'}</button></div>
               </div>
-              {regState.error && <p className="ba-error">{regState.error}</p>}
-              {regState.done && <p className="ba-success">{regState.done}</p>}
+                      {regState.error && <p className="ba-error">{regState.error}</p>}
             </form>
           </div>
         )}
+      </div>
+
+      {/* ── Simulate user ── */}
+      <div className="ba-sim-bar">
+        <span className="ba-sim-label">Simulate employee</span>
+        <select className="ba-input ba-input--sm ba-sim-select" value={simEmployee} onChange={e => setSimEmployee(e.target.value)}>
+          <option value="">Select employee…</option>
+          {employees.map(emp => <option key={emp.phone} value={emp.phone}>{emp.name}</option>)}
+        </select>
+        <button type="button" className="ba-btn ba-btn--sm ba-btn--ghost" onClick={onSimulateUser} disabled={!simEmployee || simState.loading}>
+          {simState.loading ? '…' : 'View as employee →'}
+        </button>
+        {simState.error && <span className="ba-error" style={{ fontSize: '0.8rem' }}>{simState.error}</span>}
       </div>
 
       {/* ── Day cards ── */}
@@ -720,7 +838,11 @@ export default function BonusAdmin() {
         const currentRevenue = revenues[dayId] != null ? Number(revenues[dayId]) : Number(revenueKr || 0)
         const totalHours = dayShifts.reduce((s, sh) => s + getEffectiveHours(sh), 0)
 
-        const autoThreshold = dayShifts.reduce((sum, sh) => sum + getEffectiveHours(sh) * (rateMap[sh.phone] || DEFAULT_HOURLY_RATE), 0)
+        const nonBonusWorkers = day.nonBonusWorkers || []
+        const nonBonusThresholdContrib = nonBonusWorkers.reduce((sum, w) => sum + w.hours * w.hourlyRate, 0)
+        const nonBonusTotalHours = nonBonusWorkers.reduce((sum, w) => sum + w.hours, 0)
+
+        const autoThreshold = dayShifts.reduce((sum, sh) => sum + getEffectiveHours(sh) * (rateMap[sh.phone] || DEFAULT_HOURLY_RATE), 0) + nonBonusThresholdContrib
         const effectiveThreshold = thresholds[dayId] != null ? Number(thresholds[dayId]) : Math.round(autoThreshold)
         const autoRate = tieredPoolRate(currentRevenue, poolConfig.baseRevenue, poolConfig.baseRatePct, poolConfig.stepKr, poolConfig.stepRatePct)
         const effectiveBonusRatePct = bonusRates[dayId] != null ? Number(bonusRates[dayId]) : autoRate
@@ -731,31 +853,40 @@ export default function BonusAdmin() {
 
         const previews = calcPreview(
           dayShifts.map(sh => ({ ...sh, hoursWorked: getEffectiveHours(sh) })),
-          currentRevenue, effectiveThreshold, effectiveBonusRatePct, rateMap,
+          currentRevenue, effectiveThreshold, effectiveBonusRatePct, rateMap, nonBonusTotalHours,
         )
 
         const appState = approveState[dayId] || {}
         const rjState = rejectState[dayId] || {}
+        const uaState = unApproveState[dayId] || {}
+        const nbwState = nbwSaveState[dayId] || {}
         const isRejected = status === 'rejected'
         const isApprovedDay = status === 'approved'
+
+        const isClosedByDefault = isApprovedDay || isRejected
+        const isExpanded = isClosedByDefault ? !!expandedDays[dayId] : (expandedDays[dayId] !== false)
 
         return (
           <div key={dayId} className={`ba-day-card ${isApprovedDay ? 'ba-day-card--approved' : ''} ${isRejected ? 'ba-day-card--rejected' : ''}`}>
 
             {/* Card header */}
-            <div className="ba-day-head">
+            <div className="ba-day-head ba-day-head--toggle" onClick={() => toggleDay(dayId)} style={{ cursor: 'pointer' }}>
               <div className="ba-day-head-left">
                 <h2 className="ba-day-date">{fmtDate(date)}</h2>
                 <span className="ba-day-meta">{dayShifts.length} employee{dayShifts.length !== 1 ? 's' : ''} · {fmtHours(totalHours)} total</span>
               </div>
-              <span className={`ba-day-badge ba-day-badge--${isApprovedDay ? 'approved' : isRejected ? 'rejected' : 'pending'}`}>
-                {isApprovedDay ? 'Approved' : isRejected ? 'Rejected' : 'Pending approval'}
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span className={`ba-day-badge ba-day-badge--${isApprovedDay ? 'approved' : isRejected ? 'rejected' : 'pending'}`}>
+                  {isApprovedDay ? 'Approved' : isRejected ? 'Rejected' : 'Pending approval'}
+                </span>
+                <span className="ba-chevron" style={{ fontSize: '0.75rem', color: '#aaa' }}>{isExpanded ? '▲' : '▼'}</span>
+              </div>
             </div>
 
-            {isRejected ? (
+            {isExpanded && isRejected && (
               <p className="ba-rejected-note">This day's bonus request was rejected.</p>
-            ) : (
+            )}
+            {isExpanded && !isRejected && (
               <>
                 {/* Formula controls */}
                 <div className="ba-formula-controls">
@@ -825,8 +956,7 @@ export default function BonusAdmin() {
                           <tr key={shift.id} className={isShiftApproved ? 'ba-row--approved' : ''}>
                             <td className="ba-shifts-name">
                               <strong>{shift.name}</strong>
-                              <span className="ba-shifts-phone">{shift.phone}</span>
-                              {shift.registeredByAdmin && <span className="ba-admin-badge">admin</span>}
+                              <span className="ba-shifts-phone">{shift.phone.replace(/^47/, '')}</span>
                             </td>
                             <td><input type="time" className="ba-input ba-input--time" value={getEffectiveStart(shift)} onChange={e => setEdit(shift.id, 'startTime', e.target.value)} disabled={isShiftApproved} /></td>
                             <td><input type="time" className="ba-input ba-input--time" value={getEffectiveEnd(shift)} onChange={e => setEdit(shift.id, 'endTime', e.target.value)} disabled={isShiftApproved} /></td>
@@ -858,17 +988,60 @@ export default function BonusAdmin() {
                   </table>
                 </div>
 
+                {/* Non-bonus workers */}
+                {!isRejected && (
+                  <div className="ba-nbw-section">
+                    <p className="ba-nbw-title">Non-bonus workers <span className="ba-nbw-hint">— hours count toward pool division</span></p>
+                    {nonBonusWorkers.length > 0 && (
+                      <div className="ba-nbw-list">
+                        {nonBonusWorkers.map((w, i) => (
+                          <div key={i} className="ba-nbw-row">
+                            <span className="ba-nbw-name">{w.name}</span>
+                            <span className="ba-nbw-detail">{w.startTime && w.endTime ? `${w.startTime}–${w.endTime}` : fmtHours(w.hours)}</span>
+                            {!isApprovedDay && (
+                              <button type="button" className="ba-nbw-remove" onClick={() => onRemoveNonBonusWorker(dayId, nonBonusWorkers, i)} disabled={nbwState.loading}>×</button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {!isApprovedDay && (
+                      <div className="ba-nbw-form">
+                        <input className="ba-input ba-input--nbw-name" placeholder="Name" value={getNbwInput(dayId).name} onChange={e => setNbwInput(dayId, 'name', e.target.value)} />
+                        <input className="ba-input ba-input--sm" type="time" value={getNbwInput(dayId).startTime} onChange={e => setNbwInput(dayId, 'startTime', e.target.value)} />
+                        <input className="ba-input ba-input--sm" type="time" value={getNbwInput(dayId).endTime} onChange={e => setNbwInput(dayId, 'endTime', e.target.value)} />
+                        <button type="button" className="ba-btn ba-btn--sm ba-btn--ghost" onClick={() => onAddNonBonusWorker(dayId, nonBonusWorkers)} disabled={nbwState.loading || !getNbwInput(dayId).name || !getNbwInput(dayId).startTime || !getNbwInput(dayId).endTime}>
+                          {nbwState.loading ? '…' : '+ Add'}
+                        </button>
+                      </div>
+                    )}
+                    {nbwState.error && <p className="ba-error" style={{ margin: '4px 0 0' }}>{nbwState.error}</p>}
+                  </div>
+                )}
+
                 {/* Actions */}
+                {isApprovedDay && (
+                  <div className="ba-day-actions">
+                    {uaState.error && <p className="ba-error">{uaState.error}</p>}
+                    {uaState.done ? (
+                      <p className="ba-success">✓ Approval reversed — shifts returned to pending.</p>
+                    ) : (
+                      <button type="button" className="ba-btn ba-btn--sm ba-btn--unapprove" onClick={() => onUnapproveDay(dayId)} disabled={uaState.loading}>
+                        {uaState.loading ? 'Reversing…' : 'Reverse approval'}
+                      </button>
+                    )}
+                  </div>
+                )}
                 {pending.length > 0 && (
                   <div className="ba-day-actions">
                     {appState.error && <p className="ba-error">{appState.error}</p>}
                     {rjState.error && <p className="ba-error">{rjState.error}</p>}
                     {appState.done ? (
-                      <p className="ba-success">✓ Approved and email sent!</p>
+                      <p className="ba-success">✓ Approved!</p>
                     ) : (
                       <>
                         <button type="button" className="ba-btn ba-btn--approve" onClick={() => onApproveDay(dayId, day, dayShifts)} disabled={appState.loading || rjState.loading}>
-                          {appState.loading ? 'Approving…' : `Approve ${pending.length} shift${pending.length !== 1 ? 's' : ''} and send email`}
+                          {appState.loading ? 'Approving…' : `Approve ${pending.length} shift${pending.length !== 1 ? 's' : ''}`}
                         </button>
                         <button type="button" className="ba-btn ba-btn--reject" onClick={() => onRejectDay(dayId)} disabled={appState.loading || rjState.loading}>
                           {rjState.loading ? 'Rejecting…' : 'Reject'}

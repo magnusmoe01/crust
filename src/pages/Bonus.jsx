@@ -7,6 +7,8 @@ import './Bonus.css'
 const BONUS_HOURLY_RATE = 166.34
 const BONUS_THRESHOLD_RATE = 400
 const BONUS_RATE = 0.15
+const BONUS_START_DATE = '2026-06-25'
+const SESSION_EXPIRY_MS = 365 * 24 * 3600 * 1000 // 1 year
 
 function tieredPoolRate(revenue, baseRevenue, baseRatePct, stepKr, stepRatePct) {
   const rev = Number(revenue), base = Number(baseRevenue), rate = Number(baseRatePct)
@@ -141,10 +143,16 @@ function fmtDate(dateStr) {
 
 function loadSession() {
   try {
+    const sim = sessionStorage.getItem('bonusSimSession')
+    if (sim) {
+      const s = JSON.parse(sim)
+      if (s.token && s.savedAt && Date.now() - s.savedAt < 3600 * 1000) return s
+      sessionStorage.removeItem('bonusSimSession')
+    }
     const raw = localStorage.getItem(SESSION_KEY)
     if (!raw) return null
     const s = JSON.parse(raw)
-    if (!s.token || !s.savedAt || Date.now() - s.savedAt > 7 * 24 * 3600 * 1000) return null
+    if (!s.token || !s.savedAt || Date.now() - s.savedAt > SESSION_EXPIRY_MS) return null
     return s
   } catch { return null }
 }
@@ -191,10 +199,11 @@ export default function BonusPage() {
 
   // Formula explainer toggle
   const [showFormula, setShowFormula] = useState(false)
+  const [showRegModal, setShowRegModal] = useState(false)
 
   // Bonus calculator
   const [bonusConfig, setBonusConfig] = useState({
-    poolBaseRevenue: 20000, poolBaseRatePct: 20, poolStepKr: 10000, poolStepRatePct: 5,
+    poolBaseRevenue: 20000, poolBaseRatePct: 20, poolStepEnabled: true, poolStepKr: 10000, poolStepRatePct: 5,
     fallbackHourlyRate: BONUS_HOURLY_RATE,
   })
   const [showCalc, setShowCalc] = useState(false)
@@ -209,6 +218,7 @@ export default function BonusPage() {
         setBonusConfig({
           poolBaseRevenue:  cfg.poolBaseRevenue  ?? 20000,
           poolBaseRatePct:  cfg.poolBaseRatePct  ?? 20,
+          poolStepEnabled:  cfg.poolStepEnabled  ?? true,
           poolStepKr:       cfg.poolStepKr       ?? 10000,
           poolStepRatePct:  cfg.poolStepRatePct  ?? 5,
           fallbackHourlyRate: cfg.fallbackHourlyRate || BONUS_HOURLY_RATE,
@@ -229,7 +239,9 @@ export default function BonusPage() {
     setOpenDayLoading(true)
     try {
       const res = await httpsCallable(functions, 'getOpenDayForDate')({ sessionToken: session.token, date })
-      setOpenDay(res.data || null)
+      const day = res.data || null
+      setOpenDay(day)
+      if (day?.revenueKr != null) setRevenue(String(day.revenueKr))
     } catch { /* ignore */ } finally { setOpenDayLoading(false) }
   }
 
@@ -278,11 +290,12 @@ export default function BonusPage() {
         date: shiftDate,
         startTime,
         endTime,
-        revenueKr: isJoining ? undefined : Number(revenue),
+        revenueKr: Number(revenue),
       })
       const { dayId, hoursWorked, dayRevenueKr, participants } = res.data
       setDayInfo({ dayId, hoursWorked, revenueKr: dayRevenueKr, participants })
       setFormStep('alone_or_more')
+      setShowRegModal(false)
       setSubmitState({ loading: false, error: '' })
     } catch (err) {
       const msg = err?.message || 'Noe gikk galt. Prøv igjen.'
@@ -421,8 +434,17 @@ export default function BonusPage() {
     )
   }
 
+  const isSimulation = !!session?.isSimulation
+
   return (
-    <div className="bonus-page">
+    <>
+      {isSimulation && (
+        <div className="bonus-sim-banner">
+          <span>Simulerer <strong>{session.name}</strong></span>
+          <a href="/bonus/admin" className="bonus-sim-back" onClick={() => sessionStorage.removeItem('bonusSimSession')}>← Tilbake til admin</a>
+        </div>
+      )}
+      <div className="bonus-page">
       <div className="bonus-card">
         <div className="bonus-header">
           <div className="bonus-header-row">
@@ -430,14 +452,34 @@ export default function BonusPage() {
               <div className="bonus-logo">Crust n&apos; Trust</div>
               <h1 className="bonus-title">Hei, {session.name}!</h1>
             </div>
+            {!isSimulation && (
             <button type="button" className="bonus-logout" onClick={() => { clearSession(); setSession(null) }}>
               Logg ut
             </button>
+            )}
           </div>
         </div>
 
         {formStep === 'form' && (
           <>
+            <button
+              type="button"
+              className="bonus-btn bonus-btn--register"
+              onClick={() => setShowRegModal(true)}
+            >
+              + Registrer vakt
+            </button>
+          </>
+        )}
+
+        {showRegModal && (
+          <div className="bonus-modal-overlay" onClick={e => { if (e.target === e.currentTarget) setShowRegModal(false) }}>
+            <div className="bonus-modal">
+              <div className="bonus-modal-header">
+                <span className="bonus-modal-title">Registrer vakt</span>
+                <button type="button" className="bonus-modal-close" onClick={() => setShowRegModal(false)}>×</button>
+              </div>
+
             {openDayLoading && <p className="bonus-hint">Sjekker åpne registreringer…</p>}
 
             {isJoiningOpenDay && (
@@ -446,7 +488,6 @@ export default function BonusPage() {
                 <div className="bonus-open-day-participants">
                   {openDay.participants.map(p => p.name).join(', ')} har allerede registrert seg.
                 </div>
-                <div className="bonus-open-day-revenue">Omsetning: {fmtKr(openDay.revenueKr)} kr (satt av første person)</div>
               </div>
             )}
 
@@ -460,6 +501,7 @@ export default function BonusPage() {
                     value={shiftDate}
                     onChange={(e) => { setShiftDate(e.target.value); setOpenDay(null); if (e.target.value) checkOpenDay(e.target.value) }}
                     required
+                    min={BONUS_START_DATE}
                     max={today}
                   />
                 </div>
@@ -474,39 +516,42 @@ export default function BonusPage() {
                   <input className="bonus-input" type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} required />
                 </div>
               </div>
+              <p className="bonus-time-hint">Kopier innstempling og utstemplingstid i Planday</p>
               {previewHours != null && (
                 <p className="bonus-hours-preview">Arbeidet tid: {fmtHours(previewHours)}</p>
               )}
               {!isJoiningOpenDay && (
-                <>
-                  <div className="bonus-field">
-                    <label className="bonus-label">Hvor mange jobbet i dag?</label>
-                    <input
-                      className="bonus-input"
-                      type="number"
-                      min="1"
-                      step="1"
-                      placeholder="Antall personer"
-                      value={numWorkers}
-                      onChange={(e) => setNumWorkers(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="bonus-field">
-                    <label className="bonus-label">Omsetning for dagen (kr)</label>
-                    <input
-                      className="bonus-input"
-                      type="number"
-                      min="0"
-                      step="1"
-                      placeholder="F.eks. 32 500"
-                      value={revenue}
-                      onChange={(e) => setRevenue(e.target.value)}
-                      required
-                    />
-                  </div>
-                </>
+                <div className="bonus-field">
+                  <label className="bonus-label">Hvor mange jobbet i dag?
+                    <span className="bonus-label-hint">Gjelder ikke ekstrahelp-vakter</span>
+                  </label>
+                  <input
+                    className="bonus-input"
+                    type="number"
+                    min="1"
+                    step="1"
+                    placeholder="Antall personer"
+                    value={numWorkers}
+                    onChange={(e) => setNumWorkers(e.target.value)}
+                    required
+                  />
+                </div>
               )}
+              <div className="bonus-field">
+                <label className="bonus-label">Omsetning for dagen (kr)
+                  {isJoiningOpenDay && <span className="bonus-label-hint">Satt av første person — oppdater hvis feil</span>}
+                </label>
+                <input
+                  className="bonus-input"
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="F.eks. 32 500"
+                  value={revenue}
+                  onChange={(e) => setRevenue(e.target.value)}
+                  required
+                />
+              </div>
 
               {previewHours && previewRevenue && effectiveNumWorkers ? (
                 <div className="bonus-preview">
@@ -534,7 +579,8 @@ export default function BonusPage() {
                 {submitState.loading ? 'Registrerer…' : isJoiningOpenDay ? 'Bli med og registrer vakt' : 'Registrer vakt'}
               </button>
             </form>
-          </>
+            </div>
+          </div>
         )}
 
         {formStep === 'alone_or_more' && dayInfo && (
@@ -612,7 +658,7 @@ export default function BonusPage() {
           const totH = myH * nEmp
           const thresh = totH * hrRate
           const rev = Number(calcRevenue) || 0
-          const pct = tieredPoolRate(rev, bonusConfig.poolBaseRevenue, bonusConfig.poolBaseRatePct, bonusConfig.poolStepKr, bonusConfig.poolStepRatePct)
+          const pct = tieredPoolRate(rev, bonusConfig.poolBaseRevenue, bonusConfig.poolBaseRatePct, bonusConfig.poolStepKr, bonusConfig.poolStepEnabled ? bonusConfig.poolStepRatePct : 0)
           const pool = Math.max(0, (rev - thresh) * pct / 100)
           const myBonus = totH > 0 ? pool * (myH / totH) : 0
           const myBase = myH * hrRate
@@ -719,53 +765,133 @@ export default function BonusPage() {
           >
             {showFormula ? '▲' : '▼'} Slik beregnes bonusen
           </button>
-          {showFormula && (
-            <div className="bonus-formula-body">
-              <p className="bonus-formula-intro">
-                Bonusen er basert på <strong>omsetning per ansattime (OPA)</strong> — jo høyere omsetning per time dere jobbet, desto større bonus.
-              </p>
-              <div className="bonus-formula-steps">
-                <div className="bonus-formula-step">
-                  <span className="bonus-formula-step-num">1</span>
-                  <div>
-                    <strong>Terskel</strong> = {fmtKr(BONUS_THRESHOLD_RATE)} kr/t × antall timer totalt<br/>
-                    <em>Dette er forventet «normalt» nivå.</em>
+          {showFormula && (() => {
+            const hr = bonusConfig.fallbackHourlyRate
+            const baseRev = bonusConfig.poolBaseRevenue
+            const baseRate = bonusConfig.poolBaseRatePct
+            const stepEnabled = bonusConfig.poolStepEnabled !== false
+            const stepKr = bonusConfig.poolStepKr
+            const stepRate = stepEnabled ? bonusConfig.poolStepRatePct : 0
+
+            // Example: 2 employees × 6h each
+            const exH1 = 6, exH2 = 6, exTot = 12
+            const exRev = 30000
+            const exThresh = Math.round(exTot * hr)
+            const exRate = tieredPoolRate(exRev, baseRev, baseRate, stepKr, stepRate)
+            const exSurplus = exRev - exThresh
+            const exPool = exSurplus > 0 ? Math.round(exSurplus * exRate / 100) : 0
+            const exShare1 = Math.round(exPool * exH1 / exTot)
+            const exShare2 = Math.round(exPool * exH2 / exTot)
+
+            return (
+              <div className="bonus-formula-body">
+                <p className="bonus-formula-intro">
+                  Bonusen er basert på <strong>omsetning per ansattime (OPA)</strong> — jo høyere omsetning per time dere jobbet, desto større bonus.
+                </p>
+                <div className="bonus-formula-steps">
+                  <div className="bonus-formula-step">
+                    <span className="bonus-formula-step-num">1</span>
+                    <div>
+                      <strong>Terskel</strong> = sum av timelønn × timer for alle ansatte<br/>
+                      <em>Timelønn er {fmtKr(hr)} kr/t (kan variere per ansatt). Terskel = total lønnskostnad.</em>
+                    </div>
+                  </div>
+                  <div className="bonus-formula-step">
+                    <span className="bonus-formula-step-num">2</span>
+                    <div>
+                      <strong>Overskudd</strong> = omsetning − terskel<br/>
+                      <em>Alt over lønnskostnaden er bonusgrunnlag.</em>
+                    </div>
+                  </div>
+                  <div className="bonus-formula-step">
+                    <span className="bonus-formula-step-num">3</span>
+                    <div>
+                      <strong>Bonuspott</strong> = overskudd × sats<br/>
+                      <em>
+                        {stepEnabled
+                          ? `Satsen øker med omsetningen: ${baseRate}% fra ${fmtKr(baseRev / 1000)}k kr, +${bonusConfig.poolStepRatePct}% for hver ${fmtKr(stepKr / 1000)}k kr over det.`
+                          : `Fast sats: ${baseRate}% av overskuddet.`}
+                      </em>
+                    </div>
+                  </div>
+                  <div className="bonus-formula-step">
+                    <span className="bonus-formula-step-num">4</span>
+                    <div>
+                      <strong>Din andel</strong> = bonuspott × (dine timer / total timer)<br/>
+                      <em>Jobbet du mer, får du mer.</em>
+                    </div>
                   </div>
                 </div>
-                <div className="bonus-formula-step">
-                  <span className="bonus-formula-step-num">2</span>
-                  <div>
-                    <strong>Overskudd</strong> = omsetning − terskel<br/>
-                    <em>Alt over normalnivå er bonusgrunnlag.</em>
-                  </div>
-                </div>
-                <div className="bonus-formula-step">
-                  <span className="bonus-formula-step-num">3</span>
-                  <div>
-                    <strong>Bonuspott</strong> = overskudd × {Math.round(BONUS_RATE * 100)} %<br/>
-                    <em>15 % av overskuddet fordeles mellom dere.</em>
-                  </div>
-                </div>
-                <div className="bonus-formula-step">
-                  <span className="bonus-formula-step-num">4</span>
-                  <div>
-                    <strong>Din andel</strong> = bonuspott × (dine timer / total timer)<br/>
-                    <em>Jobbet du mer, får du mer.</em>
-                  </div>
+                <div className="bonus-formula-example">
+                  <p className="bonus-formula-example-title">Eksempel — {fmtKr(exRev)} kr omsetning</p>
+                  <div className="bonus-formula-example-row"><span>2 ansatte: {exH1}t + {exH2}t = {exTot}t totalt</span></div>
+                  <div className="bonus-formula-example-row"><span>Terskel: {exTot}t × {fmtKr(hr)} kr/t = {fmtKr(exThresh)} kr</span></div>
+                  <div className="bonus-formula-example-row"><span>Overskudd: {fmtKr(exRev)} − {fmtKr(exThresh)} = {fmtKr(exSurplus)} kr</span></div>
+                  <div className="bonus-formula-example-row"><span>Sats ved {fmtKr(exRev / 1000)}k kr: {exRate}%</span></div>
+                  <div className="bonus-formula-example-row"><span>Bonuspott: {fmtKr(exSurplus)} × {exRate}% = {fmtKr(exPool)} kr</span></div>
+                  <div className="bonus-formula-example-row bonus-formula-example-row--result"><span>Ansatt 1 ({exH1}t): {fmtKr(exShare1)} kr bonus</span></div>
+                  <div className="bonus-formula-example-row bonus-formula-example-row--result"><span>Ansatt 2 ({exH2}t): {fmtKr(exShare2)} kr bonus</span></div>
                 </div>
               </div>
-              <div className="bonus-formula-example">
-                <p className="bonus-formula-example-title">Eksempel — 42 840 kr omsetning</p>
-                <div className="bonus-formula-example-row"><span>2 ansatte: 8t 43min + 7t 50min = 16,5t</span></div>
-                <div className="bonus-formula-example-row"><span>Terskel: {fmtKr(400)} × 16,5 = {fmtKr(400 * 16.5)} kr</span></div>
-                <div className="bonus-formula-example-row"><span>Overskudd: 42 840 − {fmtKr(400 * 16.5)} = {fmtKr(42840 - 400 * 16.5)} kr</span></div>
-                <div className="bonus-formula-example-row"><span>Bonuspott (15 %): {fmtKr(Math.round((42840 - 400 * 16.5) * 0.15))} kr</span></div>
-                <div className="bonus-formula-example-row bonus-formula-example-row--result"><span>Ansatt 1 (8,73t): ≈ {fmtKr(Math.round((42840 - 400 * 16.5) * 0.15 * 8.73 / 16.5))} kr bonus</span></div>
-                <div className="bonus-formula-example-row bonus-formula-example-row--result"><span>Ansatt 2 (7,83t): ≈ {fmtKr(Math.round((42840 - 400 * 16.5) * 0.15 * 7.83 / 16.5))} kr bonus</span></div>
-              </div>
-            </div>
-          )}
+            )
+          })()}
         </div>
+
+        <hr className="bonus-section-divider" />
+
+        {/* Monthly salary overview */}
+        {session && history.length > 0 && (() => {
+          const now = new Date()
+          const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+          const monthShifts = history.filter(s => s.date && s.date.startsWith(currentMonth))
+          const approvedThisMonth = monthShifts.filter(s => (s.dayStatus || s.status) === 'approved')
+          const pendingThisMonth = monthShifts.filter(s => ['open', 'pending_approval'].includes(s.dayStatus || s.status))
+          if (monthShifts.length === 0) return null
+
+          const totalBase = approvedThisMonth.reduce((s, sh) => s + (sh.basePayKr || 0), 0)
+          const totalBonus = approvedThisMonth.reduce((s, sh) => s + (sh.bonusKr || 0), 0)
+          const totalFeriepenger = Math.round((totalBase + totalBonus) * 0.102)
+          const totalHoursApproved = approvedThisMonth.reduce((s, sh) => s + (sh.hoursWorked || 0), 0)
+          const totalHoursPending = pendingThisMonth.reduce((s, sh) => s + (sh.hoursWorked || 0), 0)
+          const monthName = now.toLocaleString('nb-NO', { month: 'long' })
+          const isStartMonth = currentMonth === BONUS_START_DATE.slice(0, 7)
+
+          return (
+            <div className="bonus-month-overview">
+              <h2 className="bonus-month-title">Lønn {monthName}{isStartMonth && <span className="bonus-month-note"> (fra 25. juni)</span>}</h2>
+              {approvedThisMonth.length > 0 && (
+                <div className="bonus-month-rows">
+                  <div className="bonus-month-row">
+                    <span>Timelønn</span>
+                    <span>{fmtKr(Math.round(totalBase))} kr</span>
+                  </div>
+                  <div className="bonus-month-row">
+                    <span>Bonus</span>
+                    <span className={totalBonus > 0 ? 'bonus-month-bonus' : 'bonus-month-zero'}>
+                      {totalBonus > 0 ? `+ ${fmtKr(Math.round(totalBonus))} kr` : '0 kr'}
+                    </span>
+                  </div>
+                  <div className="bonus-month-row">
+                    <span>Feriepenger <span className="bonus-month-note">(10.2%)</span></span>
+                    <span className="bonus-month-ferie">+ {fmtKr(totalFeriepenger)} kr</span>
+                  </div>
+                  <div className="bonus-month-row bonus-month-row--total">
+                    <span>Totalt ({fmtHours(totalHoursApproved)})</span>
+                    <span>{fmtKr(Math.round(totalBase + totalBonus + totalFeriepenger))} kr</span>
+                  </div>
+                </div>
+              )}
+              {pendingThisMonth.length > 0 && (
+                <p className="bonus-month-pending">
+                  + {pendingThisMonth.length} vakt{pendingThisMonth.length !== 1 ? 'er' : ''} venter godkjenning ({fmtHours(totalHoursPending)})
+                </p>
+              )}
+              {approvedThisMonth.length === 0 && pendingThisMonth.length === 0 && (
+                <p className="bonus-month-empty">Ingen godkjente vakter ennå denne måneden.</p>
+              )}
+            </div>
+          )
+        })()}
 
         {/* History — always visible once logged in */}
         {(history.length > 0 || historyLoading) && (
@@ -829,12 +955,16 @@ export default function BonusPage() {
                       </button>
                     </div>
                   )}
-                  {status === 'approved' && shift.bonusKr != null && (
-                    <div className="bonus-history-payout">
-                      Timelønn: {fmtKr(shift.basePayKr)} kr + Bonus: {fmtKr(shift.bonusKr)} kr
-                      = <strong>{fmtKr((shift.basePayKr || 0) + (shift.bonusKr || 0))} kr</strong>
-                    </div>
-                  )}
+                  {status === 'approved' && shift.bonusKr != null && (() => {
+                    const base = shift.basePayKr || 0
+                    const bonus = shift.bonusKr || 0
+                    const ferie = Math.round((base + bonus) * 0.102)
+                    return (
+                      <div className="bonus-history-payout">
+                        <div>Timelønn: {fmtKr(base)} kr + Bonus: {fmtKr(bonus)} kr + Feriepenger: {fmtKr(ferie)} kr = <strong>{fmtKr(base + bonus + ferie)} kr</strong></div>
+                      </div>
+                    )
+                  })()}
                 </div>
               )
             })}
@@ -842,5 +972,6 @@ export default function BonusPage() {
         )}
       </div>
     </div>
+    </>
   )
 }

@@ -1345,26 +1345,8 @@ async function buildInventoryAlertData() {
   return result;
 }
 
-function buildInventoryAlertEmailHtml(alertData, dateStr, overdueFeedback = []) {
-  const overdueSectionHtml = overdueFeedback.length > 0 ? `
-    <div style="margin-bottom:28px;padding:16px 20px;background:#fef9c3;border-left:4px solid #ca8a04;border-radius:0 6px 6px 0;">
-      <h3 style="margin:0 0 12px;font-size:1rem;color:#713f12;">⚠️ Tilbakemeldinger ikke bekreftet lest (${overdueFeedback.length})</h3>
-      ${overdueFeedback.map(f => `
-        <div style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #fde68a;">
-          <div style="font-size:0.88rem;color:#713f12;">
-            <strong>Vurdert:</strong> ${f.reviewedStr} (${f.hoursAgo}t siden)
-            ${f.neutral > 0 ? `&nbsp;· <span style="color:#b45309;">🟡 ${f.neutral} nøytral</span>` : ""}
-            ${f.sad > 0 ? `&nbsp;· <span style="color:#991b1b;">🔴 ${f.sad} surmunn</span>` : ""}
-          </div>
-          ${f.generalFeedback ? `<div style="font-size:0.85rem;color:#78350f;margin-top:4px;font-style:italic;">"${f.generalFeedback}"</div>` : ""}
-          ${f.receiptToken ? `<div style="margin-top:6px;"><a href="https://crust.no/skjema/stengeskjema/kvittering/${f.receiptToken}" style="font-size:0.82rem;color:#1d4ed8;">Åpne kvittering →</a></div>` : ""}
-        </div>`).join("")}
-      <div style="margin-top:8px;">
-        <a href="https://crust.no/skjema/stengeskjema/submissions" style="font-size:0.82rem;color:#1d4ed8;">Registrer oppfølging gjort på /submissions →</a>
-      </div>
-    </div>` : "";
-
-  if (alertData.length === 0 && overdueFeedback.length === 0) {
+function buildInventoryAlertEmailHtml(alertData, dateStr) {
+  if (alertData.length === 0) {
     return `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#1f2937;">
         <h2 style="margin:0 0 8px;">Varebeholdning – ${dateStr}</h2>
@@ -1411,7 +1393,6 @@ function buildInventoryAlertEmailHtml(alertData, dateStr, overdueFeedback = []) 
         Rød og oransje status per lokasjon, basert på siste stengeskjema.
         Rød er øverst per lokasjon.
       </p>
-      ${overdueSectionHtml}
       ${sections}
       <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0 16px;" />
       <p style="font-size:0.8rem;color:#9ca3af;margin:0;">
@@ -1421,58 +1402,16 @@ function buildInventoryAlertEmailHtml(alertData, dateStr, overdueFeedback = []) 
     </div>`;
 }
 
-async function buildOverdueFeedbackData() {
-  const db = admin.firestore();
-  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const featureStart = new Date("2026-06-17T00:00:00+02:00");
-  const snap = await db.collection("formSubmissions")
-    .where("status", "==", "reviewed")
-    .get();
-  const overdue = [];
-  for (const d of snap.docs) {
-    const data = d.data();
-    if (data.formSlug !== "stengeskjema") continue;
-    if (data.rejected) continue;
-    if (data.feedbackReadConfirmed) continue;
-    if (data.followUpDone) continue;
-    const neutral = data.reviewScoreSummary?.neutral || 0;
-    const sad = data.reviewScoreSummary?.sad || 0;
-    if (neutral === 0 && sad === 0 && !data.generalFeedback) continue;
-    const reviewedAt = data.reviewedAt?.toDate?.();
-    if (!reviewedAt || reviewedAt > cutoff) continue;
-    if (reviewedAt < featureStart) continue;
-    const days2 = ["søn","man","tir","ons","tor","fre","lør"];
-    const pad = (n) => String(n).padStart(2, "0");
-    const reviewedStr = `${days2[reviewedAt.getDay()]} ${reviewedAt.getDate()}. kl. ${pad(reviewedAt.getHours())}:${pad(reviewedAt.getMinutes())}`;
-    const hoursAgo = Math.floor((Date.now() - reviewedAt.getTime()) / 3600000);
-    overdue.push({
-      id: d.id,
-      receiptToken: data.receiptToken || "",
-      name: data.answers ? Object.values(data.answers).find(v => typeof v === "string" && v.length > 1 && v.length < 60) || "" : "",
-      neutral,
-      sad,
-      generalFeedback: data.generalFeedback || "",
-      reviewedStr,
-      hoursAgo,
-    });
-  }
-  overdue.sort((a, b) => b.hoursAgo - a.hoursAgo);
-  return overdue;
-}
-
 async function doSendInventoryAlert(testRecipient) {
   const days    = ["søndag","mandag","tirsdag","onsdag","torsdag","fredag","lørdag"];
   const months  = ["januar","februar","mars","april","mai","juni","juli","august","september","oktober","november","desember"];
   const now     = new Date();
   const dateStr = `${days[now.getDay()]} ${now.getDate()}. ${months[now.getMonth()]} ${now.getFullYear()}`;
 
-  const [alertData, overdueFeedback] = await Promise.all([
-    buildInventoryAlertData(),
-    buildOverdueFeedbackData(),
-  ]);
-  const html = buildInventoryAlertEmailHtml(alertData, dateStr, overdueFeedback);
-  const subject   = alertData.length > 0 || overdueFeedback.length > 0
-    ? `Varebeholdning ${now.getDate()}. ${months[now.getMonth()]}: ${alertData.reduce((s, l) => s + l.items.filter(i => i.category === "red").length, 0)} røde, ${alertData.reduce((s, l) => s + l.items.filter(i => i.category === "orange").length, 0)} oransje${overdueFeedback.length > 0 ? `, ${overdueFeedback.length} ubekreftet tilbakemelding` : ""}`
+  const alertData = await buildInventoryAlertData();
+  const html = buildInventoryAlertEmailHtml(alertData, dateStr);
+  const subject = alertData.length > 0
+    ? `Varebeholdning ${now.getDate()}. ${months[now.getMonth()]}: ${alertData.reduce((s, l) => s + l.items.filter(i => i.category === "red").length, 0)} røde, ${alertData.reduce((s, l) => s + l.items.filter(i => i.category === "orange").length, 0)} oransje`
     : `Varebeholdning ${now.getDate()}. ${months[now.getMonth()]}: Alt OK`;
 
   const toRecipients = testRecipient
@@ -1810,10 +1749,11 @@ function bonusPool(revenue, totalHours) {
   return surplus * BONUS_RATE;
 }
 
-function calcShiftBonuses(shifts, approvedRevenue, thresholdKr, bonusRate) {
+function calcShiftBonuses(shifts, approvedRevenue, thresholdKr, bonusRate, nonBonusHours = 0) {
   const surplus = Number(approvedRevenue) - Number(thresholdKr);
   const pool = surplus > 0 ? surplus * bonusRate : 0;
-  const totalHours = shifts.reduce((s, sh) => s + (Number(sh.hoursWorked) || 0), 0);
+  const bonusOnlyHours = shifts.reduce((s, sh) => s + (Number(sh.hoursWorked) || 0), 0);
+  const totalHours = bonusOnlyHours + nonBonusHours;
   if (totalHours <= 0 || pool <= 0) return shifts.map(() => 0);
   return shifts.map((sh) => Math.round((pool * (Number(sh.hoursWorked) || 0) / totalHours) * 100) / 100);
 }
@@ -1894,7 +1834,7 @@ exports.verifyBonusOtp = onCall(
       name,
       email,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + 7 * 24 * 3600 * 1000),
+      expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + 365 * 24 * 3600 * 1000),
     });
     return { token, name, phone };
   },
@@ -1922,6 +1862,74 @@ async function sendBonusApprovalRequestEmail(date, participantNames) {
   );
 }
 
+async function sendBonusReversalEmail(toEmail, name, date) {
+  const axios = require("axios");
+  const accessToken = await getAzureAccessToken();
+  const months = ["januar","februar","mars","april","mai","juni","juli","august","september","oktober","november","desember"];
+  const [yr, mo, da] = (date || "").split("-");
+  const dateStr = yr && mo && da ? `${parseInt(da)}. ${months[parseInt(mo) - 1]} ${yr}` : date;
+  const html = `<!DOCTYPE html><html lang="no"><head><meta charset="UTF-8"></head><body style="font-family:Arial,sans-serif;background:#f4f4f4;margin:0;padding:20px"><div style="max-width:520px;margin:0 auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.12)"><div style="background:#1a3a2a;padding:28px 32px"><h1 style="color:#fff;margin:0;font-size:1.4rem">Crust n' Trust</h1><p style="color:#a8d5b5;margin:6px 0 0;font-size:.9rem">Bonusgodkjenning reversert</p></div><div style="padding:28px 32px"><p style="margin:0 0 16px;font-size:1rem;color:#222">Hei ${name},</p><p style="margin:0 0 16px;color:#444">Den godkjente bonusen din for <strong>${dateStr}</strong> er blitt reversert av en administrator. Ta kontakt med ledelsen for mer informasjon.</p></div></div></body></html>`;
+  await axios.post(
+    `https://graph.microsoft.com/v1.0/users/${REVIEW_EMAIL_FROM}/sendMail`,
+    { message: { subject: `Bonus reversert – ${dateStr}`, body: { contentType: "HTML", content: html }, toRecipients: [{ emailAddress: { address: toEmail } }], ccRecipients: [{ emailAddress: { address: "magnus@crust.no" } }] }, saveToSentItems: false },
+    { headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" } },
+  );
+}
+
+exports.setNonBonusWorkers = onCall(
+  { region: "europe-west1", invoker: "public" },
+  async ({ data, auth }) => {
+    if (!String(auth?.token?.email || "").endsWith("@crust.no")) throw new HttpsError("permission-denied", "Admin required");
+    const { dayId, workers } = data || {};
+    if (!dayId) throw new HttpsError("invalid-argument", "Mangler dag-ID");
+    const validated = (workers || []).map((w) => {
+      const name = String(w.name || "").trim();
+      let hours = Math.max(0, Number(w.hours) || 0);
+      const startTime = String(w.startTime || "");
+      const endTime = String(w.endTime || "");
+      if (startTime && endTime) {
+        const [sh, sm] = startTime.split(":").map(Number);
+        const [eh, em] = endTime.split(":").map(Number);
+        let h = ((eh * 60 + em) - (sh * 60 + sm)) / 60;
+        if (h <= 0) h += 24;
+        hours = Math.round(h * 100) / 100;
+      }
+      return { name, startTime, endTime, hours, hourlyRate: 0 };
+    }).filter((w) => w.name && w.hours > 0);
+    const db = admin.firestore();
+    await db.doc(`bonusDays/${dayId}`).update({ nonBonusWorkers: validated });
+    return { saved: true };
+  },
+);
+
+exports.unapproveDay = onCall(
+  { region: "europe-west1", invoker: "public" },
+  async ({ data, auth }) => {
+    if (!String(auth?.token?.email || "").endsWith("@crust.no")) throw new HttpsError("permission-denied", "Admin required");
+    const { dayId } = data || {};
+    if (!dayId) throw new HttpsError("invalid-argument", "Mangler dag-ID");
+    const db = admin.firestore();
+    const dayDoc = await db.doc(`bonusDays/${dayId}`).get();
+    if (!dayDoc.exists) throw new HttpsError("not-found", "Dag ikke funnet");
+    if (dayDoc.data().status !== "approved") throw new HttpsError("failed-precondition", "Dag er ikke godkjent");
+    const shiftsSnap = await db.collection("bonusShifts").where("dayId", "==", dayId).get();
+    const batch = db.batch();
+    batch.update(db.doc(`bonusDays/${dayId}`), {
+      status: "pending_approval",
+      approvedAt: null,
+      approvedBy: null,
+      approvedRevenue: null,
+      approvedThresholdKr: null,
+      approvedBonusRatePct: null,
+    });
+    shiftsSnap.docs.forEach((d) => {
+      batch.update(d.ref, { status: "submitted", bonusKr: null, basePayKr: null, hourlyRateUsed: null, approvedAt: null, approvedBy: null, emailSent: false });
+    });
+    await batch.commit();
+    return { unapproved: true };
+  },
+);
+
 exports.createOrJoinBonusDay = onCall(
   { region: "europe-west1", invoker: "public" },
   async ({ data }) => {
@@ -1936,8 +1944,7 @@ exports.createOrJoinBonusDay = onCall(
     }
     const { phone, name, email } = sessionDoc.data();
 
-    const myShift = await db.collection("bonusShifts").where("phone", "==", phone).where("date", "==", date).get();
-    if (!myShift.empty) throw new HttpsError("already-exists", "Du har allerede registrert en vakt for denne datoen.");
+    // multiple shifts per employee per day are allowed
 
     const [sh, sm] = startTime.split(":").map(Number);
     const [eh, em] = endTime.split(":").map(Number);
@@ -1954,10 +1961,19 @@ exports.createOrJoinBonusDay = onCall(
 
     if (openDayDoc) {
       dayId = openDayDoc.id;
-      dayRevenueKr = openDayDoc.data().revenueKr;
-      await db.doc(`bonusDays/${dayId}`).update({
-        participantPhones: admin.firestore.FieldValue.arrayUnion(phone),
-      });
+      const update = { participantPhones: admin.firestore.FieldValue.arrayUnion(phone) };
+      if (revenueKr != null) {
+        const newRev = Number(revenueKr);
+        if (Number.isFinite(newRev) && newRev >= 0 && newRev !== openDayDoc.data().revenueKr) {
+          update.revenueKr = newRev;
+          dayRevenueKr = newRev;
+        } else {
+          dayRevenueKr = openDayDoc.data().revenueKr;
+        }
+      } else {
+        dayRevenueKr = openDayDoc.data().revenueKr;
+      }
+      await db.doc(`bonusDays/${dayId}`).update(update);
     } else {
       if (revenueKr == null) throw new HttpsError("invalid-argument", "Omsetning er påkrevd");
       const rev = Number(revenueKr);
@@ -2094,7 +2110,7 @@ exports.getOpenDayForDate = onCall(
       date: day.date,
       revenueKr: day.revenueKr,
       participants,
-      hasJoined: participants.some((p) => p.phone === phone),
+      hasJoined: false,
     };
   },
 );
@@ -2136,7 +2152,7 @@ exports.getMyBonusShifts = onCall(
 );
 
 exports.approveBonusDay = onCall(
-  { region: "europe-west1", invoker: "public", secrets: ["AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_TENANT_ID"] },
+  { region: "europe-west1", invoker: "public" },
   async ({ data, auth }) => {
     if (!String(auth?.token?.email || "").endsWith("@crust.no")) throw new HttpsError("permission-denied", "Admin required");
     const { dayId, shiftUpdates, approvedRevenue, thresholdKr, bonusRatePct } = data || {};
@@ -2160,8 +2176,12 @@ exports.approveBonusDay = onCall(
     accessDocs.forEach((d, i) => {
       rateMap[shifts[i].phone] = d.exists ? Number(d.data().hourlyRate || BONUS_HOURLY_RATE) : BONUS_HOURLY_RATE;
     });
-    // Threshold: admin override or auto-calculated from actual wages
-    const autoThreshold = shifts.reduce((sum, sh) => sum + sh.hoursWorked * (rateMap[sh.phone] || BONUS_HOURLY_RATE), 0);
+    // Non-bonus workers (loaded from day doc)
+    const nonBonusWorkers = dayData.nonBonusWorkers || [];
+    const nonBonusThresholdContrib = nonBonusWorkers.reduce((sum, w) => sum + w.hours * w.hourlyRate, 0);
+    const nonBonusTotalHours = nonBonusWorkers.reduce((sum, w) => sum + w.hours, 0);
+    // Threshold: admin override or auto-calculated from actual wages (including non-bonus workers)
+    const autoThreshold = shifts.reduce((sum, sh) => sum + sh.hoursWorked * (rateMap[sh.phone] || BONUS_HOURLY_RATE), 0) + nonBonusThresholdContrib;
     const effectiveThreshold = thresholdKr != null ? Number(thresholdKr) : autoThreshold;
     let effectiveRate;
     if (bonusRatePct != null) {
@@ -2172,7 +2192,7 @@ exports.approveBonusDay = onCall(
       const autoRatePct = tieredPoolRate(approvedRevenue, cfg.poolBaseRevenue, cfg.poolBaseRatePct, cfg.poolStepKr, cfg.poolStepRatePct);
       effectiveRate = autoRatePct / 100;
     }
-    const bonuses = calcShiftBonuses(shifts, approvedRevenue, effectiveThreshold, effectiveRate);
+    const bonuses = calcShiftBonuses(shifts, approvedRevenue, effectiveThreshold, effectiveRate, nonBonusTotalHours);
     const now = admin.firestore.FieldValue.serverTimestamp();
     const batch = db.batch();
     shifts.forEach((shift, i) => {
@@ -2198,32 +2218,12 @@ exports.approveBonusDay = onCall(
       approvedRevenue: Number(approvedRevenue),
       approvedThresholdKr: effectiveThreshold,
       approvedBonusRatePct: effectiveRate * 100,
+      approvedNonBonusWorkers: nonBonusWorkers,
       approvedAt: now,
       approvedBy: auth.token.email,
     });
     await batch.commit();
-    const emailResults = [];
-    for (let i = 0; i < shifts.length; i++) {
-      const shift = shifts[i];
-      const u = shiftUpdates[i];
-      const hoursWorked = u.hoursWorked != null ? Number(u.hoursWorked) : shift.hoursWorked;
-      const empRate = rateMap[shift.phone] || BONUS_HOURLY_RATE;
-      const basePay = Math.round(hoursWorked * empRate * 100) / 100;
-      const bonus = Math.round(bonuses[i] * 100) / 100;
-      const total = Math.round((basePay + bonus) * 100) / 100;
-      const start = u.startTime || shift.startTime;
-      const end = u.endTime || shift.endTime;
-      if (!shift.email) { emailResults.push({ id: shift.id, sent: false, reason: "no email" }); continue; }
-      try {
-        await sendBonusEmailMsg(shift.email, shift.name, dayData.date, start, end, hoursWorked, Number(approvedRevenue), basePay, bonus, total, empRate);
-        await db.doc(`bonusShifts/${shift.id}`).update({ emailSent: true });
-        emailResults.push({ id: shift.id, sent: true });
-      } catch (err) {
-        logger.error("Bonus email failed", { id: shift.id, err: err?.message });
-        emailResults.push({ id: shift.id, sent: false, error: err?.message });
-      }
-    }
-    return { approved: true, emailResults };
+    return { approved: true };
   },
 );
 
@@ -2278,7 +2278,7 @@ exports.adminRegisterBonusShift = onCall(
   { region: "europe-west1", invoker: "public" },
   async ({ data, auth }) => {
     if (!String(auth?.token?.email || "").endsWith("@crust.no")) throw new HttpsError("permission-denied", "Admin required");
-    const { phone, date, startTime, endTime, revenueKr } = data || {};
+    const { phone, date, startTime, endTime, revenueKr, nonBonusWorkers } = data || {};
     if (!phone || !date || !startTime || !endTime || revenueKr == null) {
       throw new HttpsError("invalid-argument", "Mangler påkrevde felt");
     }
@@ -2295,8 +2295,7 @@ exports.adminRegisterBonusShift = onCall(
     if (hoursWorked > 16 || hoursWorked < 0.5) throw new HttpsError("invalid-argument", "Ugyldig vaktlengde.");
     const rev = Number(revenueKr);
     if (!Number.isFinite(rev) || rev < 0 || rev > 500000) throw new HttpsError("invalid-argument", "Ugyldig omsetning.");
-    const existing = await db.collection("bonusShifts").where("phone", "==", normPhone).where("date", "==", date).get();
-    if (!existing.empty) throw new HttpsError("already-exists", `${name} har allerede en vakt registrert for ${date}.`);
+    // multiple shifts per employee per day are allowed
     const daySnap = await db.collection("bonusDays").where("date", "==", date).get();
     const openDayDoc = daySnap.docs.find((d) => d.data().status === "open");
     let dayId;
@@ -2342,6 +2341,55 @@ exports.adminRegisterBonusShift = onCall(
       approvedBy: null,
       emailSent: false,
     });
+    if (Array.isArray(nonBonusWorkers) && nonBonusWorkers.length > 0) {
+      const cleaned = nonBonusWorkers.map(w => {
+        const name = String(w.name || "").trim();
+        const startTime = String(w.startTime || "");
+        const endTime = String(w.endTime || "");
+        let hours = Number(w.hours) || 0;
+        if (startTime && endTime) {
+          const [sh, sm] = startTime.split(":").map(Number);
+          const [eh, em] = endTime.split(":").map(Number);
+          let h = ((eh * 60 + em) - (sh * 60 + sm)) / 60;
+          if (h <= 0) h += 24;
+          hours = Math.round(h * 100) / 100;
+        }
+        return { name, startTime, endTime, hours, hourlyRate: 0 };
+      }).filter(w => w.name && w.hours > 0);
+      if (cleaned.length > 0) {
+        const existingSnap = await db.doc(`bonusDays/${dayId}`).get();
+        const existing = existingSnap.data()?.nonBonusWorkers || [];
+        const merged = [...existing];
+        for (const w of cleaned) {
+          if (!merged.find(e => e.name.toLowerCase() === w.name.toLowerCase())) merged.push(w);
+        }
+        await db.doc(`bonusDays/${dayId}`).update({ nonBonusWorkers: merged });
+      }
+    }
     return { submitted: true, hoursWorked, name };
+  },
+);
+
+exports.adminCreateSimSession = onCall(
+  { region: "europe-west1", invoker: "public" },
+  async ({ data, auth }) => {
+    if (!String(auth?.token?.email || "").endsWith("@crust.no")) throw new HttpsError("permission-denied", "Admin required");
+    const { phone } = data || {};
+    if (!phone) throw new HttpsError("invalid-argument", "Mangler telefonnummer");
+    const db = admin.firestore();
+    const normPhone = normalizePhone(phone);
+    const accessDoc = await db.doc(`bonusAccess/${normPhone}`).get();
+    if (!accessDoc.exists) throw new HttpsError("not-found", "Ansatt ikke funnet");
+    const { name, email } = accessDoc.data();
+    const crypto = require("crypto");
+    const token = crypto.randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + 3600 * 1000); // 1 hour
+    await db.doc(`bonusSessions/${token}`).set({
+      phone: normPhone, name, email: email || "",
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      expiresAt: admin.firestore.Timestamp.fromDate(expiresAt),
+      simSession: true,
+    });
+    return { token, name, phone: normPhone };
   },
 );
