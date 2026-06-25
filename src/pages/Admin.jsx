@@ -14,6 +14,7 @@ import {
   serverTimestamp,
   setDoc,
   updateDoc,
+  where,
 } from "firebase/firestore";
 import { db, functions } from "../firebase";
 import { useAdminSession } from "../hooks/useAdminSession";
@@ -149,6 +150,17 @@ function Admin() {
   const [newEmployeeMessage, setNewEmployeeMessage] = useState(null);
   const [employeeFilter, setEmployeeFilter] = useState("all");
   const [showEmployeeRates, setShowEmployeeRates] = useState(false);
+  const [bonusPendingCount, setBonusPendingCount] = useState(0);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    const unsub = onSnapshot(
+      query(collection(db, "bonusDays"), where("status", "==", "pending_approval")),
+      (snap) => setBonusPendingCount(snap.size),
+      () => {},
+    );
+    return unsub;
+  }, [isAdmin]);
 
   useEffect(() => {
     async function loadSettings() {
@@ -617,7 +629,10 @@ function Admin() {
             <Link className="admin-nav-card" to="/admin/financial-report">Finansrapport</Link>
             <Link className="admin-nav-card" to="/admin/sms">SMS</Link>
             <Link className="admin-nav-card" to="/admin/bilder">Bilder</Link>
-            <Link className="admin-nav-card" to="/bonus/admin">Bonus</Link>
+            <Link className="admin-nav-card admin-nav-card--bonus" to="/bonus/admin">
+              Bonus
+              {bonusPendingCount > 0 && <span className="admin-nav-badge">{bonusPendingCount}</span>}
+            </Link>
           </div>
           <div>
             <button type="button" className="admin-button admin-button-secondary" onClick={signOutAdmin}>Logg ut</button>

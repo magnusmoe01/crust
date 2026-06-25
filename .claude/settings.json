@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(grep -v \"^+$\\\\|^+ *$\")",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(list\\(d.get\\('dependencies',{}\\).keys\\(\\)\\)\\)\")"
     ]
   }
 }

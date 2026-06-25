@@ -1793,7 +1793,16 @@ exports.sendLargeOrderNotification = onCall(
 const BONUS_HOURLY_RATE = 166.34;
 // OPA model: revenue above threshold × bonus_rate → pool split proportionally by hours
 const BONUS_THRESHOLD_RATE = 400; // kr per employee-hour (normal expected revenue)
-const BONUS_RATE = 0.15;          // 15 % of surplus goes into the pool
+const BONUS_RATE = 0.15;          // legacy fallback rate
+
+// Tiered pool rate: 0% below baseRevenue, then baseRatePct + steps * stepRatePct
+function tieredPoolRate(revenue, baseRevenue, baseRatePct, stepKr, stepRatePct) {
+  const rev = Number(revenue), base = Number(baseRevenue) || 20000;
+  const rate = Number(baseRatePct) || 20, step = Number(stepKr) || 10000, inc = Number(stepRatePct) || 5;
+  if (rev < base) return 0;
+  const steps = Math.floor((rev - base) / Math.max(step, 1));
+  return rate + steps * inc;
+}
 
 function bonusPool(revenue, totalHours) {
   const surplus = Number(revenue) - BONUS_THRESHOLD_RATE * totalHours;
@@ -1801,9 +1810,10 @@ function bonusPool(revenue, totalHours) {
   return surplus * BONUS_RATE;
 }
 
-function calcShiftBonuses(shifts, approvedRevenue) {
+function calcShiftBonuses(shifts, approvedRevenue, thresholdKr, bonusRate) {
+  const surplus = Number(approvedRevenue) - Number(thresholdKr);
+  const pool = surplus > 0 ? surplus * bonusRate : 0;
   const totalHours = shifts.reduce((s, sh) => s + (Number(sh.hoursWorked) || 0), 0);
-  const pool = bonusPool(approvedRevenue, totalHours);
   if (totalHours <= 0 || pool <= 0) return shifts.map(() => 0);
   return shifts.map((sh) => Math.round((pool * (Number(sh.hoursWorked) || 0) / totalHours) * 100) / 100);
 }
@@ -1815,7 +1825,7 @@ function normalizePhone(raw) {
   return p;
 }
 
-async function sendBonusEmailMsg(toEmail, name, date, startTime, endTime, hoursWorked, approvedRevenue, basePayKr, bonusKr, totalKr) {
+async function sendBonusEmailMsg(toEmail, name, date, startTime, endTime, hoursWorked, approvedRevenue, basePayKr, bonusKr, totalKr, hourlyRate) {
   const axios = require("axios");
   const accessToken = await getAzureAccessToken();
   const h = Math.floor(hoursWorked);
@@ -1824,7 +1834,8 @@ async function sendBonusEmailMsg(toEmail, name, date, startTime, endTime, hoursW
   const [yr, mo, da] = (date || "").split("-");
   const dateStr = yr && mo && da ? `${parseInt(da)}. ${months[parseInt(mo) - 1]} ${yr}` : date;
   const fmt = (n) => Number(n).toLocaleString("nb-NO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const html = `<!DOCTYPE html><html lang="no"><head><meta charset="UTF-8"></head><body style="font-family:Arial,sans-serif;background:#f4f4f4;margin:0;padding:20px"><div style="max-width:520px;margin:0 auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.12)"><div style="background:#1a3a2a;padding:28px 32px"><h1 style="color:#fff;margin:0;font-size:1.4rem">Crust n' Trust</h1><p style="color:#a8d5b5;margin:6px 0 0;font-size:.9rem">Bonusoppgjør</p></div><div style="padding:28px 32px"><p style="margin:0 0 6px;font-size:1rem;color:#222">Hei ${name}!</p><p style="margin:0 0 20px;color:#555;font-size:.9rem">Her er ditt bonusoppgjør for <strong>${dateStr}</strong>.</p><table style="width:100%;border-collapse:collapse;font-size:.9rem"><tr style="background:#f9f9f9"><td style="padding:9px 12px;border:1px solid #e5e5e5;color:#555">Vakt</td><td style="padding:9px 12px;border:1px solid #e5e5e5;font-weight:600;text-align:right">${startTime}–${endTime} (${h}t ${m}min)</td></tr><tr><td style="padding:9px 12px;border:1px solid #e5e5e5;color:#555">Omsetning</td><td style="padding:9px 12px;border:1px solid #e5e5e5;font-weight:600;text-align:right">${fmt(approvedRevenue)} kr</td></tr><tr style="background:#f9f9f9"><td style="padding:9px 12px;border:1px solid #e5e5e5;color:#555">Timelønn (${fmt(BONUS_HOURLY_RATE)} kr/t)</td><td style="padding:9px 12px;border:1px solid #e5e5e5;text-align:right">${fmt(basePayKr)} kr</td></tr><tr><td style="padding:9px 12px;border:1px solid #e5e5e5;color:#555">Omsetningsbonus</td><td style="padding:9px 12px;border:1px solid #e5e5e5;color:#16a34a;font-weight:700;text-align:right">+ ${fmt(bonusKr)} kr</td></tr><tr style="background:#f0fdf4"><td style="padding:11px 12px;border:1px solid #bbf7d0;font-weight:700;color:#222">Totalsum</td><td style="padding:11px 12px;border:1px solid #bbf7d0;font-weight:700;font-size:1.05rem;color:#16a34a;text-align:right">${fmt(totalKr)} kr</td></tr></table><p style="margin:20px 0 0;color:#888;font-size:.8rem">Spørsmål? Kontakt Crust n' Trust admin.</p></div></div></body></html>`;
+  const rateDisplay = fmt(hourlyRate || BONUS_HOURLY_RATE);
+  const html = `<!DOCTYPE html><html lang="no"><head><meta charset="UTF-8"></head><body style="font-family:Arial,sans-serif;background:#f4f4f4;margin:0;padding:20px"><div style="max-width:520px;margin:0 auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.12)"><div style="background:#1a3a2a;padding:28px 32px"><h1 style="color:#fff;margin:0;font-size:1.4rem">Crust n' Trust</h1><p style="color:#a8d5b5;margin:6px 0 0;font-size:.9rem">Bonusoppgjør</p></div><div style="padding:28px 32px"><p style="margin:0 0 6px;font-size:1rem;color:#222">Hei ${name}!</p><p style="margin:0 0 20px;color:#555;font-size:.9rem">Her er ditt bonusoppgjør for <strong>${dateStr}</strong>.</p><table style="width:100%;border-collapse:collapse;font-size:.9rem"><tr style="background:#f9f9f9"><td style="padding:9px 12px;border:1px solid #e5e5e5;color:#555">Vakt</td><td style="padding:9px 12px;border:1px solid #e5e5e5;font-weight:600;text-align:right">${startTime}–${endTime} (${h}t ${m}min)</td></tr><tr><td style="padding:9px 12px;border:1px solid #e5e5e5;color:#555">Omsetning</td><td style="padding:9px 12px;border:1px solid #e5e5e5;font-weight:600;text-align:right">${fmt(approvedRevenue)} kr</td></tr><tr style="background:#f9f9f9"><td style="padding:9px 12px;border:1px solid #e5e5e5;color:#555">Timelønn (${rateDisplay} kr/t)</td><td style="padding:9px 12px;border:1px solid #e5e5e5;text-align:right">${fmt(basePayKr)} kr</td></tr><tr><td style="padding:9px 12px;border:1px solid #e5e5e5;color:#555">Omsetningsbonus</td><td style="padding:9px 12px;border:1px solid #e5e5e5;color:#16a34a;font-weight:700;text-align:right">+ ${fmt(bonusKr)} kr</td></tr><tr style="background:#f0fdf4"><td style="padding:11px 12px;border:1px solid #bbf7d0;font-weight:700;color:#222">Totalsum</td><td style="padding:11px 12px;border:1px solid #bbf7d0;font-weight:700;font-size:1.05rem;color:#16a34a;text-align:right">${fmt(totalKr)} kr</td></tr></table><p style="margin:20px 0 0;color:#888;font-size:.8rem">Spørsmål? Kontakt Crust n' Trust admin.</p></div></div></body></html>`;
   await axios.post(
     `https://graph.microsoft.com/v1.0/users/${REVIEW_EMAIL_FROM}/sendMail`,
     {
@@ -1999,7 +2010,7 @@ exports.createOrJoinBonusDay = onCall(
 );
 
 exports.submitDayForApproval = onCall(
-  { region: "europe-west1", invoker: "public", secrets: ["AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_TENANT_ID"] },
+  { region: "europe-west1", invoker: "public" },
   async ({ data }) => {
     const { sessionToken, dayId } = data || {};
     if (!sessionToken || !dayId) throw new HttpsError("invalid-argument", "Mangler økt eller dag-ID");
@@ -2019,10 +2030,47 @@ exports.submitDayForApproval = onCall(
       submittedForApprovalAt: admin.firestore.FieldValue.serverTimestamp(),
       submittedBy: phone,
     });
-    const shiftsSnap = await db.collection("bonusShifts").where("dayId", "==", dayId).get();
-    const names = shiftsSnap.docs.map((d) => d.data().name);
-    await sendBonusApprovalRequestEmail(day.date, names);
     return { submitted: true };
+  },
+);
+
+exports.deleteBonusShift = onCall(
+  { region: "europe-west1", invoker: "public" },
+  async ({ data, auth }) => {
+    const db = admin.firestore();
+    const { shiftId, sessionToken } = data || {};
+    if (!shiftId) throw new HttpsError("invalid-argument", "Mangler vakt-ID");
+
+    const shiftDoc = await db.doc(`bonusShifts/${shiftId}`).get();
+    if (!shiftDoc.exists) throw new HttpsError("not-found", "Vakt ikke funnet");
+    const shift = shiftDoc.data();
+
+    const isAdmin = String(auth?.token?.email || "").endsWith("@crust.no");
+
+    if (!isAdmin) {
+      if (!sessionToken) throw new HttpsError("unauthenticated", "Logg inn på nytt");
+      const sessionDoc = await db.doc(`bonusSessions/${sessionToken}`).get();
+      if (!sessionDoc.exists || sessionDoc.data().expiresAt.toMillis() < Date.now()) {
+        throw new HttpsError("unauthenticated", "Ugyldig eller utløpt økt");
+      }
+      if (shift.phone !== sessionDoc.data().phone) throw new HttpsError("permission-denied", "Du kan ikke slette andres vakt");
+      const dayDoc = await db.doc(`bonusDays/${shift.dayId}`).get();
+      if (dayDoc.exists && dayDoc.data().status !== "open") {
+        throw new HttpsError("failed-precondition", "Kan ikke slette vakt etter innsending");
+      }
+    } else {
+      if (shift.status === "approved") throw new HttpsError("failed-precondition", "Cannot delete an approved shift");
+    }
+
+    await db.doc(`bonusShifts/${shiftId}`).delete();
+    await db.doc(`bonusDays/${shift.dayId}`).update({
+      participantPhones: admin.firestore.FieldValue.arrayRemove(shift.phone),
+    });
+    const remaining = await db.collection("bonusShifts").where("dayId", "==", shift.dayId).get();
+    if (remaining.empty) {
+      await db.doc(`bonusDays/${shift.dayId}`).delete();
+    }
+    return { deleted: true };
   },
 );
 
@@ -2091,7 +2139,7 @@ exports.approveBonusDay = onCall(
   { region: "europe-west1", invoker: "public", secrets: ["AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_TENANT_ID"] },
   async ({ data, auth }) => {
     if (!String(auth?.token?.email || "").endsWith("@crust.no")) throw new HttpsError("permission-denied", "Admin required");
-    const { dayId, shiftUpdates, approvedRevenue } = data || {};
+    const { dayId, shiftUpdates, approvedRevenue, thresholdKr, bonusRatePct } = data || {};
     if (!dayId || !Array.isArray(shiftUpdates) || !shiftUpdates.length || approvedRevenue == null) {
       throw new HttpsError("invalid-argument", "Mangler dag-ID, vakter eller omsetning");
     }
@@ -2106,12 +2154,31 @@ exports.approveBonusDay = onCall(
       const hoursWorked = u.hoursWorked != null ? Number(u.hoursWorked) : doc.data().hoursWorked;
       return { id: doc.id, ...doc.data(), hoursWorked, _update: u };
     });
-    const bonuses = calcShiftBonuses(shifts, approvedRevenue);
+    // Load per-employee hourly rates
+    const accessDocs = await Promise.all(shifts.map((s) => db.doc(`bonusAccess/${s.phone}`).get()));
+    const rateMap = {};
+    accessDocs.forEach((d, i) => {
+      rateMap[shifts[i].phone] = d.exists ? Number(d.data().hourlyRate || BONUS_HOURLY_RATE) : BONUS_HOURLY_RATE;
+    });
+    // Threshold: admin override or auto-calculated from actual wages
+    const autoThreshold = shifts.reduce((sum, sh) => sum + sh.hoursWorked * (rateMap[sh.phone] || BONUS_HOURLY_RATE), 0);
+    const effectiveThreshold = thresholdKr != null ? Number(thresholdKr) : autoThreshold;
+    let effectiveRate;
+    if (bonusRatePct != null) {
+      effectiveRate = Number(bonusRatePct) / 100;
+    } else {
+      const cfgDoc = await db.doc('siteSettings/bonusConfig').get();
+      const cfg = cfgDoc.exists ? cfgDoc.data() : {};
+      const autoRatePct = tieredPoolRate(approvedRevenue, cfg.poolBaseRevenue, cfg.poolBaseRatePct, cfg.poolStepKr, cfg.poolStepRatePct);
+      effectiveRate = autoRatePct / 100;
+    }
+    const bonuses = calcShiftBonuses(shifts, approvedRevenue, effectiveThreshold, effectiveRate);
     const now = admin.firestore.FieldValue.serverTimestamp();
     const batch = db.batch();
     shifts.forEach((shift, i) => {
       const u = shift._update;
       const hoursWorked = u.hoursWorked != null ? Number(u.hoursWorked) : shift.hoursWorked;
+      const empRate = rateMap[shift.phone] || BONUS_HOURLY_RATE;
       batch.update(db.doc(`bonusShifts/${shift.id}`), {
         status: "approved",
         adminStartTime: u.startTime || null,
@@ -2120,13 +2187,17 @@ exports.approveBonusDay = onCall(
         adminNote: u.adminNote || "",
         hoursWorked,
         bonusKr: Math.round(bonuses[i] * 100) / 100,
-        basePayKr: Math.round(hoursWorked * BONUS_HOURLY_RATE * 100) / 100,
+        basePayKr: Math.round(hoursWorked * empRate * 100) / 100,
+        hourlyRateUsed: empRate,
         approvedAt: now,
         approvedBy: auth.token.email,
       });
     });
     batch.update(db.doc(`bonusDays/${dayId}`), {
       status: "approved",
+      approvedRevenue: Number(approvedRevenue),
+      approvedThresholdKr: effectiveThreshold,
+      approvedBonusRatePct: effectiveRate * 100,
       approvedAt: now,
       approvedBy: auth.token.email,
     });
@@ -2136,14 +2207,15 @@ exports.approveBonusDay = onCall(
       const shift = shifts[i];
       const u = shiftUpdates[i];
       const hoursWorked = u.hoursWorked != null ? Number(u.hoursWorked) : shift.hoursWorked;
-      const basePay = Math.round(hoursWorked * BONUS_HOURLY_RATE * 100) / 100;
+      const empRate = rateMap[shift.phone] || BONUS_HOURLY_RATE;
+      const basePay = Math.round(hoursWorked * empRate * 100) / 100;
       const bonus = Math.round(bonuses[i] * 100) / 100;
       const total = Math.round((basePay + bonus) * 100) / 100;
       const start = u.startTime || shift.startTime;
       const end = u.endTime || shift.endTime;
       if (!shift.email) { emailResults.push({ id: shift.id, sent: false, reason: "no email" }); continue; }
       try {
-        await sendBonusEmailMsg(shift.email, shift.name, dayData.date, start, end, hoursWorked, Number(approvedRevenue), basePay, bonus, total);
+        await sendBonusEmailMsg(shift.email, shift.name, dayData.date, start, end, hoursWorked, Number(approvedRevenue), basePay, bonus, total, empRate);
         await db.doc(`bonusShifts/${shift.id}`).update({ emailSent: true });
         emailResults.push({ id: shift.id, sent: true });
       } catch (err) {
@@ -2168,13 +2240,37 @@ exports.resendBonusEmail = onCall(
     if (s.status !== "approved") throw new HttpsError("failed-precondition", "Vakten er ikke godkjent");
     if (!s.email) throw new HttpsError("failed-precondition", "Ingen e-postadresse");
     const dayDoc = await db.doc(`bonusDays/${s.dayId}`).get();
-    const approvedRevenue = dayDoc.exists ? dayDoc.data().revenueKr : 0;
+    const approvedRevenue = dayDoc.exists ? (dayDoc.data().approvedRevenue || dayDoc.data().revenueKr || 0) : 0;
     const start = s.adminStartTime || s.startTime;
     const end = s.adminEndTime || s.endTime;
     const total = Math.round(((s.basePayKr || 0) + (s.bonusKr || 0)) * 100) / 100;
-    await sendBonusEmailMsg(s.email, s.name, s.date, start, end, s.hoursWorked, approvedRevenue, s.basePayKr || 0, s.bonusKr || 0, total);
+    await sendBonusEmailMsg(s.email, s.name, s.date, start, end, s.hoursWorked, approvedRevenue, s.basePayKr || 0, s.bonusKr || 0, total, s.hourlyRateUsed || BONUS_HOURLY_RATE);
     await db.doc(`bonusShifts/${shiftId}`).update({ emailSent: true });
     return { sent: true };
+  },
+);
+
+exports.rejectBonusDay = onCall(
+  { region: "europe-west1", invoker: "public" },
+  async ({ data, auth }) => {
+    if (!String(auth?.token?.email || "").endsWith("@crust.no")) throw new HttpsError("permission-denied", "Admin required");
+    const { dayId, reason } = data || {};
+    if (!dayId) throw new HttpsError("invalid-argument", "dayId required");
+    const db = admin.firestore();
+    const dayDoc = await db.doc(`bonusDays/${dayId}`).get();
+    if (!dayDoc.exists) throw new HttpsError("not-found", "Day not found");
+    if (dayDoc.data().status === "approved") throw new HttpsError("failed-precondition", "Cannot reject an already approved day");
+    const batch = db.batch();
+    batch.update(db.doc(`bonusDays/${dayId}`), {
+      status: "rejected",
+      rejectedAt: admin.firestore.FieldValue.serverTimestamp(),
+      rejectedBy: auth.token.email,
+      rejectionReason: reason || "",
+    });
+    const shiftsSnap = await db.collection("bonusShifts").where("dayId", "==", dayId).get();
+    shiftsSnap.docs.forEach((d) => batch.update(d.ref, { status: "rejected" }));
+    await batch.commit();
+    return { rejected: true };
   },
 );
 

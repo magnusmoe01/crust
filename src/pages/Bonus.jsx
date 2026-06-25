@@ -1,17 +1,117 @@
-import { useState, useEffect } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { httpsCallable } from 'firebase/functions'
-import { functions } from '../firebase'
+import { getDoc, doc } from 'firebase/firestore'
+import { db, functions } from '../firebase'
 import './Bonus.css'
 
 const BONUS_HOURLY_RATE = 166.34
 const BONUS_THRESHOLD_RATE = 400
 const BONUS_RATE = 0.15
+
+function tieredPoolRate(revenue, baseRevenue, baseRatePct, stepKr, stepRatePct) {
+  const rev = Number(revenue), base = Number(baseRevenue), rate = Number(baseRatePct)
+  const step = Number(stepKr), inc = Number(stepRatePct)
+  if (!base || rev < base) return 0
+  const steps = Math.floor((rev - base) / Math.max(step, 1))
+  return rate + steps * inc
+}
 const SESSION_KEY = 'crust-bonus-session'
 
 function bonusPool(revenue, totalHours) {
   const surplus = Number(revenue) - BONUS_THRESHOLD_RATE * totalHours
   if (surplus <= 0) return 0
   return surplus * BONUS_RATE
+}
+
+function BonusCalcChart({ thresholdKr, poolConfig, myHours, totalHours, hourlyRate, maxRevenue = 100000 }) {
+  const [hover, setHover] = useState(null)
+  const svgRef = useRef(null)
+
+  const W = 424, H = 160
+  const PAD = { t: 16, r: 12, b: 36, l: 56 }
+  const iW = W - PAD.l - PAD.r, iH = H - PAD.t - PAD.b
+  const n = totalHours > 0 ? totalHours / Math.max(myHours, 0.01) : 1
+
+  const poolAt = (rev) => {
+    const rate = tieredPoolRate(rev, poolConfig.poolBaseRevenue, poolConfig.poolBaseRatePct, poolConfig.poolStepKr, poolConfig.poolStepRatePct)
+    return Math.max(0, (rev - thresholdKr) * rate / 100)
+  }
+  const myShareAt = (rev) => (totalHours > 0 ? poolAt(rev) * myHours / totalHours : 0)
+  const basePay = myHours * hourlyRate
+  const totalAt = (rev) => basePay + myShareAt(rev)
+
+  const yMax = Math.max(totalAt(maxRevenue) * 1.2, basePay * 2, 500)
+  const x = (r) => (r / maxRevenue) * iW
+  const y = (v) => iH - (v / yMax) * iH
+
+  const nPts = 80
+  const pts = Array.from({ length: nPts + 1 }, (_, i) => ({ rev: (i / nPts) * maxRevenue }))
+  const totalPath = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(p.rev).toFixed(1)} ${y(totalAt(p.rev)).toFixed(1)}`).join(' ')
+
+  const threshIdx = pts.findIndex(p => p.rev >= thresholdKr)
+  const areaPts = pts.slice(Math.max(0, threshIdx - 1))
+  const areaPath = areaPts.length > 1
+    ? `M ${x(areaPts[0].rev).toFixed(1)} ${iH} ` + areaPts.map(p => `L ${x(p.rev).toFixed(1)} ${y(totalAt(p.rev)).toFixed(1)}`).join(' ') + ` L ${iW} ${iH} Z`
+    : ''
+
+  const xTicks = [0, 20000, 40000, 60000, 80000, 100000].filter(v => v <= maxRevenue)
+  const ySteps = 4
+  const yTicks = Array.from({ length: ySteps + 1 }, (_, i) => (yMax * i) / ySteps)
+  const fmt = (n) => n >= 1000 ? `${Math.round(n / 100) / 10}k` : Math.round(n)
+
+  function handleMouseMove(e) {
+    const rect = svgRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const rawX = ((e.clientX - rect.left) / rect.width) * W - PAD.l
+    if (rawX < 0 || rawX > iW) { setHover(null); return }
+    const rev = Math.round((rawX / iW) * maxRevenue / 500) * 500
+    setHover({ rev, total: totalAt(rev), bonus: myShareAt(rev), px: x(rev) })
+  }
+
+  return (
+    <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block', cursor: 'crosshair' }}
+      onMouseMove={handleMouseMove} onMouseLeave={() => setHover(null)}>
+      <g transform={`translate(${PAD.l},${PAD.t})`}>
+        {yTicks.map((v, i) => <line key={i} x1={0} y1={y(v)} x2={iW} y2={y(v)} stroke="#f3f4f6" />)}
+        {areaPath && <path d={areaPath} fill="#ede9fe" opacity={0.7} />}
+        {basePay > 0 && basePay < yMax && <line x1={0} y1={y(basePay)} x2={iW} y2={y(basePay)} stroke="#94a3b8" strokeWidth={1} strokeDasharray="4 3" />}
+        {thresholdKr > 0 && thresholdKr < maxRevenue && <line x1={x(thresholdKr)} y1={0} x2={x(thresholdKr)} y2={iH} stroke="#f59e0b" strokeWidth={1.2} strokeDasharray="4 3" />}
+        <path d={totalPath} fill="none" stroke="#7c3aed" strokeWidth={2.5} strokeLinecap="round" />
+        {hover && (
+          <>
+            <line x1={hover.px} y1={0} x2={hover.px} y2={iH} stroke="#c4b5fd" strokeWidth={1} strokeDasharray="3 2" />
+            <circle cx={hover.px} cy={y(hover.total)} r={4} fill="#7c3aed" stroke="#fff" strokeWidth={1.5} />
+            {(() => {
+              const tx = hover.px > iW * 0.6 ? hover.px - 120 : hover.px + 8
+              return (
+                <g>
+                  <rect x={tx} y={4} width={112} height={38} rx={5} fill="#4c1d95" opacity={0.93} />
+                  <text x={tx + 8} y={16} fontSize={8} fill="#ddd6fe">{(hover.rev / 1000).toFixed(0)}k kr omsetning</text>
+                  <text x={tx + 8} y={28} fontSize={9} fill="#fff">Totalt: {fmt(hover.total)} kr</text>
+                  <text x={tx + 8} y={39} fontSize={8} fill="#c4b5fd">Bonus: +{fmt(hover.bonus)} kr</text>
+                </g>
+              )
+            })()}
+          </>
+        )}
+        <line x1={0} y1={iH} x2={iW} y2={iH} stroke="#e5e7eb" />
+        <line x1={0} y1={0} x2={0} y2={iH} stroke="#e5e7eb" />
+        {xTicks.map(v => (
+          <g key={v}>
+            <line x1={x(v)} y1={iH} x2={x(v)} y2={iH + 4} stroke="#d1d5db" />
+            <text x={x(v)} y={iH + 13} textAnchor="middle" fontSize={8.5} fill="#9ca3af">{v === 0 ? '0' : `${v / 1000}k`}</text>
+          </g>
+        ))}
+        {yTicks.filter((_, i) => i > 0).map(v => (
+          <g key={v}>
+            <line x1={-4} y1={y(v)} x2={0} y2={y(v)} stroke="#d1d5db" />
+            <text x={-7} y={y(v) + 3.5} textAnchor="end" fontSize={8.5} fill="#9ca3af">{fmt(v)}</text>
+          </g>
+        ))}
+        <text x={iW / 2} y={iH + 26} textAnchor="middle" fontSize={9} fill="#9ca3af">Omsetning (kr)</text>
+      </g>
+    </svg>
+  )
 }
 
 function calcHours(start, end) {
@@ -72,12 +172,14 @@ export default function BonusPage() {
   const [startTime, setStartTime] = useState('')
   const [endTime, setEndTime] = useState('')
   const [revenue, setRevenue] = useState('')
+  const [numWorkers, setNumWorkers] = useState('')
   const [submitState, setSubmitState] = useState({ loading: false, error: '' })
 
   // Multi-step flow
   const [formStep, setFormStep] = useState('form') // 'form' | 'alone_or_more' | 'waiting' | 'done'
   const [dayInfo, setDayInfo] = useState(null) // { dayId, participants, revenueKr, hoursWorked }
   const [approvalState, setApprovalState] = useState({ loading: false, error: '' })
+  const [deleteState, setDeleteState] = useState({})
 
   // Open day for today (joined by others but not yet by me)
   const [openDay, setOpenDay] = useState(null)
@@ -89,6 +191,31 @@ export default function BonusPage() {
 
   // Formula explainer toggle
   const [showFormula, setShowFormula] = useState(false)
+
+  // Bonus calculator
+  const [bonusConfig, setBonusConfig] = useState({
+    poolBaseRevenue: 20000, poolBaseRatePct: 20, poolStepKr: 10000, poolStepRatePct: 5,
+    fallbackHourlyRate: BONUS_HOURLY_RATE,
+  })
+  const [showCalc, setShowCalc] = useState(false)
+  const [calcRevenue, setCalcRevenue] = useState('')
+  const [calcMyHours, setCalcMyHours] = useState('')
+  const [calcNumEmp, setCalcNumEmp] = useState('2')
+
+  useEffect(() => {
+    getDoc(doc(db, 'siteSettings', 'bonusConfig')).then(d => {
+      if (d.exists()) {
+        const cfg = d.data()
+        setBonusConfig({
+          poolBaseRevenue:  cfg.poolBaseRevenue  ?? 20000,
+          poolBaseRatePct:  cfg.poolBaseRatePct  ?? 20,
+          poolStepKr:       cfg.poolStepKr       ?? 10000,
+          poolStepRatePct:  cfg.poolStepRatePct  ?? 5,
+          fallbackHourlyRate: cfg.fallbackHourlyRate || BONUS_HOURLY_RATE,
+        })
+      }
+    }).catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (session) {
@@ -164,6 +291,18 @@ export default function BonusPage() {
     }
   }
 
+  async function onDeleteShift(shiftId) {
+    if (!window.confirm('Slette denne vakten?')) return
+    setDeleteState(p => ({ ...p, [shiftId]: { loading: true } }))
+    try {
+      await httpsCallable(functions, 'deleteBonusShift')({ shiftId, sessionToken: session.token })
+      setDeleteState(p => ({ ...p, [shiftId]: { done: true } }))
+      await loadHistory()
+    } catch (err) {
+      setDeleteState(p => ({ ...p, [shiftId]: { error: err?.message || 'Noe gikk galt' } }))
+    }
+  }
+
   async function onSendForApproval() {
     setApprovalState({ loading: true, error: '' })
     try {
@@ -193,17 +332,35 @@ export default function BonusPage() {
     setStartTime('')
     setEndTime('')
     setRevenue('')
+    setNumWorkers('')
     setShiftDate(today)
     setOpenDay(null)
     checkOpenDay(today)
     loadHistory()
   }
 
+  function startNewDay() {
+    setFormStep('form')
+    setDayInfo(null)
+    setStartTime('')
+    setEndTime('')
+    setRevenue('')
+    setNumWorkers('')
+    setShiftDate(today)
+    setOpenDay(null)
+    checkOpenDay(today)
+  }
+
   const previewHours = startTime && endTime ? calcHours(startTime, endTime) : null
   const isJoiningOpenDay = openDay && !openDay.hasJoined && shiftDate === today
   const previewRevenue = isJoiningOpenDay ? openDay.revenueKr : (revenue ? Number(revenue) : null)
-  const previewPool = (previewHours && previewRevenue) ? bonusPool(previewRevenue, previewHours) : 0
   const previewBase = previewHours ? Math.round(previewHours * BONUS_HOURLY_RATE) : 0
+  const effectiveNumWorkers = isJoiningOpenDay
+    ? (openDay.participants.length + 1)
+    : (numWorkers ? Number(numWorkers) : null)
+  const previewPoolPerPerson = (previewHours && previewRevenue && effectiveNumWorkers)
+    ? Math.max(0, bonusPool(previewRevenue, previewHours * effectiveNumWorkers) / effectiveNumWorkers)
+    : null
 
   if (!session) {
     return (
@@ -301,7 +458,7 @@ export default function BonusPage() {
                     className="bonus-input"
                     type="date"
                     value={shiftDate}
-                    onChange={(e) => { setShiftDate(e.target.value); if (e.target.value !== today) setOpenDay(null) }}
+                    onChange={(e) => { setShiftDate(e.target.value); setOpenDay(null); if (e.target.value) checkOpenDay(e.target.value) }}
                     required
                     max={today}
                   />
@@ -321,37 +478,54 @@ export default function BonusPage() {
                 <p className="bonus-hours-preview">Arbeidet tid: {fmtHours(previewHours)}</p>
               )}
               {!isJoiningOpenDay && (
-                <div className="bonus-field">
-                  <label className="bonus-label">Omsetning for dagen (kr)</label>
-                  <input
-                    className="bonus-input"
-                    type="number"
-                    min="0"
-                    step="1"
-                    placeholder="F.eks. 32 500"
-                    value={revenue}
-                    onChange={(e) => setRevenue(e.target.value)}
-                    required
-                  />
-                </div>
+                <>
+                  <div className="bonus-field">
+                    <label className="bonus-label">Hvor mange jobbet i dag?</label>
+                    <input
+                      className="bonus-input"
+                      type="number"
+                      min="1"
+                      step="1"
+                      placeholder="Antall personer"
+                      value={numWorkers}
+                      onChange={(e) => setNumWorkers(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="bonus-field">
+                    <label className="bonus-label">Omsetning for dagen (kr)</label>
+                    <input
+                      className="bonus-input"
+                      type="number"
+                      min="0"
+                      step="1"
+                      placeholder="F.eks. 32 500"
+                      value={revenue}
+                      onChange={(e) => setRevenue(e.target.value)}
+                      required
+                    />
+                  </div>
+                </>
               )}
 
-              {previewHours && previewRevenue ? (
+              {previewHours && previewRevenue && effectiveNumWorkers ? (
                 <div className="bonus-preview">
-                  <p className="bonus-preview-title">Estimert utbetaling</p>
+                  <p className="bonus-preview-title">Estimert utbetaling for deg</p>
                   <div className="bonus-preview-row">
                     <span>Timelønn ({fmtHours(previewHours)})</span>
                     <span>{fmtKr(previewBase)} kr</span>
                   </div>
-                  <div className="bonus-preview-row bonus-preview-row--bonus">
-                    <span>Omsetningsbonus (hvis du er alene)</span>
-                    <span>+ {fmtKr(previewPool)} kr</span>
-                  </div>
+                  {previewPoolPerPerson != null && (
+                    <div className="bonus-preview-row bonus-preview-row--bonus">
+                      <span>Bonusestimering ({effectiveNumWorkers} pers., lik arbeidstid)</span>
+                      <span>+ {fmtKr(previewPoolPerPerson)} kr</span>
+                    </div>
+                  )}
                   <div className="bonus-preview-row bonus-preview-row--total">
-                    <span>Totalsum</span>
-                    <span>{fmtKr(previewBase + previewPool)} kr</span>
+                    <span>Ca. totalsum</span>
+                    <span>{fmtKr(previewBase + (previewPoolPerPerson || 0))} kr</span>
                   </div>
-                  <p className="bonus-preview-note">Faktisk bonus fordeles proporsjonalt mellom alle som jobbet.</p>
+                  <p className="bonus-preview-note">Nøyaktig bonus beregnes etter at alle har registrert tidene sine.</p>
                 </div>
               ) : null}
 
@@ -370,12 +544,9 @@ export default function BonusPage() {
             <p className="bonus-step-body">
               Du har registrert <strong>{fmtHours(dayInfo.hoursWorked)}</strong> for {fmtDate(shiftDate || today)}.
             </p>
-            <p className="bonus-step-question">Jobbet det andre i dag?</p>
+            <p className="bonus-step-question">Jobbet det andre {shiftDate === today ? 'i dag' : 'denne dagen'}?</p>
             <div className="bonus-step-actions">
-              <button
-                className="bonus-btn"
-                onClick={() => setFormStep('waiting')}
-              >
+              <button className="bonus-btn" onClick={() => setFormStep('waiting')}>
                 Ja, det jobbet flere
               </button>
               <button
@@ -387,6 +558,9 @@ export default function BonusPage() {
               </button>
             </div>
             {approvalState.error && <p className="bonus-error">{approvalState.error}</p>}
+            <button type="button" className="bonus-btn-ghost bonus-btn-ghost--center" onClick={startNewDay}>
+              + Registrer en annen dag
+            </button>
           </div>
         )}
 
@@ -413,6 +587,9 @@ export default function BonusPage() {
               {approvalState.loading ? 'Sender…' : 'Alle har lagt inn — send for godkjenning'}
             </button>
             {approvalState.error && <p className="bonus-error">{approvalState.error}</p>}
+            <button type="button" className="bonus-btn-ghost bonus-btn-ghost--center" onClick={startNewDay}>
+              + Registrer en annen dag
+            </button>
           </div>
         )}
 
@@ -421,9 +598,117 @@ export default function BonusPage() {
             <div className="bonus-step-icon">📨</div>
             <h2 className="bonus-step-title">Sendt for godkjenning!</h2>
             <p className="bonus-step-body">Admin vil godkjenne vakten og sende bonusinformasjon på e-post.</p>
-            <button className="bonus-btn" onClick={resetForm}>Registrer ny vakt</button>
+            <div className="bonus-step-actions">
+              <button className="bonus-btn" onClick={resetForm}>Registrer ny dag</button>
+            </div>
           </div>
         )}
+
+        {/* Bonus calculator */}
+        {session && (() => {
+          const hrRate = bonusConfig.fallbackHourlyRate
+          const myH = Number(calcMyHours) || 0
+          const nEmp = Math.max(1, Number(calcNumEmp) || 1)
+          const totH = myH * nEmp
+          const thresh = totH * hrRate
+          const rev = Number(calcRevenue) || 0
+          const pct = tieredPoolRate(rev, bonusConfig.poolBaseRevenue, bonusConfig.poolBaseRatePct, bonusConfig.poolStepKr, bonusConfig.poolStepRatePct)
+          const pool = Math.max(0, (rev - thresh) * pct / 100)
+          const myBonus = totH > 0 ? pool * (myH / totH) : 0
+          const myBase = myH * hrRate
+          const myTotal = myBase + myBonus
+          const hasInput = myH > 0 && rev > 0
+          return (
+            <div className="bonus-calc-section">
+              <button className="bonus-calc-toggle" type="button" onClick={() => setShowCalc(v => !v)}>
+                {showCalc ? '▲' : '▼'} Bonuskalkulator
+              </button>
+              {showCalc && (
+                <div className="bonus-calc-body">
+                  <div className="bonus-calc-inputs">
+                    <div className="bonus-calc-field">
+                      <label className="bonus-calc-label">Forventet omsetning</label>
+                      <div className="bonus-calc-input-wrap">
+                        <input
+                          type="number" min="0" step="500" placeholder="f.eks. 35000"
+                          className="bonus-calc-input"
+                          value={calcRevenue} onChange={e => setCalcRevenue(e.target.value)}
+                        />
+                        <span className="bonus-calc-unit">kr</span>
+                      </div>
+                    </div>
+                    <div className="bonus-calc-field">
+                      <label className="bonus-calc-label">Dine timer</label>
+                      <div className="bonus-calc-input-wrap">
+                        <input
+                          type="number" min="0" max="24" step="0.5" placeholder="f.eks. 6"
+                          className="bonus-calc-input bonus-calc-input--sm"
+                          value={calcMyHours} onChange={e => setCalcMyHours(e.target.value)}
+                        />
+                        <span className="bonus-calc-unit">t</span>
+                      </div>
+                    </div>
+                    <div className="bonus-calc-field">
+                      <label className="bonus-calc-label">Antall ansatte totalt</label>
+                      <div className="bonus-calc-input-wrap">
+                        <input
+                          type="number" min="1" max="10" step="1" placeholder="f.eks. 2"
+                          className="bonus-calc-input bonus-calc-input--sm"
+                          value={calcNumEmp} onChange={e => setCalcNumEmp(e.target.value)}
+                        />
+                        <span className="bonus-calc-unit">stk</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {hasInput && (
+                    <>
+                      <div className="bonus-calc-result">
+                        <div className="bonus-calc-row">
+                          <span className="bonus-calc-row-label">Terskel (lønnskostnad)</span>
+                          <span className="bonus-calc-row-val">{fmtKr(Math.round(thresh))} kr</span>
+                        </div>
+                        <div className="bonus-calc-row">
+                          <span className="bonus-calc-row-label">Bonuspott <span style={{ color: '#aaa', fontWeight: 400 }}>{pct > 0 ? `(${pct}%)` : ''}</span></span>
+                          <span className={`bonus-calc-row-val ${pool > 0 ? 'bonus-calc-row-val--green' : 'bonus-calc-row-val--dim'}`}>
+                            {pool > 0 ? `${fmtKr(Math.round(pool))} kr` : 'Ingen bonus'}
+                          </span>
+                        </div>
+                        <div className="bonus-calc-row bonus-calc-row--sep">
+                          <span className="bonus-calc-row-label">Din timelønn</span>
+                          <span className="bonus-calc-row-val">{fmtKr(Math.round(myBase))} kr</span>
+                        </div>
+                        {pool > 0 && (
+                          <div className="bonus-calc-row">
+                            <span className="bonus-calc-row-label">Din bonusandel</span>
+                            <span className="bonus-calc-row-val bonus-calc-row-val--purple">+ {fmtKr(Math.round(myBonus))} kr</span>
+                          </div>
+                        )}
+                        <div className="bonus-calc-row bonus-calc-row--total">
+                          <span className="bonus-calc-row-label">Totalt</span>
+                          <span className="bonus-calc-row-val">{fmtKr(Math.round(myTotal))} kr</span>
+                        </div>
+                      </div>
+
+                      <BonusCalcChart
+                        thresholdKr={thresh}
+                        poolConfig={bonusConfig}
+                        myHours={myH}
+                        totalHours={totH}
+                        hourlyRate={hrRate}
+                      />
+                      <p className="bonus-calc-hint">Hold pekeren over grafen for å se inntjening ved ulik omsetning.</p>
+                    </>
+                  )}
+
+                  {!hasInput && (
+                    <p className="bonus-calc-empty">Fyll inn omsetning og dine timer for å se estimert bonus.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })()}
 
         {/* Formula explainer */}
         <div className="bonus-formula-section">
@@ -482,11 +767,37 @@ export default function BonusPage() {
           )}
         </div>
 
-        {/* History */}
-        {!historyLoading && history.length > 0 && (
+        {/* History — always visible once logged in */}
+        {(history.length > 0 || historyLoading) && (
           <div className="bonus-history">
-            <h2 className="bonus-history-title">Dine registreringer</h2>
+            <div className="bonus-history-header">
+              <h2 className="bonus-history-title">Dine dager</h2>
+              {formStep !== 'form' && (
+                <button type="button" className="bonus-history-new-btn" onClick={startNewDay}>
+                  + Ny dag
+                </button>
+              )}
+            </div>
+
+            {/* Status summary */}
+            {history.length > 0 && (() => {
+              const openCount = history.filter(s => (s.dayStatus || s.status) === 'open').length
+              const pendingCount = history.filter(s => (s.dayStatus || s.status) === 'pending_approval').length
+              const approvedCount = history.filter(s => (s.dayStatus || s.status) === 'approved').length
+              const rejectedCount = history.filter(s => (s.dayStatus || s.status) === 'rejected').length
+              return (
+                <div className="bonus-history-summary">
+                  {openCount > 0 && <span className="bonus-summary-chip bonus-summary-chip--open">{openCount} åpen</span>}
+                  {pendingCount > 0 && <span className="bonus-summary-chip bonus-summary-chip--pending">{pendingCount} venter godkjenning</span>}
+                  {approvedCount > 0 && <span className="bonus-summary-chip bonus-summary-chip--approved">{approvedCount} godkjent</span>}
+                  {rejectedCount > 0 && <span className="bonus-summary-chip bonus-summary-chip--rejected">{rejectedCount} avslått</span>}
+                </div>
+              )
+            })()}
+
+            {historyLoading && <p className="bonus-hint" style={{ margin: '0 0 8px' }}>Laster…</p>}
             {approvalState.error && <p className="bonus-error">{approvalState.error}</p>}
+
             {history.map((shift) => {
               const status = shift.dayStatus || shift.status
               return (
@@ -494,20 +805,29 @@ export default function BonusPage() {
                   <div className="bonus-history-top">
                     <span className="bonus-history-date">{fmtDate(shift.date)}</span>
                     <span className={`bonus-status-badge bonus-status-badge--${status}`}>
-                      {status === 'open' ? 'Åpen' : status === 'pending_approval' ? 'Venter godkjenning' : 'Godkjent'}
+                      {status === 'open' ? 'Åpen' : status === 'pending_approval' ? 'Venter godkjenning' : status === 'rejected' ? 'Avslått' : 'Godkjent'}
                     </span>
                   </div>
                   <div className="bonus-history-detail">
                     {shift.startTime}–{shift.endTime} · {fmtHours(shift.hoursWorked)}
                   </div>
                   {status === 'open' && (
-                    <button
-                      className="bonus-btn-small bonus-btn-small--send"
-                      onClick={() => onSendForApprovalFromHistory(shift.dayId)}
-                      disabled={approvalState.loading}
-                    >
-                      {approvalState.loading ? 'Sender…' : 'Alle har lagt inn — send for godkjenning'}
-                    </button>
+                    <div className="bonus-history-open-actions">
+                      <button
+                        className="bonus-btn-small bonus-btn-small--send"
+                        onClick={() => onSendForApprovalFromHistory(shift.dayId)}
+                        disabled={approvalState.loading}
+                      >
+                        {approvalState.loading ? 'Sender…' : 'Alle har lagt inn — send for godkjenning'}
+                      </button>
+                      <button
+                        className="bonus-btn-small bonus-btn-small--delete"
+                        onClick={() => onDeleteShift(shift.id)}
+                        disabled={deleteState[shift.id]?.loading}
+                      >
+                        {deleteState[shift.id]?.loading ? 'Sletter…' : deleteState[shift.id]?.error ? '⚠ Feil' : 'Slett vakt'}
+                      </button>
+                    </div>
                   )}
                   {status === 'approved' && shift.bonusKr != null && (
                     <div className="bonus-history-payout">
