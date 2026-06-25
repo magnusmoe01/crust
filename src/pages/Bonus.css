@@ -1008,6 +1008,8 @@
 .ba-input--nbw-name { flex: 1; min-width: 120px; }
 
 /* ── Unapprove button ─────────────────────────────────────────────────────── */
+.ba-unapprove-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
 .ba-btn--unapprove {
   background: none;
   color: #dc2626;

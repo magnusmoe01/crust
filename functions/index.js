@@ -2259,7 +2259,6 @@ exports.rejectBonusDay = onCall(
     const db = admin.firestore();
     const dayDoc = await db.doc(`bonusDays/${dayId}`).get();
     if (!dayDoc.exists) throw new HttpsError("not-found", "Day not found");
-    if (dayDoc.data().status === "approved") throw new HttpsError("failed-precondition", "Cannot reject an already approved day");
     const batch = db.batch();
     batch.update(db.doc(`bonusDays/${dayId}`), {
       status: "rejected",

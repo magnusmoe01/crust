@@ -466,14 +466,25 @@ export default function BonusAdmin() {
     } catch (err) { setApproveState(p => ({ ...p, [dayId]: { loading: false, error: err?.message || 'Something went wrong' } })) }
   }
 
-  async function onUnapproveDay(dayId) {
-    if (!window.confirm('Reverse this approval? Shifts will return to pending and employees will be notified by email.')) return
-    setUnApproveState(p => ({ ...p, [dayId]: { loading: true, error: '' } }))
-    try {
-      await httpsCallable(functions, 'unapproveDay')({ dayId })
-      setUnApproveState(p => ({ ...p, [dayId]: { loading: false, done: true } }))
-    } catch (err) {
-      setUnApproveState(p => ({ ...p, [dayId]: { loading: false, error: err?.message || 'Something went wrong' } }))
+  async function onUnapproveDay(dayId, mode) {
+    if (mode === 'reject') {
+      if (!window.confirm("Reject this entire day's bonus? This cannot be undone.")) return
+      setUnApproveState(p => ({ ...p, [dayId]: { loading: 'reject', error: '' } }))
+      try {
+        await httpsCallable(functions, 'rejectBonusDay')({ dayId, reason: 'Reversed by admin' })
+        setUnApproveState(p => ({ ...p, [dayId]: { loading: false, done: 'Day rejected.' } }))
+      } catch (err) {
+        setUnApproveState(p => ({ ...p, [dayId]: { loading: false, error: err?.message || 'Something went wrong' } }))
+      }
+    } else {
+      if (!window.confirm('Open this day for editing? Approval will be reversed.')) return
+      setUnApproveState(p => ({ ...p, [dayId]: { loading: 'edit', error: '' } }))
+      try {
+        await httpsCallable(functions, 'unapproveDay')({ dayId })
+        setUnApproveState(p => ({ ...p, [dayId]: { loading: false, done: 'Approval reversed — shifts returned to pending.' } }))
+      } catch (err) {
+        setUnApproveState(p => ({ ...p, [dayId]: { loading: false, error: err?.message || 'Something went wrong' } }))
+      }
     }
   }
 
@@ -1024,11 +1035,16 @@ export default function BonusAdmin() {
                   <div className="ba-day-actions">
                     {uaState.error && <p className="ba-error">{uaState.error}</p>}
                     {uaState.done ? (
-                      <p className="ba-success">✓ Approval reversed — shifts returned to pending.</p>
+                      <p className="ba-success">✓ {uaState.done}</p>
                     ) : (
-                      <button type="button" className="ba-btn ba-btn--sm ba-btn--unapprove" onClick={() => onUnapproveDay(dayId)} disabled={uaState.loading}>
-                        {uaState.loading ? 'Reversing…' : 'Reverse approval'}
-                      </button>
+                      <div className="ba-unapprove-actions">
+                        <button type="button" className="ba-btn ba-btn--sm ba-btn--unapprove" onClick={() => onUnapproveDay(dayId, 'edit')} disabled={uaState.loading}>
+                          {uaState.loading === 'edit' ? 'Working…' : 'Open for editing'}
+                        </button>
+                        <button type="button" className="ba-btn ba-btn--sm ba-btn--unapprove" onClick={() => onUnapproveDay(dayId, 'reject')} disabled={uaState.loading}>
+                          {uaState.loading === 'reject' ? 'Working…' : 'Reject day'}
+                        </button>
+                      </div>
                     )}
                   </div>
                 )}
