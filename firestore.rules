@@ -168,5 +168,20 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /valg/{docId} {
+      allow read: if true;
+      allow create, update, delete: if isCrustUser();
+    }
+
+    match /valgVotes/{docId} {
+      allow read: if isCrustUser();
+      allow write: if false;
+    }
+
+    match /valgInvites/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
   }
 }

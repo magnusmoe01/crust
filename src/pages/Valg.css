@@ -384,12 +384,32 @@
 
 .valg-status-badge {
   font-size: 0.74rem;
-  font-weight: 700;
+  font-weight: 600;
   padding: 2px 8px;
   border-radius: 99px;
+  white-space: nowrap;
 }
-.valg-status-badge--active { background: #d1fae5; color: #14532d; }
-.valg-status-badge--closed { background: #f3f4f6; color: #6b7280; }
+.valg-status-badge--active  { background: #d1fae5; color: #14532d; }
+.valg-status-badge--closed  { background: #f3f4f6; color: #6b7280; }
+.valg-status-badge--none    { background: #f3f4f6; color: #9ca3af; }
+.valg-status-badge--sent    { background: #fef3c7; color: #92400e; }
+.valg-status-badge--opened  { background: #dbeafe; color: #1e40af; }
+.valg-status-badge--voted   { background: #d1fae5; color: #14532d; }
+
+.valg-section-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #9ca3af;
+  margin: 0 0 10px;
+}
+
+.valg-participant-table {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
 
 .valg-chevron {
   font-size: 0.75rem;

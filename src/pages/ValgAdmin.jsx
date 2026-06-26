@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  addDoc, collection, doc, onSnapshot, orderBy, query,
-  updateDoc, arrayUnion, arrayRemove,
+  addDoc, collection, doc, deleteDoc, onSnapshot, orderBy, query,
+  setDoc, updateDoc, arrayUnion, arrayRemove,
 } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { db, functions } from '../firebase'
 import { useAdminSession } from '../hooks/useAdminSession'
+import './Bonus.css'
 import './Valg.css'
 
 function normalizePhone(raw) {
@@ -16,11 +17,63 @@ function normalizePhone(raw) {
   return p
 }
 
+const FALLBACK_SMS_TEMPLATE = `Hei! Du er invitert til å gjøre et valg for Crust n' Trust: "{tittel}". Klikk her: {link}`
+
+// GSM-7 basic character set (each = 1 credit)
+const GSM7_SET = new Set(`@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞ\x1bÆæßÉ !"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà`)
+// GSM-7 extended characters (each = 2 credits due to escape prefix)
+const GSM7_EXT = new Set(`^{}\\[~]|€`)
+
+function smsInfo(text) {
+  let len = 0
+  for (const ch of text) {
+    if (GSM7_EXT.has(ch)) len += 2
+    else if (GSM7_SET.has(ch)) len += 1
+    else {
+      // non-GSM-7 → UCS-2 encoding
+      const uLen = [...text].length
+      const parts = uLen <= 70 ? 1 : Math.ceil(uLen / 67)
+      return { len: uLen, parts, limit: parts === 1 ? 70 : parts * 67, unicode: true }
+    }
+  }
+  const parts = len <= 160 ? 1 : Math.ceil(len / 153)
+  return { len, parts, limit: parts === 1 ? 160 : parts * 153, unicode: false }
+}
+
+function SmsCounter({ text }) {
+  if (!text) return null
+  const { len, parts, limit, unicode } = smsInfo(text)
+  const color = parts >= 3 ? '#dc2626' : parts === 2 ? '#d97706' : '#9ca3af'
+  return (
+    <div style={{ textAlign: 'right', fontSize: '0.72rem', color, marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>
+      {len}/{limit} tegn · {parts} SMS{unicode ? ' (unicode)' : ''}
+    </div>
+  )
+}
+
+function displayPhone(phone) {
+  const s = String(phone)
+  return s.startsWith('47') && s.length === 10 ? s.slice(2) : s
+}
+
+function ParticipantStatus({ phone, inviteTokens, invitesById }) {
+  const token = inviteTokens?.[phone]
+  if (!token) return <span className="valg-status-badge valg-status-badge--none">Ikke invitert</span>
+  const invite = invitesById?.[token]
+  if (!invite || !invite.openedAt) return <span className="valg-status-badge valg-status-badge--sent">Ikke åpnet</span>
+  if (!invite.votedAt) return <span className="valg-status-badge valg-status-badge--opened">Åpnet</span>
+  return (
+    <span className="valg-status-badge valg-status-badge--voted">
+      Stemt: {invite.choice}
+    </span>
+  )
+}
+
 export default function ValgAdmin() {
   const { isAdmin, loading: adminLoading, signIn, error: authError } = useAdminSession()
 
   const [valg, setValg] = useState([])
-  const [votes, setVotes] = useState([])
+  const [invitesById, setInvitesById] = useState({}) // token → invite doc
   const [expandedId, setExpandedId] = useState(null)
 
   // Create form
@@ -31,10 +84,15 @@ export default function ValgAdmin() {
   const [confirmationMessage, setConfirmationMessage] = useState('')
   const [createState, setCreateState] = useState({ loading: false, error: '' })
 
+  // Global default SMS template
+  const [defaultSmsTemplate, setDefaultSmsTemplate] = useState(FALLBACK_SMS_TEMPLATE)
+  const [defaultTemplateDraft, setDefaultTemplateDraft] = useState(null) // null = not yet loaded
+
   // Per-valg state
   const [newParticipant, setNewParticipant] = useState({})
   const [addState, setAddState] = useState({})
   const [smsState, setSmsState] = useState({})
+  const [smsTemplates, setSmsTemplates] = useState({}) // local editing state per valg
 
   useEffect(() => {
     if (!isAdmin) return
@@ -42,11 +100,20 @@ export default function ValgAdmin() {
       query(collection(db, 'valg'), orderBy('createdAt', 'desc')),
       (snap) => setValg(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
     )
-    const unsubVotes = onSnapshot(
-      collection(db, 'valgVotes'),
-      (snap) => setVotes(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    const unsubInvites = onSnapshot(
+      collection(db, 'valgInvites'),
+      (snap) => {
+        const map = {}
+        snap.docs.forEach((d) => { map[d.id] = { id: d.id, ...d.data() } })
+        setInvitesById(map)
+      }
     )
-    return () => { unsubValg(); unsubVotes() }
+    const unsubSettings = onSnapshot(doc(db, 'siteSettings', 'valg'), (snap) => {
+      const tmpl = snap.exists() ? (snap.data().defaultSmsTemplate || FALLBACK_SMS_TEMPLATE) : FALLBACK_SMS_TEMPLATE
+      setDefaultSmsTemplate(tmpl)
+      setDefaultTemplateDraft((prev) => prev === null ? tmpl : prev)
+    })
+    return () => { unsubValg(); unsubInvites(); unsubSettings() }
   }, [isAdmin])
 
   async function onCreate(e) {
@@ -75,6 +142,11 @@ export default function ValgAdmin() {
     }
   }
 
+  async function onSaveDefaultTemplate() {
+    const tmpl = (defaultTemplateDraft || '').trim() || FALLBACK_SMS_TEMPLATE
+    await setDoc(doc(db, 'siteSettings', 'valg'), { defaultSmsTemplate: tmpl }, { merge: true })
+  }
+
   async function onAddParticipant(valgId, e) {
     e.preventDefault()
     const phone = normalizePhone(newParticipant[valgId])
@@ -96,13 +168,21 @@ export default function ValgAdmin() {
     try { await updateDoc(doc(db, 'valg', valgId), { participants: arrayRemove(phone) }) } catch {}
   }
 
-  async function onSendSms(valgId, phones) {
-    setSmsState((p) => ({ ...p, [valgId]: { loading: true, error: '', done: '' } }))
+  async function onSendSms(v, phones, template) {
+    setSmsState((p) => ({ ...p, [v.id]: { loading: true, error: '', done: '' } }))
     try {
-      const res = await httpsCallable(functions, 'sendValgInvites')({ valgId, phones })
-      setSmsState((p) => ({ ...p, [valgId]: { loading: false, error: '', done: `SMS sendt til ${res.data.sent} deltakere` } }))
+      const res = await httpsCallable(functions, 'sendValgInvites')({
+        valgId: v.id,
+        phones,
+        smsTemplate: template || null,
+      })
+      // persist template if changed
+      if (template && template !== v.smsTemplate) {
+        await updateDoc(doc(db, 'valg', v.id), { smsTemplate: template }).catch(() => {})
+      }
+      setSmsState((p) => ({ ...p, [v.id]: { loading: false, error: '', done: `SMS sendt til ${res.data.sent} deltakere` } }))
     } catch (err) {
-      setSmsState((p) => ({ ...p, [valgId]: { loading: false, error: err?.message || 'Feil ved sending', done: '' } }))
+      setSmsState((p) => ({ ...p, [v.id]: { loading: false, error: err?.message || 'Feil ved sending', done: '' } }))
     }
   }
 
@@ -110,205 +190,286 @@ export default function ValgAdmin() {
     try { await updateDoc(doc(db, 'valg', valgId), { status: currentStatus === 'active' ? 'closed' : 'active' }) } catch {}
   }
 
+  async function onDeleteValg(valgId, title) {
+    if (!window.confirm(`Slett "${title}"? Dette kan ikke angres.`)) return
+    try { await deleteDoc(doc(db, 'valg', valgId)) } catch {}
+  }
+
   if (!adminLoading && !isAdmin) {
     return (
-      <div className="valg-login-box">
-        <h2>Valg Admin</h2>
-        <button className="valg-create-toggle" onClick={signIn}>Admin login</button>
-        {authError && <p style={{ color: '#dc2626', marginTop: 10 }}>{authError}</p>}
+      <div className="ba-page">
+        <div className="ba-wrap" style={{ maxWidth: 400, marginTop: 60 }}>
+          <div className="ba-header"><h1 className="ba-title">Valg Admin</h1></div>
+          <button type="button" className="ba-btn ba-btn--primary" onClick={signIn}>Admin login</button>
+          {authError && <p className="ba-error" style={{ marginTop: 10 }}>{authError}</p>}
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="valg-admin-page">
-      <div className="valg-admin-header">
-        <div className="valg-admin-header-row">
-          <h1>Valg</h1>
-          <Link to="/admin" className="valg-back-btn">← Admin</Link>
+    <div className="ba-page">
+      <div className="ba-wrap">
+
+        <div className="ba-header">
+          <div className="ba-header-row">
+            <div>
+              <h1 className="ba-title">Valg</h1>
+              <p className="ba-subtitle">Opprett valg og send unike SMS-invitasjoner til ansatte.</p>
+            </div>
+            <Link to="/admin" className="ba-back-btn">← Admin</Link>
+          </div>
         </div>
-        <p>Opprett valg og send SMS-invitasjoner til ansatte.</p>
-      </div>
 
-      {/* Create */}
-      <div className="valg-admin-create">
-        <button className="valg-create-toggle" onClick={() => setShowCreate((v) => !v)}>
-          {showCreate ? '✕ Avbryt' : '+ Nytt valg'}
-        </button>
-        {showCreate && (
-          <form onSubmit={onCreate} className="valg-create-form">
-            <div className="valg-form-field">
-              <label>Tittel</label>
-              <input value={title} onChange={(e) => setTitle(e.target.value)} required placeholder="F.eks. Sommerfest tidspunkt" />
-            </div>
-            <div className="valg-form-field">
-              <label>Beskrivelse <span style={{ fontWeight: 400, color: '#9ca3af' }}>(valgfri)</span></label>
-              <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="Litt mer kontekst for deltakerne..." />
-            </div>
-            <div className="valg-form-field">
-              <label>Alternativer</label>
-              {options.map((opt, i) => (
-                <div key={i} className="valg-option-row" style={{ marginBottom: 6 }}>
-                  <input
-                    value={opt}
-                    onChange={(e) => setOptions((prev) => prev.map((o, j) => j === i ? e.target.value : o))}
-                    placeholder={`Alternativ ${i + 1}`}
-                  />
-                  {options.length > 2 && (
-                    <button type="button" className="valg-remove-option-btn" onClick={() => setOptions((prev) => prev.filter((_, j) => j !== i))}>✕</button>
-                  )}
-                </div>
-              ))}
-              <button type="button" className="valg-add-option-btn" onClick={() => setOptions((prev) => [...prev, ''])}>
-                + Legg til alternativ
-              </button>
-            </div>
-            <div className="valg-form-field">
-              <label>Bekreftelsesmelding <span style={{ fontWeight: 400, color: '#9ca3af' }}>(vises etter valg)</span></label>
+        {/* Default SMS template */}
+        <div className="ba-panel">
+          <div style={{ padding: '14px 20px' }}>
+            <div className="ba-field" style={{ marginBottom: 8 }}>
+              <label className="ba-label">
+                Standard SMS-tekst
+                <span className="ba-label-hint" style={{ marginLeft: 6 }}>— brukes som mal for alle nye valg · {'{tittel}'} og {'{link}'} erstattes automatisk</span>
+              </label>
               <textarea
-                value={confirmationMessage}
-                onChange={(e) => setConfirmationMessage(e.target.value)}
-                rows={2}
-                placeholder="Takk for ditt valg! Vi gir deg beskjed om avgjørelsen."
+                className="ba-input"
+                style={{ resize: 'vertical', fontFamily: 'inherit', fontSize: '0.85rem' }}
+                rows={3}
+                value={defaultTemplateDraft ?? ''}
+                onChange={(e) => setDefaultTemplateDraft(e.target.value)}
+                onBlur={onSaveDefaultTemplate}
               />
+              <SmsCounter text={defaultTemplateDraft ?? ''} />
             </div>
-            {createState.error && <p className="valg-error-msg-small" style={{ color: '#dc2626' }}>{createState.error}</p>}
-            <button type="submit" className="valg-form-submit" disabled={createState.loading}>
-              {createState.loading ? 'Oppretter...' : 'Opprett valg'}
-            </button>
-          </form>
-        )}
-      </div>
-
-      {/* List */}
-      {valg.length === 0 && !showCreate && <p className="valg-empty">Ingen valg opprettet ennå.</p>}
-
-      {valg.map((v) => {
-        const valgVotes = votes.filter((vote) => vote.valgId === v.id)
-        const votedPhones = new Set(valgVotes.map((vote) => vote.phone))
-        const pendingPhones = (v.participants || []).filter((p) => !votedPhones.has(p))
-        const isOpen = expandedId === v.id
-        const totalParticipants = (v.participants || []).length
-
-        return (
-          <div key={v.id} className={`valg-admin-card${v.status === 'closed' ? ' valg-admin-card--closed' : ''}`}>
-            <div className="valg-admin-card-header" onClick={() => setExpandedId(isOpen ? null : v.id)}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <h3 className="valg-admin-card-title">{v.title}</h3>
-                <div className="valg-admin-card-meta">
-                  <span className={`valg-status-badge valg-status-badge--${v.status}`}>
-                    {v.status === 'active' ? 'Aktiv' : 'Avsluttet'}
-                  </span>
-                  <span>{valgVotes.length}/{totalParticipants} har svart</span>
-                  <span>{(v.options || []).length} alternativer</span>
-                </div>
-              </div>
-              <span className="valg-chevron">{isOpen ? '▲' : '▼'}</span>
-            </div>
-
-            {isOpen && (
-              <div className="valg-admin-card-body">
-
-                {/* Results */}
-                <div className="valg-results">
-                  <h4>Resultater</h4>
-                  {valgVotes.length === 0 ? (
-                    <p className="valg-empty">Ingen svar ennå.</p>
-                  ) : (
-                    (v.options || []).map((opt) => {
-                      const count = valgVotes.filter((vote) => vote.choice === opt.label).length
-                      return (
-                        <div key={opt.id} className="valg-result-row">
-                          <div className="valg-result-label" title={opt.label}>{opt.label}</div>
-                          <div className="valg-result-bar-wrap">
-                            <div
-                              className="valg-result-bar"
-                              style={{ width: valgVotes.length > 0 ? `${(count / valgVotes.length) * 100}%` : '0%' }}
-                            />
-                          </div>
-                          <div className="valg-result-count">{count}</div>
-                        </div>
-                      )
-                    })
-                  )}
-                </div>
-
-                {/* Participants */}
-                <div className="valg-participants">
-                  <h4>Deltakere ({totalParticipants})</h4>
-                  {totalParticipants === 0 && <p className="valg-empty" style={{ marginBottom: 8 }}>Ingen deltakere lagt til ennå.</p>}
-                  <div className="valg-participant-list">
-                    {(v.participants || []).map((phone) => {
-                      const vote = valgVotes.find((vote) => vote.phone === phone)
-                      const hasVoted = !!vote
-                      return (
-                        <div key={phone} className="valg-participant-row">
-                          <span>
-                            <span className={`valg-participant-phone${hasVoted ? ' valg-participant-phone--voted' : ''}`}>
-                              {hasVoted ? '✓ ' : ''}{phone}
-                            </span>
-                            {vote && <span className="valg-participant-voted-choice">— {vote.choice}</span>}
-                          </span>
-                          <button className="valg-participant-remove" type="button" onClick={() => onRemoveParticipant(v.id, phone)}>✕</button>
-                        </div>
-                      )
-                    })}
-                  </div>
-                  <form onSubmit={(e) => onAddParticipant(v.id, e)} className="valg-add-participant-form">
-                    <input
-                      type="tel"
-                      placeholder="Legg til telefonnummer"
-                      value={newParticipant[v.id] || ''}
-                      onChange={(e) => setNewParticipant((p) => ({ ...p, [v.id]: e.target.value }))}
-                    />
-                    <button type="submit" className="valg-add-participant-btn" disabled={addState[v.id]?.loading}>
-                      Legg til
-                    </button>
-                    {addState[v.id]?.error && <p className="valg-error-msg-small">{addState[v.id].error}</p>}
-                  </form>
-                </div>
-
-                {/* Send SMS */}
-                <div className="valg-sms-section">
-                  <h4 style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#9ca3af', margin: '0 0 10px' }}>Send SMS</h4>
-                  <button
-                    type="button"
-                    className="valg-sms-btn"
-                    onClick={() => onSendSms(v.id, v.participants || [])}
-                    disabled={smsState[v.id]?.loading || totalParticipants === 0}
-                  >
-                    {smsState[v.id]?.loading ? 'Sender...' : `Send til alle (${totalParticipants})`}
-                  </button>
-                  {pendingPhones.length > 0 && pendingPhones.length < totalParticipants && (
-                    <button
-                      type="button"
-                      className="valg-sms-btn valg-sms-btn--pending"
-                      onClick={() => onSendSms(v.id, pendingPhones)}
-                      disabled={smsState[v.id]?.loading}
-                    >
-                      Send kun til ikke-besvarte ({pendingPhones.length})
-                    </button>
-                  )}
-                  {smsState[v.id]?.done && <p className="valg-success-msg">{smsState[v.id].done}</p>}
-                  {smsState[v.id]?.error && <p className="valg-error-msg-small" style={{ color: '#dc2626' }}>{smsState[v.id].error}</p>}
-                  <p className="valg-link-note">crust.no/valg/{v.id}</p>
-                </div>
-
-                {/* Toggle status */}
-                <div>
-                  <button
-                    type="button"
-                    className={`valg-toggle-status-btn${v.status === 'active' ? ' valg-toggle-status-btn--close' : ''}`}
-                    onClick={() => onToggleStatus(v.id, v.status)}
-                  >
-                    {v.status === 'active' ? 'Avslutt valg' : 'Åpne valg igjen'}
-                  </button>
-                </div>
-              </div>
+            {defaultTemplateDraft !== defaultSmsTemplate && (
+              <button type="button" className="ba-btn ba-btn--primary ba-btn--sm" onClick={onSaveDefaultTemplate}>
+                Lagre
+              </button>
             )}
           </div>
-        )
-      })}
+        </div>
+
+        {/* Create panel */}
+        <div className="ba-panel">
+          <button type="button" className="ba-panel-toggle" onClick={() => setShowCreate((v) => !v)}>
+            <span className="ba-panel-toggle-left">
+              <span className="ba-panel-toggle-icon">＋</span>
+              <span className="ba-panel-toggle-label">Nytt valg</span>
+            </span>
+            <span className="ba-chevron">{showCreate ? '▲' : '▼'}</span>
+          </button>
+
+          {showCreate && (
+            <form onSubmit={onCreate} style={{ padding: '16px 20px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div className="ba-field">
+                <label className="ba-label">Tittel</label>
+                <input className="ba-input" value={title} onChange={(e) => setTitle(e.target.value)} required placeholder="F.eks. Sommerfest tidspunkt" />
+              </div>
+              <div className="ba-field">
+                <label className="ba-label">Beskrivelse <span className="ba-label-hint">(valgfri)</span></label>
+                <textarea className="ba-input" style={{ resize: 'vertical', fontFamily: 'inherit' }} rows={2} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Litt mer kontekst for deltakerne..." />
+              </div>
+              <div className="ba-field">
+                <label className="ba-label">Alternativer</label>
+                {options.map((opt, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                    <input
+                      className="ba-input"
+                      style={{ flex: 1 }}
+                      value={opt}
+                      onChange={(e) => setOptions((prev) => prev.map((o, j) => j === i ? e.target.value : o))}
+                      placeholder={`Alternativ ${i + 1}`}
+                    />
+                    {options.length > 2 && (
+                      <button type="button" className="ba-btn ba-btn--remove" onClick={() => setOptions((prev) => prev.filter((_, j) => j !== i))}>✕</button>
+                    )}
+                  </div>
+                ))}
+                <button type="button" className="valg-add-option-btn" onClick={() => setOptions((prev) => [...prev, ''])}>
+                  + Legg til alternativ
+                </button>
+              </div>
+              <div className="ba-field">
+                <label className="ba-label">Bekreftelsesmelding <span className="ba-label-hint">(vises etter valg)</span></label>
+                <textarea className="ba-input" style={{ resize: 'vertical', fontFamily: 'inherit' }} rows={2} value={confirmationMessage} onChange={(e) => setConfirmationMessage(e.target.value)} placeholder="Takk for ditt valg! Vi gir deg beskjed om avgjørelsen." />
+              </div>
+              {createState.error && <p className="ba-error">{createState.error}</p>}
+              <div>
+                <button type="submit" className="ba-btn ba-btn--primary" disabled={createState.loading}>
+                  {createState.loading ? 'Oppretter...' : 'Opprett valg'}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+
+        {!adminLoading && valg.length === 0 && (
+          <p className="ba-empty">Ingen valg opprettet ennå.</p>
+        )}
+
+        {valg.map((v) => {
+          const inviteTokens = v.inviteTokens || {}
+          const totalParticipants = (v.participants || []).length
+          const votedCount = (v.participants || []).filter((phone) => {
+            const token = inviteTokens[phone]
+            return token && invitesById[token]?.votedAt
+          }).length
+          const notVotedPhones = (v.participants || []).filter((phone) => {
+            const token = inviteTokens[phone]
+            return !token || !invitesById[token]?.votedAt
+          })
+          const isOpen = expandedId === v.id
+          const currentTemplate = smsTemplates[v.id] ?? v.smsTemplate ?? defaultSmsTemplate
+
+          return (
+            <div key={v.id} className="ba-panel" style={{ opacity: v.status === 'closed' ? 0.8 : 1 }}>
+              <button type="button" className="ba-panel-toggle" onClick={() => setExpandedId(isOpen ? null : v.id)}>
+                <span className="ba-panel-toggle-left">
+                  <span className="ba-panel-toggle-icon">{v.status === 'active' ? '🗳️' : '🔒'}</span>
+                  <span>
+                    <span className="ba-panel-toggle-label">{v.title}</span>
+                    <span style={{ marginLeft: 10, fontSize: '0.78rem', color: '#9ca3af' }}>
+                      {votedCount}/{totalParticipants} svar
+                      {v.status === 'closed' && <span style={{ marginLeft: 8 }}>· Avsluttet</span>}
+                    </span>
+                  </span>
+                </span>
+                <span className="ba-chevron">{isOpen ? '▲' : '▼'}</span>
+              </button>
+
+              {isOpen && (
+                <div style={{ padding: '16px 20px 20px', display: 'flex', flexDirection: 'column', gap: 22 }}>
+
+                  {/* Results */}
+                  <div>
+                    <p className="valg-section-label">Resultater</p>
+                    {votedCount === 0 ? (
+                      <p className="ba-empty">Ingen svar ennå.</p>
+                    ) : (
+                      (v.options || []).map((opt) => {
+                        const count = Object.values(invitesById).filter(
+                          (inv) => inv.valgId === v.id && inv.choice === opt.label
+                        ).length
+                        const pct = votedCount > 0 ? (count / votedCount) * 100 : 0
+                        return (
+                          <div key={opt.id} className="valg-result-row">
+                            <div className="valg-result-label" title={opt.label}>{opt.label}</div>
+                            <div className="valg-result-bar-wrap">
+                              <div className="valg-result-bar" style={{ width: `${pct}%` }} />
+                            </div>
+                            <div className="valg-result-count">{count}</div>
+                          </div>
+                        )
+                      })
+                    )}
+                  </div>
+
+                  {/* Participants overview */}
+                  <div>
+                    <p className="valg-section-label">Deltakere ({totalParticipants})</p>
+                    {totalParticipants === 0 && <p className="ba-empty" style={{ marginBottom: 8 }}>Ingen lagt til ennå.</p>}
+
+                    {totalParticipants > 0 && (
+                      <div className="valg-participant-table">
+                        {(v.participants || []).map((phone) => {
+                          const token = inviteTokens[phone]
+                          const invite = token ? invitesById[token] : null
+                          return (
+                            <div key={phone} className="valg-participant-row">
+                              <span className="valg-participant-phone">{displayPhone(phone)}</span>
+                              <ParticipantStatus phone={phone} inviteTokens={inviteTokens} invitesById={invitesById} />
+                              <button
+                                type="button"
+                                className="valg-participant-remove"
+                                title="Fjern deltaker"
+                                onClick={() => onRemoveParticipant(v.id, phone)}
+                              >✕</button>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+
+                    <form onSubmit={(e) => onAddParticipant(v.id, e)} className="valg-add-participant-form" style={{ marginTop: 10 }}>
+                      <input
+                        type="tel"
+                        className="ba-input"
+                        style={{ flex: 1, minWidth: 160 }}
+                        placeholder="Legg til telefonnummer"
+                        value={newParticipant[v.id] || ''}
+                        onChange={(e) => setNewParticipant((p) => ({ ...p, [v.id]: e.target.value }))}
+                      />
+                      <button type="submit" className="ba-btn ba-btn--primary ba-btn--sm" disabled={addState[v.id]?.loading}>
+                        Legg til
+                      </button>
+                      {addState[v.id]?.error && <p className="ba-error" style={{ width: '100%', margin: 0 }}>{addState[v.id].error}</p>}
+                    </form>
+                  </div>
+
+                  {/* Send SMS */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <p className="valg-section-label">Send SMS</p>
+                    <div className="ba-field">
+                      <label className="ba-label">SMS-tekst <span className="ba-label-hint">— bruk {'{link}'} for unik lenke, {'{tittel}'} for valgnavnet</span></label>
+                      <textarea
+                        className="ba-input"
+                        style={{ resize: 'vertical', fontFamily: 'inherit', fontSize: '0.85rem' }}
+                        rows={3}
+                        value={currentTemplate}
+                        onChange={(e) => setSmsTemplates((p) => ({ ...p, [v.id]: e.target.value }))}
+                      />
+                      <SmsCounter text={currentTemplate} />
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        className="ba-btn ba-btn--primary ba-btn--sm"
+                        onClick={() => onSendSms(v, v.participants || [], currentTemplate)}
+                        disabled={smsState[v.id]?.loading || totalParticipants === 0}
+                      >
+                        {smsState[v.id]?.loading ? 'Sender...' : `Send til alle (${totalParticipants})`}
+                      </button>
+                      {notVotedPhones.length > 0 && notVotedPhones.length < totalParticipants && (
+                        <button
+                          type="button"
+                          className="ba-btn ba-btn--sm"
+                          style={{ background: '#6b7280', color: '#fff' }}
+                          onClick={() => onSendSms(v, notVotedPhones, currentTemplate)}
+                          disabled={smsState[v.id]?.loading}
+                        >
+                          Send til ikke-besvarte ({notVotedPhones.length})
+                        </button>
+                      )}
+                    </div>
+                    {smsState[v.id]?.done && <p className="ba-success">{smsState[v.id].done}</p>}
+                    {smsState[v.id]?.error && <p className="ba-error">{smsState[v.id].error}</p>}
+                  </div>
+
+                  {/* Toggle status + delete */}
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="ba-btn ba-btn--sm"
+                      style={v.status === 'active'
+                        ? { background: 'none', border: '1.5px solid #fecaca', color: '#dc2626' }
+                        : { background: 'none', border: '1.5px solid #d1d5db', color: '#6b7280' }}
+                      onClick={() => onToggleStatus(v.id, v.status)}
+                    >
+                      {v.status === 'active' ? 'Avslutt valg' : 'Åpne valg igjen'}
+                    </button>
+                    <button
+                      type="button"
+                      className="ba-btn ba-btn--sm"
+                      style={{ background: 'none', border: '1.5px solid #fecaca', color: '#dc2626' }}
+                      onClick={() => onDeleteValg(v.id, v.title)}
+                    >
+                      Slett valg
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

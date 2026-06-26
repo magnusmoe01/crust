@@ -2403,54 +2403,94 @@ exports.adminCreateSimSession = onCall(
 exports.sendValgInvites = onCall(
   { region: "europe-west1", invoker: "public", secrets: ["ELKS_API_USERNAME", "ELKS_API_PASSWORD"] },
   async ({ data }) => {
-    const { valgId, phones } = data || {};
+    const { valgId, phones, smsTemplate } = data || {};
     if (!valgId || !Array.isArray(phones) || phones.length === 0)
       throw new HttpsError("invalid-argument", "Mangler valgId eller phones");
     const db = admin.firestore();
-    const valgDoc = await db.doc(`valg/${valgId}`).get();
+    const valgRef = db.doc(`valg/${valgId}`);
+    const valgDoc = await valgRef.get();
     if (!valgDoc.exists) throw new HttpsError("not-found", "Valget finnes ikke");
-    const title = valgDoc.data().title || "Valg";
-    const url = `https://crust.no/valg/${valgId}`;
-    const message = `Hei! Du er invitert til å gjøre et valg for Crust n' Trust: "${title}". Klikk her: ${url}`;
+    const valgData = valgDoc.data();
+    const title = valgData.title || "Valg";
+    const existingTokens = valgData.inviteTokens || {};
+    const crypto = require("crypto");
+
     const normalized = phones.map(normalizePhone).filter((p) => /^\d{10,15}$/.test(p));
     if (normalized.length === 0) throw new HttpsError("invalid-argument", "Ingen gyldige telefonnumre");
-    await Promise.all(normalized.map((p) => sendElksSms(`+${p}`, message)));
+
+    const batch = db.batch();
+    const tokenMap = {};
+    const smsTasks = [];
+
+    for (const phone of normalized) {
+      let token = existingTokens[phone];
+      const isOldFormat = token && token.length > 12;
+      if (!token || isOldFormat) {
+        if (isOldFormat) batch.delete(db.doc(`valgInvites/${token}`));
+        token = crypto.randomBytes(8).toString("base64url");
+        batch.set(db.doc(`valgInvites/${token}`), {
+          valgId,
+          phone,
+          openedAt: null,
+          choice: null,
+          choiceId: null,
+          votedAt: null,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        tokenMap[`inviteTokens.${phone}`] = token;
+      }
+      const url = `https://crust.no/v/${token}`;
+      const defaultTemplate = `Hei! Du er invitert til å gjøre et valg for Crust n' Trust: "${title}". Klikk her: {link}`;
+      const msg = (smsTemplate || defaultTemplate).replace(/\{link\}/g, url).replace(/\{tittel\}/g, title);
+      smsTasks.push(sendElksSms(`+${phone}`, msg));
+    }
+
+    await batch.commit();
+    if (Object.keys(tokenMap).length > 0) await valgRef.update(tokenMap);
+    await Promise.all(smsTasks);
     return { sent: normalized.length };
+  },
+);
+
+exports.openValgInvite = onCall(
+  { region: "europe-west1", invoker: "public" },
+  async ({ data }) => {
+    const { token } = data || {};
+    if (!token) throw new HttpsError("invalid-argument", "Mangler token");
+    const db = admin.firestore();
+    const ref = db.doc(`valgInvites/${token}`);
+    const snap = await ref.get();
+    if (!snap.exists) throw new HttpsError("not-found", "Ugyldig lenke");
+    const d = snap.data();
+    if (!d.openedAt) await ref.update({ openedAt: admin.firestore.FieldValue.serverTimestamp() });
+    return { valgId: d.valgId, phone: d.phone, alreadyVoted: !!d.choice, choice: d.choice || null };
   },
 );
 
 exports.submitValgChoice = onCall(
   { region: "europe-west1", invoker: "public", secrets: ["AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_TENANT_ID"] },
   async ({ data }) => {
-    const { valgId, phone, choice } = data || {};
-    const normalizedPhone = normalizePhone(phone);
-    if (!valgId || !normalizedPhone || !choice)
-      throw new HttpsError("invalid-argument", "Mangler valgId, phone eller choice");
+    const { token, choice } = data || {};
+    if (!token || !choice) throw new HttpsError("invalid-argument", "Mangler token eller choice");
     const db = admin.firestore();
-    const valgDoc = await db.doc(`valg/${valgId}`).get();
+    const inviteRef = db.doc(`valgInvites/${token}`);
+    const inviteSnap = await inviteRef.get();
+    if (!inviteSnap.exists) throw new HttpsError("not-found", "Ugyldig lenke");
+    const invite = inviteSnap.data();
+    if (invite.choice) throw new HttpsError("already-exists", "Du har allerede gjort et valg");
+    const valgDoc = await db.doc(`valg/${invite.valgId}`).get();
     if (!valgDoc.exists) throw new HttpsError("not-found", "Valget finnes ikke");
     const valgData = valgDoc.data();
-    if (valgData.status === "closed")
-      throw new HttpsError("failed-precondition", "Dette valget er avsluttet");
-    const participants = valgData.participants || [];
-    if (!participants.includes(normalizedPhone))
-      throw new HttpsError("permission-denied", "Dette telefonnummeret er ikke invitert til å delta i valget");
+    if (valgData.status === "closed") throw new HttpsError("failed-precondition", "Dette valget er avsluttet");
     const validOption = (valgData.options || []).find((o) => o.label === choice);
-    if (!validOption)
-      throw new HttpsError("invalid-argument", "Ugyldig alternativ");
-    const voteRef = db.doc(`valgVotes/${valgId}_${normalizedPhone}`);
-    const existing = await voteRef.get();
-    if (existing.exists)
-      throw new HttpsError("already-exists", "Du har allerede gjort et valg i dette avstemningen");
-    await voteRef.set({
-      valgId,
-      phone: normalizedPhone,
+    if (!validOption) throw new HttpsError("invalid-argument", "Ugyldig alternativ");
+
+    await inviteRef.update({
       choice: validOption.label,
       choiceId: validOption.id,
       votedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // Send notification email to magnus@crust.no
     try {
       const axios = require("axios");
       const accessToken = await getAzureAccessToken();
@@ -2458,30 +2498,18 @@ exports.submitValgChoice = onCall(
         <h2 style="margin:0 0 16px;color:#1a3a2a;">Nytt valg registrert</h2>
         <table style="width:100%;border-collapse:collapse;font-size:0.9rem;">
           <tr><td style="padding:8px 12px;background:#f9fafb;border:1px solid #e5e7eb;color:#6b7280;">Valg</td><td style="padding:8px 12px;border:1px solid #e5e7eb;font-weight:600;">${valgData.title}</td></tr>
-          <tr><td style="padding:8px 12px;background:#f9fafb;border:1px solid #e5e7eb;color:#6b7280;">Telefon</td><td style="padding:8px 12px;border:1px solid #e5e7eb;">${normalizedPhone}</td></tr>
-          <tr><td style="padding:8px 12px;background:#f9fafb;border:1px solid #e5e7eb;color:#6b7280;">Valg</td><td style="padding:8px 12px;border:1px solid #e5e7eb;font-weight:600;color:#1a3a2a;">${validOption.label}</td></tr>
+          <tr><td style="padding:8px 12px;background:#f9fafb;border:1px solid #e5e7eb;color:#6b7280;">Telefon</td><td style="padding:8px 12px;border:1px solid #e5e7eb;">${invite.phone}</td></tr>
+          <tr><td style="padding:8px 12px;background:#f9fafb;border:1px solid #e5e7eb;color:#6b7280;">Svar</td><td style="padding:8px 12px;border:1px solid #e5e7eb;font-weight:600;color:#1a3a2a;">${validOption.label}</td></tr>
         </table>
         <p style="margin:16px 0 0;font-size:0.8rem;color:#9ca3af;">Se alle svar på <a href="https://crust.no/valg/admin" style="color:#1a3a2a;">crust.no/valg/admin</a></p>
       </div>`;
       await axios.post(
         `https://graph.microsoft.com/v1.0/users/${REVIEW_EMAIL_FROM}/sendMail`,
-        {
-          message: {
-            subject: `Valg: ${normalizedPhone} valgte "${validOption.label}" (${valgData.title})`,
-            body: { contentType: "HTML", content: html },
-            toRecipients: [{ emailAddress: { address: "magnus@crust.no" } }],
-          },
-          saveToSentItems: false,
-        },
+        { message: { subject: `Valg: ${invite.phone} valgte "${validOption.label}" (${valgData.title})`, body: { contentType: "HTML", content: html }, toRecipients: [{ emailAddress: { address: "magnus@crust.no" } }] }, saveToSentItems: false },
         { headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" } },
       );
-    } catch (emailErr) {
-      logger.error("Valg notification email failed", { valgId, phone: normalizedPhone, error: emailErr?.message });
-    }
+    } catch (e) { logger.error("Valg email failed", { error: e?.message }); }
 
-    return {
-      confirmationMessage: valgData.confirmationMessage || "Takk for ditt valg!",
-      choice: validOption.label,
-    };
+    return { confirmationMessage: valgData.confirmationMessage || "Takk for ditt valg!", choice: validOption.label };
   },
 );

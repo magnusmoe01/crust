@@ -449,7 +449,8 @@ function App() {
       <Route path="/bonus" element={withPageLoader(<BonusPage />)} />
       <Route path="/bonus/admin" element={withPageLoader(<BonusAdmin />)} />
       <Route path="/valg/admin" element={withPageLoader(<ValgAdmin />)} />
-      <Route path="/valg/:valgId" element={withPageLoader(<ValgPage />)} />
+      <Route path="/valg/:token" element={withPageLoader(<ValgPage />)} />
+      <Route path="/v/:token" element={withPageLoader(<ValgPage />)} />
     </Routes>
   );
 }

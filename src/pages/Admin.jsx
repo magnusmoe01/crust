@@ -633,6 +633,7 @@ function Admin() {
               Bonus
               {bonusPendingCount > 0 && <span className="admin-nav-badge">{bonusPendingCount}</span>}
             </Link>
+            <Link className="admin-nav-card" to="/valg/admin">Valg</Link>
           </div>
           <div>
             <button type="button" className="admin-button admin-button-secondary" onClick={signOutAdmin}>Logg ut</button>
