@@ -7,7 +7,7 @@ import './Bonus.css'
 const BONUS_HOURLY_RATE = 166.34
 const BONUS_THRESHOLD_RATE = 400
 const BONUS_RATE = 0.15
-const BONUS_START_DATE = '2026-06-25'
+const BONUS_START_DATE = '2026-06-20'
 const SESSION_EXPIRY_MS = 365 * 24 * 3600 * 1000 // 1 year
 
 function tieredPoolRate(revenue, baseRevenue, baseRatePct, stepKr, stepRatePct) {

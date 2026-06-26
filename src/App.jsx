@@ -64,6 +64,8 @@ const PhotoAdmin = lazy(() => import("./pages/PhotoAdmin"));
 const VarerPage = lazy(() => import("./pages/VarerPage"));
 const BonusPage = lazy(() => import("./pages/Bonus"));
 const BonusAdmin = lazy(() => import("./pages/BonusAdmin"));
+const ValgPage = lazy(() => import("./pages/Valg"));
+const ValgAdmin = lazy(() => import("./pages/ValgAdmin"));
 
 function withPageLoader(element) {
   return (
@@ -446,6 +448,8 @@ function App() {
       <Route path="/ordre" element={<Navigate to="/order" replace />} />
       <Route path="/bonus" element={withPageLoader(<BonusPage />)} />
       <Route path="/bonus/admin" element={withPageLoader(<BonusAdmin />)} />
+      <Route path="/valg/admin" element={withPageLoader(<ValgAdmin />)} />
+      <Route path="/valg/:valgId" element={withPageLoader(<ValgPage />)} />
     </Routes>
   );
 }
