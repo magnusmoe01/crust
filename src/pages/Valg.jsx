@@ -5,6 +5,15 @@ import { httpsCallable } from 'firebase/functions'
 import { db, functions } from '../firebase'
 import './Valg.css'
 
+const OPTION_STYLES = [
+  { bg: '#f0fdf4', accent: '#16a34a', text: '#14532d' },
+  { bg: '#eff6ff', accent: '#2563eb', text: '#1e3a8a' },
+  { bg: '#fff7ed', accent: '#ea580c', text: '#7c2d12' },
+  { bg: '#fdf4ff', accent: '#9333ea', text: '#581c87' },
+  { bg: '#fef2f2', accent: '#dc2626', text: '#7f1d1d' },
+  { bg: '#f0fdfa', accent: '#0891b2', text: '#164e63' },
+]
+
 export default function ValgPage() {
   const { token } = useParams()
 
@@ -114,21 +123,26 @@ export default function ValgPage() {
           <div className="valg-done-box">
             <div className="valg-done-icon">✓</div>
             <h2 className="valg-done-title">Valg registrert!</h2>
+            <p className="valg-done-choice">Du valgte: <strong>{result?.choice}</strong></p>
             <p className="valg-done-message">{result?.confirmationMessage || 'Takk for ditt valg!'}</p>
           </div>
         ) : (
           <div className="valg-body">
             <div className="valg-options">
-              {(valg?.options || []).map((opt) => (
-                <button
-                  key={opt.id}
-                  className="valg-option-btn"
-                  disabled={submitState.loading}
-                  onClick={() => onSubmitChoice(opt.label)}
-                >
-                  {opt.label}
-                </button>
-              ))}
+              {(valg?.options || []).map((opt, i) => {
+                const s = OPTION_STYLES[i % OPTION_STYLES.length]
+                return (
+                  <button
+                    key={opt.id}
+                    className="valg-option-btn"
+                    style={{ background: s.bg, borderColor: s.accent, color: s.text }}
+                    disabled={submitState.loading}
+                    onClick={() => onSubmitChoice(opt.label)}
+                  >
+                    {opt.label}
+                  </button>
+                )
+              })}
             </div>
             {submitState.error && <p className="valg-error-msg">{submitState.error}</p>}
           </div>

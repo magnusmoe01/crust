@@ -114,8 +114,7 @@
 }
 
 .valg-option-btn:hover:not(:disabled) {
-  border-color: #1a3a2a;
-  background: #f0fdf4;
+  filter: brightness(0.95);
 }
 
 .valg-option-btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -159,6 +158,16 @@
   font-weight: 700;
   color: #1a3a2a;
   margin: 0 0 8px;
+}
+
+.valg-done-choice {
+  font-size: 0.9rem;
+  color: #374151;
+  margin: 0 0 10px;
+}
+
+.valg-done-choice strong {
+  color: #1a3a2a;
 }
 
 .valg-done-message {

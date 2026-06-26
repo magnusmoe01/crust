@@ -168,6 +168,13 @@ export default function ValgAdmin() {
     try { await updateDoc(doc(db, 'valg', valgId), { participants: arrayRemove(phone) }) } catch {}
   }
 
+  async function onResetVote(token, phone) {
+    if (!window.confirm(`Slett registrert svar for ${displayPhone(phone)}?`)) return
+    try {
+      await updateDoc(doc(db, 'valgInvites', token), { choice: null, choiceId: null, votedAt: null })
+    } catch {}
+  }
+
   async function onSendSms(v, phones, template) {
     setSmsState((p) => ({ ...p, [v.id]: { loading: true, error: '', done: '' } }))
     try {
@@ -376,12 +383,23 @@ export default function ValgAdmin() {
                             <div key={phone} className="valg-participant-row">
                               <span className="valg-participant-phone">{displayPhone(phone)}</span>
                               <ParticipantStatus phone={phone} inviteTokens={inviteTokens} invitesById={invitesById} />
-                              <button
-                                type="button"
-                                className="valg-participant-remove"
-                                title="Fjern deltaker"
-                                onClick={() => onRemoveParticipant(v.id, phone)}
-                              >✕</button>
+                              <div style={{ display: 'flex', gap: 4 }}>
+                                {invite?.votedAt && (
+                                  <button
+                                    type="button"
+                                    className="valg-participant-remove"
+                                    title="Slett registrert svar"
+                                    style={{ color: '#d97706' }}
+                                    onClick={() => onResetVote(token, phone)}
+                                  >↺</button>
+                                )}
+                                <button
+                                  type="button"
+                                  className="valg-participant-remove"
+                                  title="Fjern deltaker"
+                                  onClick={() => onRemoveParticipant(v.id, phone)}
+                                >✕</button>
+                              </div>
                             </div>
                           )
                         })}
