@@ -2144,6 +2144,8 @@ exports.getMyBonusShifts = onCall(
           approvedAt: raw.approvedAt?.toMillis() || null,
           dayStatus: day?.status || null,
           dayRevenueKr: day?.revenueKr || null,
+          dayApprovedRevenue: day?.approvedRevenue || null,
+          dayApprovedBonusRatePct: day?.approvedBonusRatePct || null,
         };
       })
       .sort((a, b) => (b.date > a.date ? 1 : -1))

@@ -463,6 +463,17 @@
   margin-top: 3px;
 }
 
+.bonus-history-meta {
+  font-size: 0.82rem;
+  color: #6b7280;
+  margin-top: 4px;
+}
+.bonus-history-tier {
+  margin-left: 4px;
+  color: #7c3aed;
+  font-weight: 600;
+}
+
 /* ── Admin page (ba-* design system) ────────────────────────────────────── */
 
 .ba-page {

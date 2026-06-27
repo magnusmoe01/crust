@@ -387,7 +387,7 @@ export default function BonusPage() {
                       </div>
                     </div>
                     <div className="bonus-calc-field">
-                      <label className="bonus-calc-label">Totale arbeidstimer (alle ansatte)</label>
+                      <label className="bonus-calc-label">Totale arbeidstimer (Jafar, Akram, Abedin)</label>
                       <div className="bonus-calc-input-wrap">
                         <input
                           type="number" min="0" max="200" step="0.5" placeholder="f.eks. 18"
@@ -617,6 +617,22 @@ export default function BonusPage() {
                     <div className="bonus-history-detail">
                       {shift.startTime}–{shift.endTime} · {fmtHours(shift.hoursWorked)}
                     </div>
+                    {(() => {
+                      const revenue = status === 'approved'
+                        ? (shift.dayApprovedRevenue || shift.dayRevenueKr)
+                        : shift.dayRevenueKr
+                      const bonusRatePct = status === 'approved'
+                        ? shift.dayApprovedBonusRatePct
+                        : (revenue ? tieredPoolRate(revenue, bonusConfig.poolBaseRevenue, bonusConfig.poolBaseRatePct, bonusConfig.poolStepKr, bonusConfig.poolStepEnabled ? bonusConfig.poolStepRatePct : 0) : null)
+                      return revenue ? (
+                        <div className="bonus-history-meta">
+                          <span>Omsetning: {fmtKr(revenue)} kr</span>
+                          {bonusRatePct != null && (
+                            <span>· Bonuspott: {bonusRatePct}%</span>
+                          )}
+                        </div>
+                      ) : null
+                    })()}
                     {status === 'approved' && shift.bonusKr != null && (() => {
                       const base = shift.basePayKr || 0
                       const bonus = shift.bonusKr || 0
@@ -627,7 +643,7 @@ export default function BonusPage() {
                         : null
                       return (
                         <div className="bonus-history-payout">
-                          <div>Timelønn: {fmtKr(base)} kr + <strong style={{ color: '#7c3aed' }}>Bonus: {fmtKr(bonus)} kr</strong> + Feriepenger: {fmtKr(ferie)} kr = <strong>{fmtKr(base + bonus + ferie)} kr</strong></div>
+                          <div>Timelønn: {fmtKr(base)} kr + <span style={{ color: '#7c3aed', fontWeight: 700 }}>Bonus: {fmtKr(bonus)} kr</span> + Feriepenger: {fmtKr(ferie)} kr = <strong>{fmtKr(base + bonus + ferie)} kr</strong></div>
                           {myShare != null && (
                             <div className="bonus-history-share">{fmtHours(shift.hoursWorked)} / {fmtHours(totalPoolHours)} = {myShare}% av bonuspott</div>
                           )}
