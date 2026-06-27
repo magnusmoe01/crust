@@ -1145,6 +1145,7 @@
   color: #14532d;
 }
 .bonus-month-zero { color: #9ca3af; }
+.bonus-month-bonus--highlight { color: #7c3aed; font-weight: 700; }
 .bonus-month-note { font-weight: 400; color: #6b7280; text-transform: none; letter-spacing: 0; font-size: 0.82rem; }
 .bonus-month-pending {
   font-size: 0.8rem;

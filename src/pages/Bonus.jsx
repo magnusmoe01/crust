@@ -194,7 +194,7 @@ export default function BonusPage() {
   const [showCalc, setShowCalc] = useState(false)
   const [calcRevenue, setCalcRevenue] = useState('')
   const [calcMyHours, setCalcMyHours] = useState('')
-  const [calcNumEmp, setCalcNumEmp] = useState('2')
+  const [calcTotalHours, setCalcTotalHours] = useState('')
 
   useEffect(() => {
     getDoc(doc(db, 'siteSettings', 'bonusConfig')).then(d => {
@@ -347,8 +347,7 @@ export default function BonusPage() {
         {session && (() => {
           const hrRate = bonusConfig.fallbackHourlyRate
           const myH = Number(calcMyHours) || 0
-          const nEmp = Math.max(1, Number(calcNumEmp) || 1)
-          const totH = myH * nEmp
+          const totH = Math.max(myH, Number(calcTotalHours) || 0)
           const thresh = totH * hrRate
           const rev = Number(calcRevenue) || 0
           const pct = tieredPoolRate(rev, bonusConfig.poolBaseRevenue, bonusConfig.poolBaseRatePct, bonusConfig.poolStepKr, bonusConfig.poolStepEnabled ? bonusConfig.poolStepRatePct : 0)
@@ -356,7 +355,7 @@ export default function BonusPage() {
           const myBonus = totH > 0 ? pool * (myH / totH) : 0
           const myBase = myH * hrRate
           const myTotal = myBase + myBonus
-          const hasInput = myH > 0 && rev > 0
+          const hasInput = myH > 0 && rev > 0 && totH > 0
           return (
             <div className="bonus-calc-section">
               <button className="bonus-calc-toggle" type="button" onClick={() => setShowCalc(v => !v)}>
@@ -388,14 +387,14 @@ export default function BonusPage() {
                       </div>
                     </div>
                     <div className="bonus-calc-field">
-                      <label className="bonus-calc-label">Antall ansatte totalt</label>
+                      <label className="bonus-calc-label">Totale arbeidstimer (alle ansatte)</label>
                       <div className="bonus-calc-input-wrap">
                         <input
-                          type="number" min="1" max="10" step="1" placeholder="f.eks. 2"
+                          type="number" min="0" max="200" step="0.5" placeholder="f.eks. 18"
                           className="bonus-calc-input bonus-calc-input--sm"
-                          value={calcNumEmp} onChange={e => setCalcNumEmp(e.target.value)}
+                          value={calcTotalHours} onChange={e => setCalcTotalHours(e.target.value)}
                         />
-                        <span className="bonus-calc-unit">stk</span>
+                        <span className="bonus-calc-unit">t</span>
                       </div>
                     </div>
                   </div>
@@ -441,7 +440,7 @@ export default function BonusPage() {
                   )}
 
                   {!hasInput && (
-                    <p className="bonus-calc-empty">Fyll inn omsetning og dine timer for å se estimert bonus.</p>
+                    <p className="bonus-calc-empty">Fyll inn omsetning, dine timer og totale timer for å se estimert bonus.</p>
                   )}
                 </div>
               )}
@@ -553,7 +552,7 @@ export default function BonusPage() {
             <div className="bonus-month-overview">
               <div className="bonus-month-nav">
                 <button type="button" className="bonus-month-nav-btn" onClick={() => shiftViewMonth(-1)} disabled={!canGoPrev}>‹</button>
-                <h2 className="bonus-month-title">Lønn {monthName}{isStartMonth && <span className="bonus-month-note"> (fra 25. juni)</span>}</h2>
+                <h2 className="bonus-month-title">Lønn {monthName}{isStartMonth && <span className="bonus-month-note"> (fra {Number(BONUS_START_DATE.slice(8))}. {monthName})</span>}</h2>
                 <button type="button" className="bonus-month-nav-btn" onClick={() => shiftViewMonth(1)} disabled={!canGoNext}>›</button>
               </div>
               {approvedThisMonth.length > 0 && (
@@ -564,7 +563,7 @@ export default function BonusPage() {
                   </div>
                   <div className="bonus-month-row">
                     <span>Bonus</span>
-                    <span className={totalBonus > 0 ? 'bonus-month-bonus' : 'bonus-month-zero'}>
+                    <span className={totalBonus > 0 ? 'bonus-month-bonus bonus-month-bonus--highlight' : 'bonus-month-zero'}>
                       {totalBonus > 0 ? `+ ${fmtKr(Math.round(totalBonus))} kr` : '0 kr'}
                     </span>
                   </div>
@@ -628,7 +627,7 @@ export default function BonusPage() {
                         : null
                       return (
                         <div className="bonus-history-payout">
-                          <div>Timelønn: {fmtKr(base)} kr + Bonus: {fmtKr(bonus)} kr + Feriepenger: {fmtKr(ferie)} kr = <strong>{fmtKr(base + bonus + ferie)} kr</strong></div>
+                          <div>Timelønn: {fmtKr(base)} kr + <strong style={{ color: '#7c3aed' }}>Bonus: {fmtKr(bonus)} kr</strong> + Feriepenger: {fmtKr(ferie)} kr = <strong>{fmtKr(base + bonus + ferie)} kr</strong></div>
                           {myShare != null && (
                             <div className="bonus-history-share">{fmtHours(shift.hoursWorked)} / {fmtHours(totalPoolHours)} = {myShare}% av bonuspott</div>
                           )}
