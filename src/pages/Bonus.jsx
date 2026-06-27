@@ -614,9 +614,6 @@ export default function BonusPage() {
                         {status === 'open' ? 'Åpen' : status === 'pending_approval' ? 'Venter godkjenning' : status === 'rejected' ? 'Avslått' : 'Godkjent'}
                       </span>
                     </div>
-                    <div className="bonus-history-detail">
-                      {shift.startTime}–{shift.endTime} · {fmtHours(shift.hoursWorked)}
-                    </div>
                     {(() => {
                       const revenue = status === 'approved'
                         ? (shift.dayApprovedRevenue || shift.dayRevenueKr)
@@ -627,9 +624,7 @@ export default function BonusPage() {
                       return revenue ? (
                         <div className="bonus-history-meta">
                           <span>Omsetning: {fmtKr(revenue)} kr</span>
-                          {bonusRatePct != null && (
-                            <span>· Bonuspott: {bonusRatePct}%</span>
-                          )}
+                          {bonusRatePct != null && <span>· Bonuspott: {bonusRatePct}%</span>}
                         </div>
                       ) : null
                     })()}
@@ -637,19 +632,32 @@ export default function BonusPage() {
                       const base = shift.basePayKr || 0
                       const bonus = shift.bonusKr || 0
                       const ferie = Math.round((base + bonus) * 0.102)
+                      const feriePre = ferie
+                      const effRate = shift.hoursWorked ? Math.round((base + bonus + feriePre) / shift.hoursWorked) : null
+                      const total = base + bonus + ferie
                       const totalPoolHours = shift.totalPoolHours || 0
                       const myShare = (totalPoolHours > 0 && shift.hoursWorked)
                         ? Math.round((shift.hoursWorked / totalPoolHours) * 100)
                         : null
                       return (
-                        <div className="bonus-history-payout">
-                          <div>Timelønn: {fmtKr(base)} kr + <span style={{ color: '#7c3aed', fontWeight: 700 }}>Bonus: {fmtKr(bonus)} kr</span> + Feriepenger: {fmtKr(ferie)} kr = <strong>{fmtKr(base + bonus + ferie)} kr</strong></div>
+                        <>
+                          <div className="bonus-history-detail">
+                            Din vakt: {shift.startTime}–{shift.endTime} · {fmtHours(shift.hoursWorked)}{effRate != null && <span style={{ color: '#6b7280' }}> ({fmtKr(effRate)} kr/t)</span>}
+                          </div>
                           {myShare != null && (
                             <div className="bonus-history-share">{fmtHours(shift.hoursWorked)} / {fmtHours(totalPoolHours)} = {myShare}% av bonuspott</div>
                           )}
-                        </div>
+                          <div className="bonus-history-payout" style={{ marginTop: 8 }}>
+                            <div>Timelønn: {fmtKr(base)} kr + <span style={{ color: '#7c3aed', fontWeight: 700 }}>Bonus: {fmtKr(bonus)} kr</span> + Feriepenger: {fmtKr(ferie)} kr = <strong>{fmtKr(total)} kr</strong></div>
+                          </div>
+                        </>
                       )
                     })()}
+                    {status !== 'approved' && (
+                      <div className="bonus-history-detail">
+                        Din vakt: {shift.startTime}–{shift.endTime} · {fmtHours(shift.hoursWorked)}
+                      </div>
+                    )}
                   </div>
                 )
               })}
