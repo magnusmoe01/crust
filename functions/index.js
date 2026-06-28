@@ -7,6 +7,7 @@
 const admin = require("firebase-admin");
 const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 const logger = require("firebase-functions/logger");
 
 const { getIncomeByDateAndLocation } = require("./services/zettle/zettle");
@@ -2228,6 +2229,7 @@ exports.approveBonusDay = onCall(
     });
     batch.update(db.doc(`bonusDays/${dayId}`), {
       status: "approved",
+      revenueKr: Number(approvedRevenue),
       approvedRevenue: Number(approvedRevenue),
       approvedThresholdKr: effectiveThreshold,
       approvedBonusRatePct: effectiveRate * 100,
@@ -2520,5 +2522,50 @@ exports.submitValgChoice = onCall(
     } catch (e) { logger.error("Valg email failed", { error: e?.message }); }
 
     return { confirmationMessage: valgData.confirmationMessage || "Takk for ditt valg!", choice: validOption.label };
+  },
+);
+
+// ── Stengeskjema submission notification ──────────────────────────────────────
+
+exports.onStengeskjemaSubmitted = onDocumentCreated(
+  { document: "formSubmissions/{docId}", region: "europe-west1", secrets: ["AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", "AZURE_TENANT_ID"] },
+  async (event) => {
+    const data = event.data?.data();
+    if (!data || data.formSlug !== "stengeskjema") return;
+
+    const submittedAt = data.submittedAt?.toDate?.() || new Date();
+    const timeStr = submittedAt.toLocaleString("en-GB", { timeZone: "Europe/Oslo", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    const phone = data.phone || data.submittedBy || "Unknown";
+    const reviewUrl = "https://crust.no/stengeskjema/submissions";
+
+    const html = `<div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#1f2937;">
+      <h2 style="margin:0 0 16px;color:#1a3a2a;">New closing form received</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:0.9rem;">
+        <tr><td style="padding:8px 12px;background:#f9fafb;border:1px solid #e5e7eb;color:#6b7280;width:120px;">Submitted</td><td style="padding:8px 12px;border:1px solid #e5e7eb;">${timeStr}</td></tr>
+        <tr><td style="padding:8px 12px;background:#f9fafb;border:1px solid #e5e7eb;color:#6b7280;">Phone</td><td style="padding:8px 12px;border:1px solid #e5e7eb;">${phone}</td></tr>
+      </table>
+      <p style="margin:20px 0 0;">
+        <a href="${reviewUrl}" style="display:inline-block;padding:10px 20px;background:#1a3a2a;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;font-size:0.9rem;">Review submission →</a>
+      </p>
+    </div>`;
+
+    try {
+      const axios = require("axios");
+      const accessToken = await getAzureAccessToken();
+      await axios.post(
+        `https://graph.microsoft.com/v1.0/users/${REVIEW_EMAIL_FROM}/sendMail`,
+        {
+          message: {
+            subject: `New closing form received — ${timeStr}`,
+            body: { contentType: "HTML", content: html },
+            toRecipients: [{ emailAddress: { address: "brandon@crust.no" } }],
+          },
+          saveToSentItems: false,
+        },
+        { headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" } },
+      );
+    } catch (err) {
+      logger.error("onStengeskjemaSubmitted email failed", { error: err?.message });
+    }
   },
 );
