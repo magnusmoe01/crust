@@ -427,8 +427,8 @@ export default function BonusAdmin() {
   function getEdit(id, field) { return edits[id]?.[field] }
   function setEdit(id, field, value) { setEdits(prev => ({ ...prev, [id]: { ...prev[id], [field]: value } })) }
   function getEffectiveHours(shift) { const o = edits[shift.id]?.hoursWorked; return (o != null && o !== '') ? Number(o) : shift.hoursWorked }
-  function getEffectiveStart(shift) { return edits[shift.id]?.startTime ?? shift.startTime }
-  function getEffectiveEnd(shift) { return edits[shift.id]?.endTime ?? shift.endTime }
+  function getEffectiveStart(shift) { return edits[shift.id]?.startTime ?? shift.adminStartTime ?? shift.startTime }
+  function getEffectiveEnd(shift) { return edits[shift.id]?.endTime ?? shift.adminEndTime ?? shift.endTime }
 
   async function onSimulateUser() {
     if (!simEmployee) return
