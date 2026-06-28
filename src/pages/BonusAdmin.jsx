@@ -482,6 +482,7 @@ export default function BonusAdmin() {
       try {
         await httpsCallable(functions, 'unapproveDay')({ dayId })
         setUnApproveState(p => ({ ...p, [dayId]: { loading: false, done: 'Approval reversed — shifts returned to pending.' } }))
+        setApproveState(p => ({ ...p, [dayId]: { loading: false, error: '', done: false } }))
       } catch (err) {
         setUnApproveState(p => ({ ...p, [dayId]: { loading: false, error: err?.message || 'Something went wrong' } }))
       }
