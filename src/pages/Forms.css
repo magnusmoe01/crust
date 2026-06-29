@@ -536,6 +536,16 @@
   line-height: 1.5;
 }
 
+.excused-answer-badge {
+  display: inline-block;
+  background: #f3f4f6;
+  color: #6b7280;
+  font-size: 0.82rem;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-style: italic;
+}
+
 .receipt-answer-image {
   width: 100%;
   border-radius: 12px;
@@ -1112,6 +1122,44 @@
 .submissions-action-button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+.submissions-form-links {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0 4px;
+  border-top: 1px solid rgba(0,0,0,0.06);
+  margin-bottom: 4px;
+}
+
+.submissions-form-links-label {
+  font-size: 0.78rem;
+  color: #9ca3af;
+  font-weight: 500;
+}
+
+.submissions-form-link {
+  font-size: 0.82rem;
+  color: var(--accent, #d35400);
+  text-decoration: none;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: rgba(211, 84, 0, 0.07);
+  font-weight: 500;
+}
+
+.submissions-form-link:hover {
+  background: rgba(211, 84, 0, 0.13);
+}
+
+.submissions-form-link--muted {
+  color: #6b7280;
+  background: #f3f4f6;
+}
+
+.submissions-form-link--muted:hover {
+  background: #e5e7eb;
 }
 
 .submissions-test-email-input {
@@ -2465,6 +2513,11 @@ tr:hover .history-row-order-btns {
 .submission-status-badge.is-awaiting-review {
   background: rgba(255, 232, 204, 0.95);
   color: #9a5a00;
+}
+
+.submission-status-badge.is-no-images {
+  background: #f3f4f6;
+  color: #6b7280;
 }
 
 .submission-table-actions {

@@ -1620,7 +1620,7 @@ function getHistoryAnswerValues(submission, question) {
 
   return [mainValue, detailValue]
     .filter((value) => String(value || '').trim())
-    .map((value) => (isStorageImagePath(value) ? 'Bilde vedlagt' : String(value || '-')))
+    .map((value) => value === 'excused' ? 'Unntatt' : isStorageImagePath(value) ? 'Bilde vedlagt' : String(value || '-'))
 }
 
 function getAnswerDisplayLabel(answerKey, answers, questions = []) {
@@ -1719,6 +1719,10 @@ function getOrderedAnswerEntries(answers, questions = [], options = {}) {
 }
 
 function getReviewDisplayValue(answerKey, value, question, translate) {
+  if (value === 'excused') {
+    return 'Unntatt'
+  }
+
   if (isStorageImagePath(value)) {
     return ''
   }
@@ -2011,6 +2015,7 @@ function FormPage() {
   const isProductionView = location.pathname.endsWith('/produksjon')
   const isEditPage = location.pathname.endsWith('/edit')
   const isReceiptPage = location.pathname.includes('/kvittering/')
+  const isExcusedMode = location.pathname.endsWith('/uten-bilder')
   const isAdminShellView =
     isSubmissionsView ||
     isEditPage ||
@@ -4012,6 +4017,14 @@ function FormPage() {
       const imagePaths = []
       const receiptImageMap = {}
       const submissionAnswers = {}
+
+      if (isExcusedMode) {
+        formData.questions.forEach((question) => {
+          if (question.type === 'camera' || question.type === 'multi-camera') {
+            submissionAnswers[question.id] = 'excused'
+          }
+        })
+      }
 
       visibleInputQuestions.forEach((question) => {
         const answerValue = answers[question.id]
@@ -7059,10 +7072,11 @@ function FormPage() {
     () => getSelectedFormLocation(formData.questions, answers, locationOtherAnswers),
     [formData.questions, answers, locationOtherAnswers],
   )
-  const visibleFormQuestions = useMemo(
-    () => getVisibleFormQuestions(formData.questions, selectedFormLocation),
-    [formData.questions, selectedFormLocation],
-  )
+  const visibleFormQuestions = useMemo(() => {
+    const base = getVisibleFormQuestions(formData.questions, selectedFormLocation)
+    if (!isExcusedMode) return base
+    return base.filter(q => q.type !== 'camera' && q.type !== 'multi-camera')
+  }, [formData.questions, selectedFormLocation, isExcusedMode])
   const visibleInputQuestions = useMemo(
     () => visibleFormQuestions.filter((question) => !isSectionQuestion(question)),
     [visibleFormQuestions],
@@ -8739,7 +8753,9 @@ function FormPage() {
                               getAnswerDisplayLabel(key, receiptSubmission.answers, formData.questions),
                             )}
                           </p>
-                          {isMultiImage ? (
+                          {value === 'excused' ? (
+                            <p className="receipt-answer-value excused-answer-badge">Unntatt</p>
+                          ) : isMultiImage ? (
                             <div className="multi-camera-preview-list">
                               {multiPaths.filter((p) => isStorageImagePath(p)).map((path, pathIndex) => {
                                 const imgUrl = mergedImageUrls[path] || ''
@@ -9773,6 +9789,25 @@ function FormPage() {
                     ) : null}
                   </div>
                 </div>
+                <div className="submissions-form-links">
+                  <span className="submissions-form-links-label">Skjemalenker:</span>
+                  <a
+                    className="submissions-form-link"
+                    href={`/skjema/${activeFormSlug}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Standard
+                  </a>
+                  <a
+                    className="submissions-form-link submissions-form-link--muted"
+                    href={`/skjema/${activeFormSlug}/uten-bilder`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Uten bilder
+                  </a>
+                </div>
                 {loadingSubmissions ? <p>Loading submissions...</p> : null}
                 {!loadingSubmissions && reviewedSubmissionMonthlyStats.length > 0 ? (() => {
                   const currentMonthKey = getSubmissionMonthKey(new Date())
@@ -10060,6 +10095,11 @@ function FormPage() {
                                   {flaggedCount > 0 ? (
                                     <span className="submission-status-badge is-flagged">
                                       Flaged
+                                    </span>
+                                  ) : null}
+                                  {Object.values(submission.answers || {}).some(v => v === 'excused') ? (
+                                    <span className="submission-status-badge is-no-images">
+                                      No images
                                     </span>
                                   ) : null}
                                 </div>
@@ -11662,6 +11702,9 @@ function FormPage() {
                                 const multiPaths = parseMultiCameraAnswer(value)
                                 const isMulti = multiPaths.length > 0 && multiPaths.some((p) => isStorageImagePath(p))
                                 if (isMulti) return null
+                                if (value === 'excused') {
+                                  return <p className="review-answer-value excused-answer-badge">Unntatt</p>
+                                }
                                 if (reviewImage.isImageAnswer) {
                                   return (
                                     <>
