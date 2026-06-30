@@ -10869,6 +10869,38 @@ function FormPage() {
                 {historyDefaultState.error ? <p className="forms-error">{historyDefaultState.error}</p> : null}
                 {historyDefaultState.message ? <p className="forms-success">{historyDefaultState.message}</p> : null}
 
+                {!loadingSubmissions && analysisQuestions.length > 0 && visibleHistoryRows.length > 0 ? (() => {
+                  const printHistory = (mode) => {
+                    const root = document.querySelector('.history-table-wrap')
+                    if (!root) return
+                    const portal = document.createElement('div')
+                    portal.className = 'history-print-portal'
+                    const clone = root.cloneNode(true)
+                    clone.setAttribute('data-print-mode', mode)
+                    clone.querySelectorAll('.history-cell-edit-btn').forEach((el) => el.remove())
+                    portal.appendChild(clone)
+                    document.body.appendChild(portal)
+                    document.body.classList.add('printing-history')
+                    const cleanup = () => {
+                      document.body.classList.remove('printing-history')
+                      if (portal.parentNode) portal.parentNode.removeChild(portal)
+                      window.removeEventListener('afterprint', cleanup)
+                    }
+                    window.addEventListener('afterprint', cleanup)
+                    window.print()
+                  }
+                  return (
+                    <div className="history-print-actions">
+                      <button type="button" className="inventory-print-btn" onClick={() => printHistory('all')}>
+                        🖨 Skriv ut (alle verdier)
+                      </button>
+                      <button type="button" className="inventory-print-btn" onClick={() => printHistory('flagged')}>
+                        🖨 Skriv ut (røde/oransje)
+                      </button>
+                    </div>
+                  )
+                })() : null}
+
                 {!loadingSubmissions && analysisQuestions.length > 0 && historyRows.length > 0 ? (() => {
                   const alertRows = historyRows.map((row) => {
                     const latest = row.items[0]

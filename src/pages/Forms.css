@@ -1615,6 +1615,16 @@
   background: #e5e7eb;
 }
 
+.history-print-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.history-print-actions .inventory-print-btn {
+  margin-left: 0;
+}
+
 .inventory-print-header {
   display: none;
 }
@@ -4723,4 +4733,83 @@ tr:hover .history-row-order-btns {
   .inventory-print-portal tr:nth-child(odd) .inventory-print-td--orange   { background: #fffbeb !important; }
   .inventory-print-portal tr:nth-child(odd) .inventory-print-td--product  { background: #f3f4f6 !important; }
   .inventory-print-portal tr:nth-child(odd) .inventory-print-td--note     { background: #e0f2fe !important; }
+
+  /* ── History/analyse table print ───────────────────────────────────── */
+  body.printing-history > *:not(.history-print-portal) {
+    display: none !important;
+  }
+
+  .history-print-portal {
+    display: block;
+    background: white;
+  }
+
+  .history-print-portal .history-table-wrap {
+    overflow: visible !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .history-print-portal .history-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 7pt;
+    table-layout: auto;
+  }
+
+  .history-print-portal thead {
+    display: table-header-group;
+  }
+
+  .history-print-portal th,
+  .history-print-portal td {
+    border: 1px solid #c4c9d4;
+    padding: 3px 5px;
+    text-align: center;
+    vertical-align: middle;
+    color: #374151;
+    font-size: 7pt;
+  }
+
+  .history-print-portal th {
+    background: #f3f4f6 !important;
+    font-weight: 700;
+    color: #111 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .history-print-portal .history-location-heading {
+    background: #dbeafe !important;
+    color: #1e3a8a !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .history-print-portal .history-current-column {
+    background: #f0fdf4 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .history-print-portal .history-cell-value-red {
+    color: #991b1b !important;
+    font-weight: 700;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .history-print-portal .history-cell-value-orange {
+    color: #92400e !important;
+    font-weight: 600;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* "flagged" mode: hide non-flagged cell values */
+  .history-print-portal .history-table-wrap[data-print-mode="flagged"] .history-cell-value:not(.history-cell-value-red):not(.history-cell-value-orange),
+  .history-print-portal .history-table-wrap[data-print-mode="flagged"] .history-empty-cell {
+    visibility: hidden;
+  }
 }
