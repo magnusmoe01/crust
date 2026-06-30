@@ -4,7 +4,13 @@
       "Bash(grep -v \"^+$\\\\|^+ *$\")",
       "Bash(python3 -c ' *)",
       "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(list\\(d.get\\('dependencies',{}\\).keys\\(\\)\\)\\)\")",
-      "Bash(gcloud projects *)"
+      "Bash(gcloud projects *)",
+      "Bash(curl -s http://localhost:5199)",
+      "Bash(node -e \"require.resolve\\('playwright'\\)\")",
+      "Bash(node -e \"require.resolve\\('@playwright/test'\\)\")",
+      "Bash(find ~/.npm ~/.cache /usr/local/lib -name \"playwright\" -type d 2>/dev/null | head -5)",
+      "Read(//usr/local/lib/**)",
+      "Bash(node /private/tmp/verify.mjs)"
     ]
   }
 }

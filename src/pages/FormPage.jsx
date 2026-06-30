@@ -3194,7 +3194,7 @@ function FormPage() {
       {
         includeRemainingAnswers: false,
       },
-    )
+    ).filter(([, value]) => value !== 'excused')
     const flaggedKeys = Array.isArray(selectedSubmission.flaggedAnswers)
       ? selectedSubmission.flaggedAnswers
           .map((item) => String(item?.answerKey || '').trim())
@@ -4983,7 +4983,7 @@ function FormPage() {
   const selectedSubmissionAnswerEntries = selectedSubmission
     ? getOrderedAnswerEntries(selectedSubmission.answers || {}, reviewQuestions, {
         includeRemainingAnswers: false,
-      }).filter(([answerKey]) => !answerKey.endsWith(IMAGE_CAPTURED_AT_SUFFIX))
+      }).filter(([answerKey, value]) => !answerKey.endsWith(IMAGE_CAPTURED_AT_SUFFIX) && value !== 'excused')
     : []
   const hasPendingReviewDecisions = selectedSubmissionAnswerEntries.some(
     ([answerKey]) => !String(reviewDraftStatuses[answerKey] || '').trim(),
@@ -5429,9 +5429,10 @@ function FormPage() {
         latestFlagged.answers || {},
         reviewQuestions,
         { includeRemainingAnswers: false },
-      ).filter(([answerKey]) => {
+      ).filter(([answerKey, value]) => {
         if (answerKey.endsWith(IMAGE_CAPTURED_AT_SUFFIX)) return false
         if (flaggedKeys.has(answerKey)) return false
+        if (value === 'excused') return false
         const q = getQuestionForAnswerKey(answerKey, formData.questions)
         return (q?.reviewType || 'rating') === 'rating'
       })
@@ -7679,7 +7680,7 @@ function FormPage() {
     (_, index) => index,
   )
   const receiptAnswerEntries = getOrderedAnswerEntries(receiptSubmission?.answers || {}, formData.questions)
-    .filter(([key]) => !key.endsWith(IMAGE_CAPTURED_AT_SUFFIX))
+    .filter(([key, value]) => !key.endsWith(IMAGE_CAPTURED_AT_SUFFIX) && value !== 'excused')
   const receiptEditState = getReceiptEditState(receiptSubmission?.submittedAtIso)
   const heroEyebrow = isReceiptPage ? publicCopy.receiptEyebrow : publicCopy.formEyebrow
   const localizedFormTitle = translateText(formData.title)
@@ -11660,6 +11661,7 @@ function FormPage() {
                         const isApproved = reviewStatus === 'approved'
                         const isNeutral = reviewStatus === 'flagged'
                         const isSad = reviewStatus === 'flagged_sad'
+                        const isNA = reviewStatus === 'na'
                         const isFlagged = isNeutral || isSad
 
                         return (
@@ -11840,6 +11842,14 @@ function FormPage() {
                                       title="Ikke bra"
                                     >
                                       <FaceSad />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className={`review-status-button is-na ${isNA ? 'is-active' : ''}`}
+                                      onClick={() => onSetReviewStatus(answerKey, 'na')}
+                                      title="Kan ikke vurderes"
+                                    >
+                                      N/A
                                     </button>
                                   </div>
                                   {isFlagged ? (

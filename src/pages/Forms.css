@@ -3094,6 +3094,19 @@ tr:hover .history-row-order-btns {
   border-color: #a6362b;
 }
 
+.review-status-button.is-na {
+  border-color: rgba(107, 114, 128, 0.35);
+  color: #6b7280;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.review-status-button.is-na.is-active {
+  background: #f3f4f6;
+  border-color: #6b7280;
+}
+
 .review-status-button.is-text {
   border-radius: 6px;
   font-size: 0.88rem;
