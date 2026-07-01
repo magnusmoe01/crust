@@ -1854,6 +1854,14 @@ function clearFormDraft(formSlug) {
   } catch {}
 }
 
+function deleteFirestoreDraft(db) {
+  try {
+    const deviceId = localStorage.getItem('crust-device-id')
+    if (!deviceId) return
+    deleteDoc(doc(db, 'formDrafts', deviceId)).catch(() => {})
+  } catch {}
+}
+
 function toSortOrder(item) {
   if (typeof item?.order === 'number' && Number.isFinite(item.order)) {
     return item.order
@@ -2086,6 +2094,7 @@ function FormPage() {
   const [saveState, setSaveState] = useState({ saving: false, message: '', error: '' })
 
   const [submissions, setSubmissions] = useState([])
+  const [formDrafts, setFormDrafts] = useState([])
   const [submissionErrors, setSubmissionErrors] = useState([])
   const [loadingErrors, setLoadingErrors] = useState(false)
   const [manualRemarks, setManualRemarks] = useState([])
@@ -2199,6 +2208,8 @@ function FormPage() {
   const [hydratedEditReceiptToken, setHydratedEditReceiptToken] = useState('')
   const cameraUploadRequestIdsRef = useRef({})
   const selectDetailUploadRequestIdsRef = useRef({})
+  const firestoreDraftTimerRef = useRef(null)
+  const firestoreDraftStartedRef = useRef(false)
 
   const { user, isAdmin, loading, error } = useAdminSession()
   const shouldTranslateToEnglish = displayLanguage === 'en' || isReviewView
@@ -2839,6 +2850,35 @@ function FormPage() {
       cameraCapturedAt: normalizedCameraCapturedAt,
       selfDeclarationAccepted,
     })
+
+    const hasContent = Object.values(normalizedAnswers).some((v) => String(v || '').trim())
+    if (!hasContent) return
+
+    if (firestoreDraftTimerRef.current) clearTimeout(firestoreDraftTimerRef.current)
+    firestoreDraftTimerRef.current = setTimeout(async () => {
+      try {
+        let deviceId = localStorage.getItem('crust-device-id')
+        if (!deviceId) {
+          deviceId = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)
+          localStorage.setItem('crust-device-id', deviceId)
+        }
+        const phone = getSubmissionPhone(normalizedAnswers, formData.questions)
+        const name = getSubmissionName(normalizedAnswers, formData.questions)
+        const draftDoc = doc(db, 'formDrafts', deviceId)
+        const payload = {
+          formSlug: activeFormSlug,
+          answers: normalizedAnswers,
+          phone: phone || '',
+          name: name || '',
+          updatedAt: serverTimestamp(),
+        }
+        if (!firestoreDraftStartedRef.current) {
+          payload.startedAt = serverTimestamp()
+          firestoreDraftStartedRef.current = true
+        }
+        await setDoc(draftDoc, payload, { merge: true })
+      } catch {}
+    }, 3000)
   }, [
     activeFormSlug,
     answers,
@@ -2949,8 +2989,27 @@ function FormPage() {
     loadSubmissions()
     loadErrors()
 
+    const unsubDrafts = onSnapshot(
+      query(collection(db, 'formDrafts'), where('formSlug', '==', activeFormSlug)),
+      (snap) => {
+        if (cancelled) return
+        const now = Date.now()
+        setFormDrafts(
+          snap.docs
+            .map((d) => ({ id: d.id, ...d.data() }))
+            .filter((d) => {
+              const updatedMs = d.updatedAt?.seconds ? d.updatedAt.seconds * 1000 : 0
+              return now - updatedMs < 24 * 60 * 60 * 1000
+            })
+            .sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0)),
+        )
+      },
+      () => {},
+    )
+
     return () => {
       cancelled = true
+      unsubDrafts()
     }
   }, [activeFormSlug, isAdmin])
 
@@ -3786,6 +3845,8 @@ function FormPage() {
     setMultiCameraUploadState({})
     setFormInstanceKey((previous) => previous + 1)
     clearFormDraft(activeFormSlug)
+    deleteFirestoreDraft(db)
+    firestoreDraftStartedRef.current = false
     setSubmitErrorQuestionId('')
     setSubmitErrorTargetId('')
     setSubmitState({
@@ -4280,6 +4341,8 @@ function FormPage() {
       }, {})
 
       clearFormDraft(activeFormSlug)
+      deleteFirestoreDraft(db)
+      firestoreDraftStartedRef.current = false
       cameraUploadRequestIdsRef.current = {}
       selectDetailUploadRequestIdsRef.current = {}
       setAnswers(clearedAnswers)
@@ -9809,6 +9872,41 @@ function FormPage() {
                     Uten bilder
                   </a>
                 </div>
+                {formDrafts.length > 0 ? (
+                  <div className="drafts-section">
+                    <p className="drafts-section-title">Påbegynte skjemaer ({formDrafts.length})</p>
+                    <table className="drafts-table">
+                      <thead>
+                        <tr>
+                          <th>Navn / tlf</th>
+                          <th>Startet</th>
+                          <th>Sist oppdatert</th>
+                          <th>Svar fylt ut</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {formDrafts.map((draft) => {
+                          const startedMs = draft.startedAt?.seconds ? draft.startedAt.seconds * 1000 : null
+                          const updatedMs = draft.updatedAt?.seconds ? draft.updatedAt.seconds * 1000 : null
+                          const fmtTime = (ms) => ms ? new Date(ms).toLocaleString('nb-NO', { timeZone: 'Europe/Oslo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'
+                          const answerCount = Object.values(draft.answers || {}).filter((v) => String(v || '').trim()).length
+                          return (
+                            <tr key={draft.id}>
+                              <td>
+                                {draft.name ? <strong>{draft.name}</strong> : null}
+                                {draft.phone ? <span className="drafts-phone">{draft.name ? ' · ' : ''}{draft.phone}</span> : null}
+                                {!draft.name && !draft.phone ? <span className="drafts-unknown">Ukjent</span> : null}
+                              </td>
+                              <td>{fmtTime(startedMs)}</td>
+                              <td>{fmtTime(updatedMs)}</td>
+                              <td>{answerCount}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : null}
                 {loadingSubmissions ? <p>Loading submissions...</p> : null}
                 {!loadingSubmissions && reviewedSubmissionMonthlyStats.length > 0 ? (() => {
                   const currentMonthKey = getSubmissionMonthKey(new Date())
