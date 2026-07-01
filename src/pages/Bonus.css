@@ -1652,3 +1652,87 @@
 .bonus-emp-save:hover {
   background: #244d38;
 }
+
+/* ── Pay summary panel ── */
+.ba-pay-month {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ba-pay-month-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #1a3a2a;
+  margin: 0;
+  padding-bottom: 6px;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.ba-pay-table-wrap {
+  overflow-x: auto;
+}
+
+.ba-pay-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  min-width: 480px;
+}
+
+.ba-pay-table th,
+.ba-pay-table td {
+  padding: 7px 12px;
+  text-align: right;
+  border-bottom: 1px solid #f0f0f0;
+  white-space: nowrap;
+}
+
+.ba-pay-table th {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: #fafafa;
+}
+
+.ba-pay-table th:first-child,
+.ba-pay-table td:first-child {
+  text-align: left;
+}
+
+.ba-pay-name {
+  font-weight: 600;
+  color: #1a3a2a;
+}
+
+.ba-pay-hours {
+  color: #6b7280;
+  font-size: 0.82rem;
+}
+
+.ba-pay-bonus {
+  color: #7c3aed;
+  font-weight: 600;
+}
+
+.ba-pay-ferie {
+  color: #6b7280;
+}
+
+.ba-pay-total {
+  font-weight: 700;
+  color: #16a34a;
+}
+
+.ba-pay-sum-row td {
+  font-weight: 700;
+  background: #f9fafb;
+  border-top: 2px solid #e5e7eb;
+  border-bottom: none;
+  color: #374151;
+}
+
+.ba-pay-sum-row .ba-pay-bonus { color: #7c3aed; }
+.ba-pay-sum-row .ba-pay-total { color: #16a34a; }

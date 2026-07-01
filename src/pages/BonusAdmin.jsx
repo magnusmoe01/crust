@@ -256,6 +256,9 @@ export default function BonusAdmin() {
   const [addState, setAddState] = useState({ loading: false, error: '' })
   const [editingRate, setEditingRate] = useState({})
 
+  // Pay summary panel
+  const [showPaySummary, setShowPaySummary] = useState(false)
+
   // Global bonus settings
   const [showSettings, setShowSettings] = useState(false)
   const [poolBaseRevenue, setPoolBaseRevenue] = useState('20000')
@@ -423,6 +426,37 @@ export default function BonusAdmin() {
     () => days.map(day => ({ ...day, dayShifts: shifts.filter(s => s.dayId === day.id) })),
     [days, shifts],
   )
+
+  const paySummary = useMemo(() => {
+    const dayMap = Object.fromEntries(days.map(d => [d.id, d]))
+    const result = {} // { month: { name: { base, bonus, ferie, total, hours } } }
+    for (const shift of shifts) {
+      if (shift.status !== 'approved') continue
+      const day = dayMap[shift.dayId]
+      if (!day?.date) continue
+      const month = day.date.slice(0, 7)
+      const name = shift.name || shift.phone || 'Ukjent'
+      const base = Number(shift.basePayKr || 0)
+      const bonus = Number(shift.bonusKr || 0)
+      const ferie = Math.round((base + bonus) * 0.102 * 100) / 100
+      if (!result[month]) result[month] = {}
+      if (!result[month][name]) result[month][name] = { base: 0, bonus: 0, ferie: 0, hours: 0 }
+      result[month][name].base += base
+      result[month][name].bonus += bonus
+      result[month][name].ferie += ferie
+      result[month][name].hours += Number(shift.hoursWorked || 0)
+    }
+    return result
+  }, [days, shifts])
+
+  const payMonths = useMemo(() => Object.keys(paySummary).sort(), [paySummary])
+  const payEmployees = useMemo(() => {
+    const names = new Set()
+    for (const month of Object.values(paySummary)) {
+      for (const name of Object.keys(month)) names.add(name)
+    }
+    return [...names].sort()
+  }, [paySummary])
 
   function getEdit(id, field) { return edits[id]?.[field] }
   function setEdit(id, field, value) { setEdits(prev => ({ ...prev, [id]: { ...prev[id], [field]: value } })) }
@@ -792,6 +826,82 @@ export default function BonusAdmin() {
               </div>
               {addState.error && <p className="ba-error">{addState.error}</p>}
             </form>
+          </div>
+        )}
+      </div>
+
+      {/* ── Pay summary per employee ── */}
+      <div className="ba-panel">
+        <button type="button" className="ba-panel-toggle" onClick={() => setShowPaySummary(v => !v)}>
+          <span className="ba-panel-toggle-left">
+            <span className="ba-panel-toggle-icon">💰</span>
+            <span className="ba-panel-toggle-label">Lønn per ansatt</span>
+          </span>
+          <span className="ba-chevron">{showPaySummary ? '▲' : '▼'}</span>
+        </button>
+        {showPaySummary && (
+          <div className="ba-panel-body">
+            {payMonths.length === 0 ? (
+              <p className="ba-empty">Ingen godkjente vakter ennå.</p>
+            ) : payMonths.map(month => {
+              const [yr, mo] = month.split('-')
+              const monthName = new Date(Number(yr), Number(mo) - 1, 1).toLocaleString('nb-NO', { month: 'long', year: 'numeric' })
+              const monthData = paySummary[month]
+              const totals = payEmployees.reduce((acc, name) => {
+                const e = monthData[name]
+                if (!e) return acc
+                acc.base += e.base; acc.bonus += e.bonus; acc.ferie += e.ferie; acc.hours += e.hours
+                return acc
+              }, { base: 0, bonus: 0, ferie: 0, hours: 0 })
+              return (
+                <div key={month} className="ba-pay-month">
+                  <h4 className="ba-pay-month-title">{monthName.charAt(0).toUpperCase() + monthName.slice(1)}</h4>
+                  <div className="ba-pay-table-wrap">
+                    <table className="ba-pay-table">
+                      <thead>
+                        <tr>
+                          <th>Ansatt</th>
+                          <th>Timer</th>
+                          <th>Timelønn</th>
+                          <th>Bonus</th>
+                          <th>Feriepenger</th>
+                          <th>Totalt</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {payEmployees.map(name => {
+                          const e = monthData[name]
+                          if (!e) return null
+                          const total = e.base + e.bonus + e.ferie
+                          const h = Math.floor(e.hours)
+                          const m = Math.round((e.hours - h) * 60)
+                          return (
+                            <tr key={name}>
+                              <td className="ba-pay-name">{name}</td>
+                              <td className="ba-pay-hours">{h}t{m > 0 ? ` ${m}min` : ''}</td>
+                              <td>{Math.round(e.base)} kr</td>
+                              <td className="ba-pay-bonus">{Math.round(e.bonus)} kr</td>
+                              <td className="ba-pay-ferie">{Math.round(e.ferie)} kr</td>
+                              <td className="ba-pay-total">{Math.round(total)} kr</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr className="ba-pay-sum-row">
+                          <td>Sum</td>
+                          <td>{Math.floor(totals.hours)}t{Math.round((totals.hours - Math.floor(totals.hours)) * 60) > 0 ? ` ${Math.round((totals.hours - Math.floor(totals.hours)) * 60)}min` : ''}</td>
+                          <td>{Math.round(totals.base)} kr</td>
+                          <td className="ba-pay-bonus">{Math.round(totals.bonus)} kr</td>
+                          <td className="ba-pay-ferie">{Math.round(totals.ferie)} kr</td>
+                          <td className="ba-pay-total">{Math.round(totals.base + totals.bonus + totals.ferie)} kr</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
