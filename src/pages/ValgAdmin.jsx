@@ -93,6 +93,9 @@ export default function ValgAdmin() {
   const [addState, setAddState] = useState({})
   const [smsState, setSmsState] = useState({})
   const [smsTemplates, setSmsTemplates] = useState({}) // local editing state per valg
+  const [editingId, setEditingId] = useState(null)
+  const [editDrafts, setEditDrafts] = useState({}) // { [valgId]: { description, options: [{id,label}] } }
+  const [editState, setEditState] = useState({}) // { [valgId]: { loading, error } }
 
   useEffect(() => {
     if (!isAdmin) return
@@ -195,6 +198,34 @@ export default function ValgAdmin() {
 
   async function onToggleStatus(valgId, currentStatus) {
     try { await updateDoc(doc(db, 'valg', valgId), { status: currentStatus === 'active' ? 'closed' : 'active' }) } catch {}
+  }
+
+  function startEdit(v) {
+    setEditDrafts((p) => ({
+      ...p,
+      [v.id]: { description: v.description || '', options: (v.options || []).map((o) => ({ ...o })) },
+    }))
+    setEditingId(v.id)
+  }
+
+  async function onSaveEdit(valgId) {
+    const draft = editDrafts[valgId]
+    const validOptions = draft.options.filter((o) => o.label.trim())
+    if (validOptions.length < 2) {
+      setEditState((p) => ({ ...p, [valgId]: { loading: false, error: 'Minst 2 alternativer er påkrevd' } }))
+      return
+    }
+    setEditState((p) => ({ ...p, [valgId]: { loading: true, error: '' } }))
+    try {
+      await updateDoc(doc(db, 'valg', valgId), {
+        description: draft.description.trim(),
+        options: validOptions.map((o, i) => ({ id: o.id || `opt_${i}`, label: o.label.trim() })),
+      })
+      setEditingId(null)
+      setEditState((p) => ({ ...p, [valgId]: { loading: false, error: '' } }))
+    } catch (err) {
+      setEditState((p) => ({ ...p, [valgId]: { loading: false, error: err?.message || 'Feil ved lagring' } }))
+    }
   }
 
   async function onDeleteValg(valgId, title) {
@@ -460,6 +491,64 @@ export default function ValgAdmin() {
                     {smsState[v.id]?.done && <p className="ba-success">{smsState[v.id].done}</p>}
                     {smsState[v.id]?.error && <p className="ba-error">{smsState[v.id].error}</p>}
                   </div>
+
+                  {/* Edit description + options */}
+                  {editingId === v.id ? (() => {
+                    const draft = editDrafts[v.id] || { description: '', options: [] }
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        <p className="valg-section-label">Rediger</p>
+                        <div className="ba-field">
+                          <label className="ba-label">Beskrivelse</label>
+                          <textarea
+                            className="ba-input"
+                            style={{ resize: 'vertical', fontFamily: 'inherit' }}
+                            rows={2}
+                            value={draft.description}
+                            onChange={(e) => setEditDrafts((p) => ({ ...p, [v.id]: { ...draft, description: e.target.value } }))}
+                          />
+                        </div>
+                        <div className="ba-field">
+                          <label className="ba-label">Svaralternativer</label>
+                          {draft.options.map((opt, i) => (
+                            <div key={opt.id || i} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                              <input
+                                className="ba-input"
+                                style={{ flex: 1 }}
+                                value={opt.label}
+                                onChange={(e) => setEditDrafts((p) => ({
+                                  ...p,
+                                  [v.id]: { ...draft, options: draft.options.map((o, j) => j === i ? { ...o, label: e.target.value } : o) },
+                                }))}
+                                placeholder={`Alternativ ${i + 1}`}
+                              />
+                              {draft.options.length > 2 && (
+                                <button type="button" className="ba-btn ba-btn--remove" onClick={() =>
+                                  setEditDrafts((p) => ({ ...p, [v.id]: { ...draft, options: draft.options.filter((_, j) => j !== i) } }))
+                                }>✕</button>
+                              )}
+                            </div>
+                          ))}
+                          <button type="button" className="valg-add-option-btn" onClick={() =>
+                            setEditDrafts((p) => ({ ...p, [v.id]: { ...draft, options: [...draft.options, { id: `opt_new_${Date.now()}`, label: '' }] } }))
+                          }>+ Legg til alternativ</button>
+                        </div>
+                        {editState[v.id]?.error && <p className="ba-error">{editState[v.id].error}</p>}
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button type="button" className="ba-btn ba-btn--primary ba-btn--sm" onClick={() => onSaveEdit(v.id)} disabled={editState[v.id]?.loading}>
+                            {editState[v.id]?.loading ? 'Lagrer...' : 'Lagre endringer'}
+                          </button>
+                          <button type="button" className="ba-btn ba-btn--sm" style={{ background: 'none', border: '1.5px solid #d1d5db', color: '#6b7280' }} onClick={() => setEditingId(null)}>
+                            Avbryt
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })() : (
+                    <button type="button" className="ba-btn ba-btn--sm" style={{ background: 'none', border: '1.5px solid #d1d5db', color: '#374151', alignSelf: 'flex-start' }} onClick={() => startEdit(v)}>
+                      Rediger beskrivelse / alternativer
+                    </button>
+                  )}
 
                   {/* Toggle status + delete */}
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
