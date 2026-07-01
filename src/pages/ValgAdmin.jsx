@@ -93,6 +93,8 @@ export default function ValgAdmin() {
   const [addState, setAddState] = useState({})
   const [smsState, setSmsState] = useState({})
   const [smsTemplates, setSmsTemplates] = useState({}) // local editing state per valg
+  const [smsSelectionMode, setSmsSelectionMode] = useState({}) // { [valgId]: boolean }
+  const [smsSelected, setSmsSelected] = useState({}) // { [valgId]: Set<string> }
   const [editingId, setEditingId] = useState(null)
   const [editDrafts, setEditDrafts] = useState({}) // { [valgId]: { description, options: [{id,label}] } }
   const [editState, setEditState] = useState({}) // { [valgId]: { loading, error } }
@@ -194,6 +196,22 @@ export default function ValgAdmin() {
     } catch (err) {
       setSmsState((p) => ({ ...p, [v.id]: { loading: false, error: err?.message || 'Feil ved sending', done: '' } }))
     }
+  }
+
+  function enterSmsSelectionMode(valgId, participants) {
+    setSmsSelectionMode((p) => ({ ...p, [valgId]: true }))
+    setSmsSelected((p) => ({ ...p, [valgId]: new Set(participants || []) }))
+  }
+  function exitSmsSelectionMode(valgId) {
+    setSmsSelectionMode((p) => ({ ...p, [valgId]: false }))
+  }
+  function toggleSmsPhone(valgId, phone) {
+    setSmsSelected((p) => {
+      const next = new Set(p[valgId] || [])
+      if (next.has(phone)) next.delete(phone)
+      else next.add(phone)
+      return { ...p, [valgId]: next }
+    })
   }
 
   async function onToggleStatus(valgId, currentStatus) {
@@ -454,43 +472,98 @@ export default function ValgAdmin() {
                   </div>
 
                   {/* Send SMS */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    <p className="valg-section-label">Send SMS</p>
-                    <div className="ba-field">
-                      <label className="ba-label">SMS-tekst <span className="ba-label-hint">— bruk {'{link}'} for unik lenke, {'{tittel}'} for valgnavnet</span></label>
-                      <textarea
-                        className="ba-input"
-                        style={{ resize: 'vertical', fontFamily: 'inherit', fontSize: '0.85rem' }}
-                        rows={3}
-                        value={currentTemplate}
-                        onChange={(e) => setSmsTemplates((p) => ({ ...p, [v.id]: e.target.value }))}
-                      />
-                      <SmsCounter text={currentTemplate} />
-                    </div>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      <button
-                        type="button"
-                        className="ba-btn ba-btn--primary ba-btn--sm"
-                        onClick={() => onSendSms(v, v.participants || [], currentTemplate)}
-                        disabled={smsState[v.id]?.loading || totalParticipants === 0}
-                      >
-                        {smsState[v.id]?.loading ? 'Sender...' : `Send til alle (${totalParticipants})`}
-                      </button>
-                      {notVotedPhones.length > 0 && notVotedPhones.length < totalParticipants && (
-                        <button
-                          type="button"
-                          className="ba-btn ba-btn--sm"
-                          style={{ background: '#6b7280', color: '#fff' }}
-                          onClick={() => onSendSms(v, notVotedPhones, currentTemplate)}
-                          disabled={smsState[v.id]?.loading}
-                        >
-                          Send til ikke-besvarte ({notVotedPhones.length})
-                        </button>
-                      )}
-                    </div>
-                    {smsState[v.id]?.done && <p className="ba-success">{smsState[v.id].done}</p>}
-                    {smsState[v.id]?.error && <p className="ba-error">{smsState[v.id].error}</p>}
-                  </div>
+                  {(() => {
+                    const isSelectionMode = !!smsSelectionMode[v.id]
+                    const selectedPhones = smsSelected[v.id] || new Set()
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        <p className="valg-section-label">Send SMS</p>
+                        <div className="ba-field">
+                          <label className="ba-label">SMS-tekst <span className="ba-label-hint">— bruk {'{link}'} for unik lenke, {'{tittel}'} for valgnavnet</span></label>
+                          <textarea
+                            className="ba-input"
+                            style={{ resize: 'vertical', fontFamily: 'inherit', fontSize: '0.85rem' }}
+                            rows={3}
+                            value={currentTemplate}
+                            onChange={(e) => setSmsTemplates((p) => ({ ...p, [v.id]: e.target.value }))}
+                          />
+                          <SmsCounter text={currentTemplate} />
+                        </div>
+
+                        {isSelectionMode && (
+                          <div className="valg-sms-select-wrap">
+                            <div className="valg-sms-select-header">
+                              <span className="valg-sms-select-count">{selectedPhones.size} valgt</span>
+                              <div style={{ display: 'flex', gap: 6 }}>
+                                <button type="button" className="valg-sms-select-ctrl" onClick={() => setSmsSelected((p) => ({ ...p, [v.id]: new Set(v.participants || []) }))}>Alle</button>
+                                <button type="button" className="valg-sms-select-ctrl" onClick={() => setSmsSelected((p) => ({ ...p, [v.id]: new Set() }))}>Ingen</button>
+                                <button type="button" className="valg-sms-select-ctrl valg-sms-select-ctrl--cancel" onClick={() => exitSmsSelectionMode(v.id)}>Avbryt</button>
+                              </div>
+                            </div>
+                            <div className="valg-sms-select-list">
+                              {(v.participants || []).map((phone) => (
+                                <label key={phone} className="valg-sms-select-item">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedPhones.has(phone)}
+                                    onChange={() => toggleSmsPhone(v.id, phone)}
+                                  />
+                                  <span className="valg-sms-select-phone">{displayPhone(phone)}</span>
+                                  <ParticipantStatus phone={phone} inviteTokens={inviteTokens} invitesById={invitesById} />
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          {isSelectionMode ? (
+                            <button
+                              type="button"
+                              className="ba-btn ba-btn--primary ba-btn--sm"
+                              onClick={() => onSendSms(v, [...selectedPhones].filter((p) => (v.participants || []).includes(p)), currentTemplate)}
+                              disabled={smsState[v.id]?.loading || selectedPhones.size === 0}
+                            >
+                              {smsState[v.id]?.loading ? 'Sender...' : `Send til valgte (${selectedPhones.size})`}
+                            </button>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                className="ba-btn ba-btn--primary ba-btn--sm"
+                                onClick={() => onSendSms(v, v.participants || [], currentTemplate)}
+                                disabled={smsState[v.id]?.loading || totalParticipants === 0}
+                              >
+                                {smsState[v.id]?.loading ? 'Sender...' : `Send til alle (${totalParticipants})`}
+                              </button>
+                              {notVotedPhones.length > 0 && notVotedPhones.length < totalParticipants && (
+                                <button
+                                  type="button"
+                                  className="ba-btn ba-btn--sm"
+                                  style={{ background: '#6b7280', color: '#fff' }}
+                                  onClick={() => onSendSms(v, notVotedPhones, currentTemplate)}
+                                  disabled={smsState[v.id]?.loading}
+                                >
+                                  Send til ikke-besvarte ({notVotedPhones.length})
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                className="ba-btn ba-btn--sm"
+                                style={{ background: 'none', border: '1.5px solid #d1d5db', color: '#374151' }}
+                                onClick={() => enterSmsSelectionMode(v.id, v.participants)}
+                                disabled={totalParticipants === 0}
+                              >
+                                Velg mottakere
+                              </button>
+                            </>
+                          )}
+                        </div>
+                        {smsState[v.id]?.done && <p className="ba-success">{smsState[v.id].done}</p>}
+                        {smsState[v.id]?.error && <p className="ba-error">{smsState[v.id].error}</p>}
+                      </div>
+                    )
+                  })()}
 
                   {/* Edit description + options */}
                   {editingId === v.id ? (() => {

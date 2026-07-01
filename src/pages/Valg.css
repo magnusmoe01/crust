@@ -624,3 +624,62 @@
   margin: 80px auto;
   text-align: center;
 }
+
+/* SMS recipient selection */
+.valg-sms-select-wrap {
+  border: 1.5px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.valg-sms-select-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: #f9fafb;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.valg-sms-select-count {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.valg-sms-select-ctrl {
+  background: none;
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+  padding: 3px 9px;
+  font-size: 0.78rem;
+  color: #374151;
+  cursor: pointer;
+}
+.valg-sms-select-ctrl:hover { background: #f3f4f6; }
+.valg-sms-select-ctrl--cancel { color: #9ca3af; }
+
+.valg-sms-select-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.valg-sms-select-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  border-bottom: 1px solid #f3f4f6;
+}
+.valg-sms-select-item:last-child { border-bottom: none; }
+.valg-sms-select-item:hover { background: #f9fafb; }
+.valg-sms-select-item input[type="checkbox"] { flex-shrink: 0; accent-color: #1a3a2a; }
+
+.valg-sms-select-phone {
+  flex: 1;
+  color: #374151;
+}
