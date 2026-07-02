@@ -12,6 +12,7 @@ import historie600 from "../assets/optimized/historie-600.jpeg";
 import historie1200 from "../assets/optimized/historie-1200.jpeg";
 import iVogna from "../assets/i-vogna.jpeg";
 import brandon from "../assets/brandon.jpeg";
+import mustafa from "../assets/mustafa.jpeg";
 
 function About() {
   const placeholder =
@@ -46,6 +47,16 @@ function About() {
       image: {
         src: brandon,
         srcSet: `${brandon} 600w`,
+      },
+    },
+    {
+      name: "Mustafa Isa",
+      role: "Økonomi- og regnskapsansvarlig",
+      email: "mustafa@crust.no",
+      phone: "",
+      image: {
+        src: mustafa,
+        srcSet: `${mustafa} 600w`,
       },
     },
     {
