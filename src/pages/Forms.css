@@ -4806,7 +4806,7 @@ tr:hover .history-row-order-btns {
   .history-print-portal .history-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 7pt;
+    font-size: 7.5pt;
     table-layout: auto;
   }
 
@@ -4821,42 +4821,47 @@ tr:hover .history-row-order-btns {
     text-align: center;
     vertical-align: middle;
     color: #374151;
-    font-size: 7pt;
+    font-size: 7.5pt;
+    background: white !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .history-print-portal .history-cell-meta strong,
+  .history-print-portal .history-cell-meta small {
+    font-size: 6pt !important;
   }
 
   .history-print-portal th {
-    background: #f3f4f6 !important;
     font-weight: 700;
     color: #111 !important;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
+  }
+
+  .history-print-portal thead tr:first-child > th:first-child,
+  .history-print-portal .history-row-header {
+    background: #f3f4f6 !important;
   }
 
   .history-print-portal .history-location-heading {
     background: #dbeafe !important;
     color: #1e3a8a !important;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
+    font-size: 8pt !important;
   }
 
   .history-print-portal .history-current-column {
-    background: #f0fdf4 !important;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
+    background: white !important;
   }
 
   .history-print-portal .history-cell-value-red {
     color: #991b1b !important;
     font-weight: 700;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
+    font-size: 7.5pt !important;
   }
 
   .history-print-portal .history-cell-value-orange {
     color: #92400e !important;
     font-weight: 600;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
+    font-size: 7.5pt !important;
   }
 
   /* "flagged" mode: hide non-flagged cell values */
