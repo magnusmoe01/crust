@@ -98,6 +98,7 @@ export default function ValgAdmin() {
   const [editingId, setEditingId] = useState(null)
   const [editDrafts, setEditDrafts] = useState({}) // { [valgId]: { description, options: [{id,label}] } }
   const [editState, setEditState] = useState({}) // { [valgId]: { loading, error } }
+  const [copiedToken, setCopiedToken] = useState(null)
 
   useEffect(() => {
     if (!isAdmin) return
@@ -244,6 +245,14 @@ export default function ValgAdmin() {
     } catch (err) {
       setEditState((p) => ({ ...p, [valgId]: { loading: false, error: err?.message || 'Feil ved lagring' } }))
     }
+  }
+
+  function copyInviteLink(token) {
+    const url = `${window.location.origin}/v/${token}`
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedToken(token)
+      setTimeout(() => setCopiedToken(null), 2000)
+    })
   }
 
   async function onDeleteValg(valgId, title) {
@@ -433,6 +442,15 @@ export default function ValgAdmin() {
                               <span className="valg-participant-phone">{displayPhone(phone)}</span>
                               <ParticipantStatus phone={phone} inviteTokens={inviteTokens} invitesById={invitesById} />
                               <div style={{ display: 'flex', gap: 4 }}>
+                                {token && (
+                                  <button
+                                    type="button"
+                                    className="valg-participant-remove"
+                                    title="Kopier personlig lenke"
+                                    style={{ color: copiedToken === token ? '#16a34a' : '#6b7280', fontSize: '0.8rem' }}
+                                    onClick={() => copyInviteLink(token)}
+                                  >{copiedToken === token ? '✓' : '🔗'}</button>
+                                )}
                                 {invite?.votedAt && (
                                   <button
                                     type="button"
