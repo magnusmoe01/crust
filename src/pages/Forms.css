@@ -704,6 +704,87 @@
   padding: 2px 0;
 }
 
+.photo-checklist-control {
+  display: grid;
+  gap: 14px;
+}
+
+.photo-checklist-item-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(24, 44, 60, 0.14);
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.photo-checklist-item-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.photo-checklist-item-name-input {
+  flex: 1;
+}
+
+.photo-checklist-remove-item-button {
+  font-size: 0.85em;
+  color: #c0392b;
+  white-space: nowrap;
+  padding: 2px 6px;
+}
+
+.photo-checklist-item-slots {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 700px) {
+  .photo-checklist-item-slots {
+    grid-template-columns: 1fr;
+  }
+}
+
+.photo-checklist-slot {
+  display: grid;
+  gap: 6px;
+  justify-items: stretch;
+}
+
+.photo-checklist-slot-label {
+  margin: 0;
+  font-weight: 700;
+  font-size: 0.85em;
+  color: #5f4c3f;
+}
+
+.photo-checklist-add-button {
+  width: 100%;
+  background: #fff;
+  border-radius: 10px;
+  text-align: center;
+  font-weight: 600;
+}
+
+.photo-checklist-review-groups {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 700px) {
+  .photo-checklist-review-groups {
+    grid-template-columns: 1fr;
+  }
+}
+
+.photo-checklist-review-group-title {
+  font-weight: 700;
+  margin: 0 0 6px;
+}
+
 .field-block input,
 .field-block textarea,
 .field-block select {

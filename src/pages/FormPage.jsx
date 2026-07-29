@@ -28,6 +28,9 @@ const SUBMISSION_DATE_KEY = 'Innsendt dato'
 const SUBMISSION_TIME_KEY = 'Innsendt tid'
 const SELECT_DETAIL_SUFFIX = '__details'
 const IMAGE_CAPTURED_AT_SUFFIX = '__capturedAt'
+const PHOTO_CHECKLIST_ITEM_SEGMENT = '__item-'
+const PHOTO_CHECKLIST_BEFORE_SUFFIX = '__before'
+const PHOTO_CHECKLIST_AFTER_SUFFIX = '__after'
 const SELF_DECLARATION_ACCEPTED_KEY = 'Egenerklæring bekreftet'
 const SELECT_OPTION_HISTORY_CATEGORIES = ['normal', 'orange', 'red']
 const RECEIPT_EDIT_WINDOW_MS = 30 * 60 * 1000
@@ -937,7 +940,7 @@ function normalizeImageZoom(rawZoom) {
 function normalizeQuestion(question, index) {
   const label = String(question?.label || '').trim()
   const fallbackLabel = `Spørsmål ${index + 1}`
-  const type = ['text', 'textarea', 'select', 'location', 'number', 'date', 'time-start', 'time-end', 'camera', 'multi-camera', 'name', 'phone', 'email', 'section'].includes(question?.type)
+  const type = ['text', 'textarea', 'select', 'location', 'number', 'date', 'time-start', 'time-end', 'camera', 'multi-camera', 'photo-checklist', 'name', 'phone', 'email', 'section'].includes(question?.type)
     ? question.type
     : 'text'
   const options = type === 'select' ? parseQuestionOptions(question?.options) : []
@@ -1511,6 +1514,40 @@ function getSelectDetailAnswerKey(questionId) {
   return `${questionId}${SELECT_DETAIL_SUFFIX}`
 }
 
+function getPhotoChecklistItemKey(questionId, itemId) {
+  return `${questionId}${PHOTO_CHECKLIST_ITEM_SEGMENT}${itemId}`
+}
+
+function getPhotoChecklistBeforeKey(questionId, itemId) {
+  return `${getPhotoChecklistItemKey(questionId, itemId)}${PHOTO_CHECKLIST_BEFORE_SUFFIX}`
+}
+
+function getPhotoChecklistAfterKey(questionId, itemId) {
+  return `${getPhotoChecklistItemKey(questionId, itemId)}${PHOTO_CHECKLIST_AFTER_SUFFIX}`
+}
+
+function parsePhotoChecklistAnswerKey(answerKey) {
+  const key = String(answerKey || '')
+  let rest = key
+  let slot = 'name'
+  if (rest.endsWith(PHOTO_CHECKLIST_BEFORE_SUFFIX)) {
+    slot = 'before'
+    rest = rest.slice(0, -PHOTO_CHECKLIST_BEFORE_SUFFIX.length)
+  } else if (rest.endsWith(PHOTO_CHECKLIST_AFTER_SUFFIX)) {
+    slot = 'after'
+    rest = rest.slice(0, -PHOTO_CHECKLIST_AFTER_SUFFIX.length)
+  }
+  const segmentIndex = rest.indexOf(PHOTO_CHECKLIST_ITEM_SEGMENT)
+  if (segmentIndex === -1) {
+    return null
+  }
+  return {
+    questionId: rest.slice(0, segmentIndex),
+    itemId: rest.slice(segmentIndex + PHOTO_CHECKLIST_ITEM_SEGMENT.length),
+    slot,
+  }
+}
+
 function getSelectOptionBehavior(question, selectedOption) {
   if (!selectedOption || question?.type !== 'select') {
     return { kind: 'none', text: '' }
@@ -1624,6 +1661,21 @@ function getHistoryAnswerValues(submission, question) {
 }
 
 function getAnswerDisplayLabel(answerKey, answers, questions = []) {
+  const photoChecklistKey = parsePhotoChecklistAnswerKey(answerKey)
+  if (photoChecklistKey) {
+    const question = questions.find((item) => item.id === photoChecklistKey.questionId)
+    if (!question) {
+      return answerKey
+    }
+    const itemName = String(
+      answers?.[getPhotoChecklistItemKey(photoChecklistKey.questionId, photoChecklistKey.itemId)] || '',
+    ).trim()
+    const itemLabel = itemName ? `${question.label} – ${itemName}` : question.label
+    if (photoChecklistKey.slot === 'before') return `${itemLabel} – Før`
+    if (photoChecklistKey.slot === 'after') return `${itemLabel} – Etter`
+    return itemLabel
+  }
+
   const capturedAtBaseKey = answerKey.endsWith(IMAGE_CAPTURED_AT_SUFFIX)
     ? answerKey.slice(0, -IMAGE_CAPTURED_AT_SUFFIX.length)
     : ''
@@ -1652,6 +1704,11 @@ function getAnswerDisplayLabel(answerKey, answers, questions = []) {
 }
 
 function getQuestionForAnswerKey(answerKey, questions = []) {
+  const photoChecklistKey = parsePhotoChecklistAnswerKey(answerKey)
+  if (photoChecklistKey) {
+    return questions.find((item) => item.id === photoChecklistKey.questionId) || null
+  }
+
   const normalizedKey = answerKey.endsWith(IMAGE_CAPTURED_AT_SUFFIX)
     ? answerKey.slice(0, -IMAGE_CAPTURED_AT_SUFFIX.length)
     : answerKey
@@ -1669,6 +1726,39 @@ function getOrderedAnswerEntries(answers, questions = [], options = {}) {
 
   questions.forEach((question) => {
     if (isSectionQuestion(question)) {
+      return
+    }
+
+    if (question.type === 'photo-checklist') {
+      const itemIds = new Set()
+      Object.keys(answers || {}).forEach((key) => {
+        const parsed = parsePhotoChecklistAnswerKey(key)
+        if (parsed && parsed.questionId === question.id) {
+          itemIds.add(parsed.itemId)
+        }
+      })
+      Array.from(itemIds)
+        .sort()
+        .forEach((itemId) => {
+          const baseKey = getPhotoChecklistItemKey(question.id, itemId)
+          const beforeKey = getPhotoChecklistBeforeKey(question.id, itemId)
+          const afterKey = getPhotoChecklistAfterKey(question.id, itemId)
+          const hasBefore = String(answers?.[beforeKey] || '').trim()
+          const hasAfter = String(answers?.[afterKey] || '').trim()
+          if (!hasBefore && !hasAfter) {
+            return
+          }
+          entries.push([baseKey, answers?.[baseKey] || ''])
+          usedKeys.add(baseKey)
+          if (hasBefore) {
+            entries.push([beforeKey, answers[beforeKey]])
+            usedKeys.add(beforeKey)
+          }
+          if (hasAfter) {
+            entries.push([afterKey, answers[afterKey]])
+            usedKeys.add(afterKey)
+          }
+        })
       return
     }
 
@@ -2061,6 +2151,7 @@ function FormPage() {
   const [multiCameraFiles, setMultiCameraFiles] = useState({})
   const [multiCameraPreviews, setMultiCameraPreviews] = useState({})
   const [multiCameraUploadState, setMultiCameraUploadState] = useState({})
+  const [photoChecklistItems, setPhotoChecklistItems] = useState({})
   const [selectDetailUploadState, setSelectDetailUploadState] = useState({})
   const [formInstanceKey, setFormInstanceKey] = useState(0)
   const [loadingForm, setLoadingForm] = useState(true)
@@ -2587,6 +2678,7 @@ function FormPage() {
       setMultiCameraFiles({})
       setMultiCameraPreviews({})
       setMultiCameraUploadState({})
+      setPhotoChecklistItems({})
       setSelfDeclarationAccepted(Boolean(receiptAnswers[SELF_DECLARATION_ACCEPTED_KEY]))
       setHydratedEditReceiptToken(editReceiptToken)
       setDraftReady(true)
@@ -2672,6 +2764,7 @@ function FormPage() {
     setMultiCameraFiles({})
     setMultiCameraPreviews({})
     setMultiCameraUploadState({})
+    setPhotoChecklistItems({})
     setSelfDeclarationAccepted(
       Boolean(formData.enableSelfDeclaration) && Boolean(draft.selfDeclarationAccepted),
     )
@@ -3639,6 +3732,75 @@ function FormPage() {
     onAnswerChange(questionId, updated.length > 0 ? JSON.stringify(updated) : '')
   }
 
+  function onPhotoChecklistAddItem(questionId) {
+    const itemId = `item-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    setPhotoChecklistItems((previous) => ({
+      ...previous,
+      [questionId]: [
+        ...(previous[questionId] || []),
+        { id: itemId, name: '', beforeFiles: [], beforePreviews: [], afterFiles: [], afterPreviews: [] },
+      ],
+    }))
+  }
+
+  function onPhotoChecklistRemoveItem(questionId, itemId) {
+    setPhotoChecklistItems((previous) => ({
+      ...previous,
+      [questionId]: (previous[questionId] || []).filter((item) => item.id !== itemId),
+    }))
+  }
+
+  function onPhotoChecklistNameChange(questionId, itemId, name) {
+    setPhotoChecklistItems((previous) => ({
+      ...previous,
+      [questionId]: (previous[questionId] || []).map((item) =>
+        item.id === itemId ? { ...item, name } : item,
+      ),
+    }))
+  }
+
+  async function onPhotoChecklistFileAdd(questionId, itemId, slot, file) {
+    if (!file) {
+      return
+    }
+    const filesKey = slot === 'before' ? 'beforeFiles' : 'afterFiles'
+    const previewsKey = slot === 'before' ? 'beforePreviews' : 'afterPreviews'
+    try {
+      const nextFile = await compressUploadedImage(file)
+      const previewUrl = await readFileAsDataUrl(nextFile)
+      setPhotoChecklistItems((previous) => ({
+        ...previous,
+        [questionId]: (previous[questionId] || []).map((item) =>
+          item.id === itemId
+            ? {
+                ...item,
+                [filesKey]: [...item[filesKey], nextFile],
+                [previewsKey]: [...item[previewsKey], previewUrl],
+              }
+            : item,
+        ),
+      }))
+    } catch (error) {
+      console.error('Kunne ikke lese bildet for før/etter-sjekkliste', error)
+    }
+  }
+
+  function onPhotoChecklistFileRemove(questionId, itemId, slot, indexToRemove) {
+    const filesKey = slot === 'before' ? 'beforeFiles' : 'afterFiles'
+    const previewsKey = slot === 'before' ? 'beforePreviews' : 'afterPreviews'
+    setPhotoChecklistItems((previous) => ({
+      ...previous,
+      [questionId]: (previous[questionId] || []).map((item) => {
+        if (item.id !== itemId) return item
+        const nextFiles = [...item[filesKey]]
+        nextFiles.splice(indexToRemove, 1)
+        const nextPreviews = [...item[previewsKey]]
+        nextPreviews.splice(indexToRemove, 1)
+        return { ...item, [filesKey]: nextFiles, [previewsKey]: nextPreviews }
+      }),
+    }))
+  }
+
   async function onSelectDetailCameraFileChange(questionId, file) {
     if (!file) {
       selectDetailUploadRequestIdsRef.current[questionId] = `${Date.now()}-cleared`
@@ -3843,6 +4005,7 @@ function FormPage() {
     setMultiCameraFiles({})
     setMultiCameraPreviews({})
     setMultiCameraUploadState({})
+    setPhotoChecklistItems({})
     setFormInstanceKey((previous) => previous + 1)
     clearFormDraft(activeFormSlug)
     deleteFirestoreDraft(db)
@@ -3874,6 +4037,10 @@ function FormPage() {
 
     if (question.type === 'multi-camera') {
       return `${question.id}-multi-camera-button`
+    }
+
+    if (question.type === 'photo-checklist') {
+      return `${question.id}-photo-checklist-add-button`
     }
 
     if (question.type === 'location' && answers[question.id] === LOCATION_OTHER_VALUE) {
@@ -3943,6 +4110,11 @@ function FormPage() {
       const files = multiCameraFiles[question.id] || []
       const paths = parseMultiCameraAnswer(answerValue)
       return files.length === 0 && paths.filter((p) => isStorageImagePath(p)).length === 0
+    }
+
+    if (question.type === 'photo-checklist') {
+      const items = photoChecklistItems[question.id] || []
+      return !items.some((item) => item.beforeFiles.length > 0 && item.afterFiles.length > 0)
     }
 
     if (question.type === 'location') {
@@ -4081,7 +4253,7 @@ function FormPage() {
 
       if (isExcusedMode) {
         formData.questions.forEach((question) => {
-          if (question.type === 'camera' || question.type === 'multi-camera') {
+          if (question.type === 'camera' || question.type === 'multi-camera' || question.type === 'photo-checklist') {
             submissionAnswers[question.id] = 'excused'
           }
         })
@@ -4097,6 +4269,10 @@ function FormPage() {
         }
 
         if (question.type === 'multi-camera') {
+          submissionAnswers[question.id] = ''
+        }
+
+        if (question.type === 'photo-checklist') {
           submissionAnswers[question.id] = ''
         }
 
@@ -4195,6 +4371,46 @@ function FormPage() {
             }),
           )
           submissionAnswers[question.id] = JSON.stringify(uploadedPaths)
+        }),
+      )
+
+      await Promise.all(
+        visibleInputQuestions.map(async (question) => {
+          if (question.type !== 'photo-checklist') {
+            return
+          }
+          const items = photoChecklistItems[question.id] || []
+          await Promise.all(
+            items
+              .filter((item) => item.beforeFiles.length > 0 || item.afterFiles.length > 0)
+              .map(async (item, itemDisplayIndex) => {
+                const itemName = item.name.trim() || `Ting ${itemDisplayIndex + 1}`
+                const uploadSlot = async (files, slot) =>
+                  Promise.all(
+                    files.map(async (file, fileIndex) => {
+                      const fileName = sanitizeFileName(file.name)
+                      const path = `forms/images/${activeFormSlug}/${submissionRef.id}-${question.id}-item-${item.id}-${slot}-${fileIndex}-${fileName}`
+                      await uploadBytes(ref(storage, path), file, {
+                        contentType: file.type || 'image/jpeg',
+                      })
+                      const downloadUrl = await getDownloadURL(ref(storage, path))
+                      imagePaths.push(path)
+                      receiptImageMap[path] = downloadUrl
+                      return path
+                    }),
+                  )
+
+                const [beforePaths, afterPaths] = await Promise.all([
+                  uploadSlot(item.beforeFiles, 'before'),
+                  uploadSlot(item.afterFiles, 'after'),
+                ])
+
+                submissionAnswers[getPhotoChecklistItemKey(question.id, item.id)] = itemName
+                submissionAnswers[getPhotoChecklistBeforeKey(question.id, item.id)] =
+                  JSON.stringify(beforePaths)
+                submissionAnswers[getPhotoChecklistAfterKey(question.id, item.id)] = JSON.stringify(afterPaths)
+              }),
+          )
         }),
       )
 
@@ -4360,6 +4576,7 @@ function FormPage() {
       setMultiCameraFiles({})
       setMultiCameraPreviews({})
       setMultiCameraUploadState({})
+      setPhotoChecklistItems({})
       setFormInstanceKey((previous) => previous + 1)
       setSubmitState({
         submitting: false,
@@ -4468,8 +4685,18 @@ function FormPage() {
             ...question,
             type: value,
             required: value === 'section' ? false : question.required,
-            includeInReview: value === 'section' ? false : question.includeInReview,
-            reviewType: value === 'section' ? '' : question.reviewType,
+            includeInReview:
+              value === 'section'
+                ? false
+                : value === 'photo-checklist'
+                  ? true
+                  : question.includeInReview,
+            reviewType:
+              value === 'section'
+                ? ''
+                : value === 'photo-checklist'
+                  ? 'rating'
+                  : question.reviewType,
             includeRating: value === 'section' ? false : question.includeRating,
             shouldRestock: value === 'section' ? false : question.shouldRestock,
             isIceProductionCount: value === 'section' ? false : question.isIceProductionCount,
@@ -5046,7 +5273,13 @@ function FormPage() {
   const selectedSubmissionAnswerEntries = selectedSubmission
     ? getOrderedAnswerEntries(selectedSubmission.answers || {}, reviewQuestions, {
         includeRemainingAnswers: false,
-      }).filter(([answerKey, value]) => !answerKey.endsWith(IMAGE_CAPTURED_AT_SUFFIX) && value !== 'excused')
+      }).filter(
+        ([answerKey, value]) =>
+          !answerKey.endsWith(IMAGE_CAPTURED_AT_SUFFIX) &&
+          !answerKey.endsWith(PHOTO_CHECKLIST_BEFORE_SUFFIX) &&
+          !answerKey.endsWith(PHOTO_CHECKLIST_AFTER_SUFFIX) &&
+          value !== 'excused',
+      )
     : []
   const hasPendingReviewDecisions = selectedSubmissionAnswerEntries.some(
     ([answerKey]) => !String(reviewDraftStatuses[answerKey] || '').trim(),
@@ -7019,6 +7252,101 @@ function FormPage() {
       )
     }
 
+    if (question.type === 'photo-checklist') {
+      const items = photoChecklistItems[question.id] || []
+
+      const renderPhotoChecklistSlot = (item, slot) => {
+        const label = slot === 'before' ? 'Før' : 'Etter'
+        const files = slot === 'before' ? item.beforeFiles : item.afterFiles
+        const previews = slot === 'before' ? item.beforePreviews : item.afterPreviews
+        const fileInputId = `${question.id}-photo-checklist-${item.id}-${slot}-input`
+
+        return (
+          <div className="photo-checklist-slot" key={slot}>
+            <p className="photo-checklist-slot-label">{label}</p>
+            <button
+              type="button"
+              className="ghost camera-upload-button"
+              onClick={() => document.getElementById(fileInputId)?.click()}
+            >
+              {files.length > 0 ? publicCopy.uploadAdditionalPhoto : publicCopy.takePhoto}
+            </button>
+            <input
+              id={fileInputId}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="camera-upload-input"
+              onChange={async (event) => {
+                const file = event.target.files?.[0] || null
+                if (file) {
+                  await onPhotoChecklistFileAdd(question.id, item.id, slot, file)
+                }
+                event.target.value = ''
+              }}
+            />
+            {previews.length > 0 ? (
+              <div className="multi-camera-preview-list">
+                {previews.map((previewUrl, previewIndex) => (
+                  <div key={`${item.id}-${slot}-preview-${previewIndex}`} className="multi-camera-preview-item">
+                    <div className="camera-upload-preview">
+                      <img src={previewUrl} alt={`${label} ${previewIndex + 1}`} />
+                    </div>
+                    <button
+                      type="button"
+                      className="ghost multi-camera-remove-button"
+                      onClick={() => onPhotoChecklistFileRemove(question.id, item.id, slot, previewIndex)}
+                    >
+                      {displayLanguage === 'en' ? 'Remove' : 'Fjern'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        )
+      }
+
+      return (
+        <div className="photo-checklist-control">
+          {items.map((item, itemIndex) => (
+            <div key={item.id} className="photo-checklist-item-card">
+              <div className="photo-checklist-item-header">
+                <input
+                  type="text"
+                  className="photo-checklist-item-name-input"
+                  value={item.name}
+                  placeholder={`Ting ${itemIndex + 1}`}
+                  onChange={(event) =>
+                    onPhotoChecklistNameChange(question.id, item.id, event.target.value)
+                  }
+                />
+                <button
+                  type="button"
+                  className="ghost photo-checklist-remove-item-button"
+                  onClick={() => onPhotoChecklistRemoveItem(question.id, item.id)}
+                >
+                  {displayLanguage === 'en' ? 'Remove' : 'Fjern'}
+                </button>
+              </div>
+              <div className="photo-checklist-item-slots">
+                {renderPhotoChecklistSlot(item, 'before')}
+                {renderPhotoChecklistSlot(item, 'after')}
+              </div>
+            </div>
+          ))}
+          <button
+            type="button"
+            id={`${question.id}-photo-checklist-add-button`}
+            className="ghost photo-checklist-add-button"
+            onClick={() => onPhotoChecklistAddItem(question.id)}
+          >
+            + Legg til ny ting
+          </button>
+        </div>
+      )
+    }
+
     if (question.type === 'name') {
       return (
         <input
@@ -7098,6 +7426,12 @@ function FormPage() {
       return (multiCameraFiles[question.id] || []).length > 0 || parseMultiCameraAnswer(answers[question.id]).length > 0
     }
 
+    if (question.type === 'photo-checklist') {
+      return (photoChecklistItems[question.id] || []).some(
+        (item) => item.beforeFiles.length > 0 || item.afterFiles.length > 0,
+      )
+    }
+
     if (question.type === 'select') {
       const hasValue = String(answers[question.id] || '').trim().length > 0
       const selectedBehavior = getSelectOptionBehavior(question, String(answers[question.id] || '').trim())
@@ -7139,7 +7473,7 @@ function FormPage() {
   const visibleFormQuestions = useMemo(() => {
     const base = getVisibleFormQuestions(formData.questions, selectedFormLocation)
     if (!isExcusedMode) return base
-    return base.filter(q => q.type !== 'camera' && q.type !== 'multi-camera')
+    return base.filter(q => q.type !== 'camera' && q.type !== 'multi-camera' && q.type !== 'photo-checklist')
   }, [formData.questions, selectedFormLocation, isExcusedMode])
   const visibleInputQuestions = useMemo(
     () => visibleFormQuestions.filter((question) => !isSectionQuestion(question)),
@@ -9182,6 +9516,7 @@ function FormPage() {
                                 <option value="time-end">Tid (sluttid)</option>
                                 <option value="camera">Ta bilde fra kamera</option>
                                 <option value="multi-camera">Flere bilder</option>
+                                <option value="photo-checklist">Før/etter-bilder (flere ting)</option>
                                 <option value="name">User's name</option>
                                 <option value="phone">Telefonnummer</option>
                                 <option value="email">E-post</option>
@@ -11768,6 +12103,8 @@ function FormPage() {
                           : []
                         return selectedSubmissionAnswerEntries.map(([answerKey, value]) => {
                         const question = getQuestionForAnswerKey(answerKey, formData.questions)
+                        const photoChecklistKey =
+                          question?.type === 'photo-checklist' ? parsePhotoChecklistAnswerKey(answerKey) : null
                         const isFlaggingQuestion = question?.reviewType === 'flagging'
                         const questionHistory = isFlaggingQuestion
                           ? userPastReviews.map((s) => {
@@ -11807,6 +12144,42 @@ function FormPage() {
                                 )}
                               </p>
                               <p className="review-panel-title">User answer</p>
+                              {photoChecklistKey ? (
+                                <div className="photo-checklist-review-groups">
+                                  {[
+                                    { label: 'Før', slotKey: getPhotoChecklistBeforeKey(question.id, photoChecklistKey.itemId) },
+                                    { label: 'Etter', slotKey: getPhotoChecklistAfterKey(question.id, photoChecklistKey.itemId) },
+                                  ].map(({ label, slotKey }) => {
+                                    const slotPaths = parseMultiCameraAnswer(
+                                      selectedSubmission.answers?.[slotKey],
+                                    ).filter((p) => isStorageImagePath(p))
+                                    return (
+                                      <div key={slotKey} className="photo-checklist-review-group">
+                                        <p className="photo-checklist-review-group-title">{label}</p>
+                                        {slotPaths.length > 0 ? (
+                                          <div className="multi-camera-preview-list">
+                                            {slotPaths.map((path, pathIdx) => {
+                                              const imgUrl = selectedSubmissionImageUrls[path] || ''
+                                              return (
+                                                <div key={`${slotKey}-img-${pathIdx}`}>
+                                                  {imgUrl ? (
+                                                    <img className="review-answer-image" src={imgUrl} alt={`${label} ${pathIdx + 1}`} loading="lazy" />
+                                                  ) : (
+                                                    <p className="review-answer-value">{selectedSubmissionImagesLoading ? 'Loading image...' : 'Could not load image.'}</p>
+                                                  )}
+                                                </div>
+                                              )
+                                            })}
+                                          </div>
+                                        ) : (
+                                          <p className="review-answer-value">Ingen bilder</p>
+                                        )}
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              ) : (
+                                <>
                               {(() => {
                                 const multiPaths = parseMultiCameraAnswer(value)
                                 const isMulti = multiPaths.length > 0 && multiPaths.some((p) => isStorageImagePath(p))
@@ -11891,6 +12264,8 @@ function FormPage() {
                                   </p>
                                 )
                               })()}
+                                </>
+                              )}
                             </div>
 
                             <div className="review-comparison-panel">
