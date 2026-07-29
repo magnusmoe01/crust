@@ -769,6 +769,8 @@
   text-align: center;
   font-weight: 700;
   border: 1px solid rgba(24, 44, 60, 0.3);
+  text-transform: none;
+  margin-top: 10px;
 }
 
 .photo-checklist-done-button.is-active {

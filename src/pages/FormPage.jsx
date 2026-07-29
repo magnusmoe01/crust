@@ -7365,7 +7365,7 @@ function FormPage() {
           >
             {isDone
               ? '✓ Ferdig – trykk for å angre'
-              : 'Jeg er ferdig med å vaske og vil ikke legge til flere ting'}
+              : 'Jeg er ferdig med å vaske'}
           </button>
         </div>
       )
