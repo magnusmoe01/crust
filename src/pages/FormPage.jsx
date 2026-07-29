@@ -2152,6 +2152,7 @@ function FormPage() {
   const [multiCameraPreviews, setMultiCameraPreviews] = useState({})
   const [multiCameraUploadState, setMultiCameraUploadState] = useState({})
   const [photoChecklistItems, setPhotoChecklistItems] = useState({})
+  const [photoChecklistDone, setPhotoChecklistDone] = useState({})
   const [selectDetailUploadState, setSelectDetailUploadState] = useState({})
   const [formInstanceKey, setFormInstanceKey] = useState(0)
   const [loadingForm, setLoadingForm] = useState(true)
@@ -2679,6 +2680,7 @@ function FormPage() {
       setMultiCameraPreviews({})
       setMultiCameraUploadState({})
       setPhotoChecklistItems({})
+      setPhotoChecklistDone({})
       setSelfDeclarationAccepted(Boolean(receiptAnswers[SELF_DECLARATION_ACCEPTED_KEY]))
       setHydratedEditReceiptToken(editReceiptToken)
       setDraftReady(true)
@@ -2765,6 +2767,7 @@ function FormPage() {
     setMultiCameraPreviews({})
     setMultiCameraUploadState({})
     setPhotoChecklistItems({})
+    setPhotoChecklistDone({})
     setSelfDeclarationAccepted(
       Boolean(formData.enableSelfDeclaration) && Boolean(draft.selfDeclarationAccepted),
     )
@@ -3741,6 +3744,14 @@ function FormPage() {
         { id: itemId, name: '', beforeFiles: [], beforePreviews: [], afterFiles: [], afterPreviews: [] },
       ],
     }))
+    setPhotoChecklistDone((previous) => (previous[questionId] ? { ...previous, [questionId]: false } : previous))
+  }
+
+  function onPhotoChecklistToggleDone(questionId) {
+    setPhotoChecklistDone((previous) => ({
+      ...previous,
+      [questionId]: !previous[questionId],
+    }))
   }
 
   function onPhotoChecklistRemoveItem(questionId, itemId) {
@@ -4006,6 +4017,7 @@ function FormPage() {
     setMultiCameraPreviews({})
     setMultiCameraUploadState({})
     setPhotoChecklistItems({})
+    setPhotoChecklistDone({})
     setFormInstanceKey((previous) => previous + 1)
     clearFormDraft(activeFormSlug)
     deleteFirestoreDraft(db)
@@ -4040,7 +4052,7 @@ function FormPage() {
     }
 
     if (question.type === 'photo-checklist') {
-      return `${question.id}-photo-checklist-add-button`
+      return `${question.id}-photo-checklist-done-button`
     }
 
     if (question.type === 'location' && answers[question.id] === LOCATION_OTHER_VALUE) {
@@ -4113,8 +4125,7 @@ function FormPage() {
     }
 
     if (question.type === 'photo-checklist') {
-      const items = photoChecklistItems[question.id] || []
-      return !items.some((item) => item.beforeFiles.length > 0 && item.afterFiles.length > 0)
+      return !photoChecklistDone[question.id]
     }
 
     if (question.type === 'location') {
@@ -4577,6 +4588,7 @@ function FormPage() {
       setMultiCameraPreviews({})
       setMultiCameraUploadState({})
       setPhotoChecklistItems({})
+      setPhotoChecklistDone({})
       setFormInstanceKey((previous) => previous + 1)
       setSubmitState({
         submitting: false,
@@ -7254,9 +7266,11 @@ function FormPage() {
 
     if (question.type === 'photo-checklist') {
       const items = photoChecklistItems[question.id] || []
+      const isDone = Boolean(photoChecklistDone[question.id])
 
       const renderPhotoChecklistSlot = (item, slot) => {
         const label = slot === 'before' ? 'Før' : 'Etter'
+        const addMoreLabel = slot === 'before' ? 'Legg til et til før-bilde' : 'Legg til et til etter-bilde'
         const files = slot === 'before' ? item.beforeFiles : item.afterFiles
         const previews = slot === 'before' ? item.beforePreviews : item.afterPreviews
         const fileInputId = `${question.id}-photo-checklist-${item.id}-${slot}-input`
@@ -7269,7 +7283,7 @@ function FormPage() {
               className="ghost camera-upload-button"
               onClick={() => document.getElementById(fileInputId)?.click()}
             >
-              {files.length > 0 ? publicCopy.uploadAdditionalPhoto : publicCopy.takePhoto}
+              {files.length > 0 ? addMoreLabel : publicCopy.takePhoto}
             </button>
             <input
               id={fileInputId}
@@ -7308,7 +7322,7 @@ function FormPage() {
       }
 
       return (
-        <div className="photo-checklist-control">
+        <div className={`photo-checklist-control ${isDone ? 'is-done' : ''}`}>
           {items.map((item, itemIndex) => (
             <div key={item.id} className="photo-checklist-item-card">
               <div className="photo-checklist-item-header">
@@ -7342,6 +7356,16 @@ function FormPage() {
             onClick={() => onPhotoChecklistAddItem(question.id)}
           >
             + Legg til ny ting
+          </button>
+          <button
+            type="button"
+            id={`${question.id}-photo-checklist-done-button`}
+            className={`ghost photo-checklist-done-button ${isDone ? 'is-active' : ''}`}
+            onClick={() => onPhotoChecklistToggleDone(question.id)}
+          >
+            {isDone
+              ? '✓ Ferdig – trykk for å angre'
+              : 'Jeg er ferdig med å vaske og vil ikke legge til flere ting'}
           </button>
         </div>
       )
@@ -7427,9 +7451,7 @@ function FormPage() {
     }
 
     if (question.type === 'photo-checklist') {
-      return (photoChecklistItems[question.id] || []).some(
-        (item) => item.beforeFiles.length > 0 || item.afterFiles.length > 0,
-      )
+      return Boolean(photoChecklistDone[question.id])
     }
 
     if (question.type === 'select') {
