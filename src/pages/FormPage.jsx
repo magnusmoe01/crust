@@ -2224,6 +2224,7 @@ function FormPage() {
   const [analyseEmailRecipient, setAnalyseEmailRecipient] = useState('')
   const [analyseEmailState, setAnalyseEmailState] = useState({ sending: false, error: '', message: '' })
   const [historySubmissionLimit, setHistorySubmissionLimit] = useState('3')
+  const [historyDateFilter, setHistoryDateFilter] = useState('')
   const [historyDefaultState, setHistoryDefaultState] = useState({
     saving: false,
     error: '',
@@ -7928,6 +7929,7 @@ function FormPage() {
       : analysisQuestions.filter((question) => selectedHistoryQuestionIds.includes(question.id))
   const locationOrder = availableLocations.filter((l) => !l.disabled).map((location) => String(location.name || '').trim()).filter(Boolean)
   const parsedHistorySubmissionLimit = Math.max(1, Number.parseInt(historySubmissionLimit, 10) || 3)
+  const isHistoryDateFiltered = Boolean(historyDateFilter)
   const historyByLocation = submissions
     .reduce((accumulator, submission) => {
       const location = getSubmissionLocation(submission.answers, formData.questions) || 'Ukjent lokasjon'
@@ -7946,7 +7948,9 @@ function FormPage() {
       return {
         location,
         latestSubmittedAtSeconds: sortedItems[0]?.submittedAt?.seconds || 0,
-        items: sortedItems.slice(0, parsedHistorySubmissionLimit),
+        items: isHistoryDateFiltered
+          ? sortedItems.filter((item) => getSubmissionDayKey(item.submittedAt) === historyDateFilter)
+          : sortedItems.slice(0, parsedHistorySubmissionLimit),
       }
     })
     .filter((row) => locationOrder.includes(row.location))
@@ -8094,8 +8098,11 @@ function FormPage() {
     historyShowAllLocations
       ? historyRows
       : historyRows.filter((row) => selectedHistoryLocations.includes(row.location))
+  const historySubmissionSlotCount = isHistoryDateFiltered
+    ? Math.max(1, ...visibleHistoryRows.map((row) => row.items.length))
+    : parsedHistorySubmissionLimit
   const historySubmissionSlots = Array.from(
-    { length: parsedHistorySubmissionLimit },
+    { length: historySubmissionSlotCount },
     (_, index) => index,
   )
   const receiptAnswerEntries = getOrderedAnswerEntries(receiptSubmission?.answers || {}, formData.questions)
@@ -11105,6 +11112,24 @@ function FormPage() {
                     </p>
                   </div>
                   <div className="history-controls">
+                    <label className="field-block history-days-field history-days-inline" htmlFor="history-date-filter">
+                      <span>Vis dato</span>
+                      <input
+                        id="history-date-filter"
+                        type="date"
+                        value={historyDateFilter}
+                        onChange={(event) => setHistoryDateFilter(event.target.value)}
+                      />
+                    </label>
+                    {isHistoryDateFiltered ? (
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={() => setHistoryDateFilter('')}
+                      >
+                        Vis siste innsendinger i stedet
+                      </button>
+                    ) : null}
                     <label className="field-block history-days-field history-days-inline" htmlFor="history-submission-limit">
                       <span>Vis siste innsendinger</span>
                       <input
@@ -11114,6 +11139,7 @@ function FormPage() {
                         inputMode="numeric"
                         value={historySubmissionLimit}
                         onChange={(event) => setHistorySubmissionLimit(event.target.value)}
+                        disabled={isHistoryDateFiltered}
                       />
                     </label>
                     <button
@@ -11610,7 +11636,7 @@ function FormPage() {
                                 const values = submission
                                   ? getHistoryAnswerValues(submission, question)
                                   : []
-                                const inventoryUpdate = slotIndex === 0 && !hideUpdatedValues
+                                const inventoryUpdate = slotIndex === 0 && !hideUpdatedValues && !isHistoryDateFiltered
                                   ? getEffectiveInventoryValue(question.id, inventoryUpdates[row.location], submission?.submittedAt)
                                   : ''
                                 const historyCellCategory = submission
