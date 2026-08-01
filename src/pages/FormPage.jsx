@@ -7980,6 +7980,7 @@ function FormPage() {
   const parsedHistorySubmissionLimit = Math.max(1, Number.parseInt(historySubmissionLimit, 10) || 3)
   const isHistoryDateFiltered = Boolean(historyDateFilter)
   const historyByLocation = submissions
+    .filter((submission) => submission.status !== 'rejected')
     .reduce((accumulator, submission) => {
       const location = getSubmissionLocation(submission.answers, formData.questions) || 'Ukjent lokasjon'
       const entry = accumulator.get(location) || []
