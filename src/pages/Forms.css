@@ -1268,6 +1268,21 @@
   font-style: italic;
 }
 
+.drafts-phone-search-form {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.drafts-phone-search-form input {
+  flex: 1;
+  max-width: 220px;
+}
+
+.draft-phone-lookup-submissions-title {
+  margin-top: 16px;
+}
+
 .submissions-form-links {
   display: flex;
   align-items: center;

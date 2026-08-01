@@ -2187,6 +2187,15 @@ function FormPage() {
 
   const [submissions, setSubmissions] = useState([])
   const [formDrafts, setFormDrafts] = useState([])
+  const [draftPhoneLookupOpen, setDraftPhoneLookupOpen] = useState(false)
+  const [draftPhoneQuery, setDraftPhoneQuery] = useState('')
+  const [draftPhoneSearchState, setDraftPhoneSearchState] = useState({
+    searching: false,
+    error: '',
+    searched: false,
+    results: [],
+    submissionResults: [],
+  })
   const [submissionErrors, setSubmissionErrors] = useState([])
   const [loadingErrors, setLoadingErrors] = useState(false)
   const [manualRemarks, setManualRemarks] = useState([])
@@ -5218,6 +5227,46 @@ function FormPage() {
         ...previous,
         [submissionId]: { deleting: false, error: 'Could not delete the submission.' },
       }))
+    }
+  }
+
+  async function onSearchDraftsByPhone() {
+    const normalizedPhone = normalizeNorwegianPhoneNumber(draftPhoneQuery)
+    if (!normalizedPhone) {
+      setDraftPhoneSearchState({
+        searching: false,
+        error: 'Skriv inn et telefonnummer.',
+        searched: false,
+        results: [],
+        submissionResults: [],
+      })
+      return
+    }
+
+    setDraftPhoneSearchState({ searching: true, error: '', searched: false, results: [], submissionResults: [] })
+    try {
+      const snap = await getDocs(
+        query(
+          collection(db, 'formDrafts'),
+          where('formSlug', '==', activeFormSlug),
+          where('phone', '==', normalizedPhone),
+        ),
+      )
+      const results = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0))
+      const submissionResults = submissions
+        .filter((submission) => getSubmissionPhone(submission.answers, formData.questions) === normalizedPhone)
+        .sort((a, b) => (b.submittedAt?.seconds || 0) - (a.submittedAt?.seconds || 0))
+      setDraftPhoneSearchState({ searching: false, error: '', searched: true, results, submissionResults })
+    } catch (err) {
+      setDraftPhoneSearchState({
+        searching: false,
+        error: `Kunne ikke søke: ${err.message}`,
+        searched: false,
+        results: [],
+        submissionResults: [],
+      })
     }
   }
 
@@ -10209,6 +10258,13 @@ function FormPage() {
                     >
                       {testEmailState.sending ? 'Sending…' : 'Send test rejection email'}
                     </button>
+                    <button
+                      type="button"
+                      className="submissions-action-button"
+                      onClick={() => setDraftPhoneLookupOpen(true)}
+                    >
+                      Slå opp påbegynt skjema
+                    </button>
                     {testEmailState.message ? (
                       <span className="test-email-feedback test-email-feedback--ok">{testEmailState.message}</span>
                     ) : null}
@@ -10236,6 +10292,135 @@ function FormPage() {
                     Uten bilder
                   </a>
                 </div>
+                {draftPhoneLookupOpen ? (
+                  <div
+                    className="submission-modal-backdrop"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="draft-phone-lookup-title"
+                    onClick={() => setDraftPhoneLookupOpen(false)}
+                  >
+                    <div
+                      className="submission-modal forms-admin-modal draft-phone-lookup-modal"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="submission-modal-header">
+                        <h4 id="draft-phone-lookup-title">Slå opp påbegynt skjema på telefonnummer</h4>
+                        <button type="button" className="ghost" onClick={() => setDraftPhoneLookupOpen(false)}>
+                          Close
+                        </button>
+                      </div>
+                      <div className="submission-modal-content">
+                        <form
+                          className="drafts-phone-search-form"
+                          onSubmit={(event) => {
+                            event.preventDefault()
+                            onSearchDraftsByPhone()
+                          }}
+                        >
+                          <input
+                            type="tel"
+                            inputMode="numeric"
+                            placeholder="Telefonnummer"
+                            value={draftPhoneQuery}
+                            onChange={(event) => setDraftPhoneQuery(event.target.value)}
+                            autoFocus
+                          />
+                          <button type="submit" className="ghost" disabled={draftPhoneSearchState.searching}>
+                            {draftPhoneSearchState.searching ? 'Søker...' : 'Søk'}
+                          </button>
+                        </form>
+                        {draftPhoneSearchState.error ? (
+                          <p className="forms-error">{draftPhoneSearchState.error}</p>
+                        ) : null}
+                        {draftPhoneSearchState.searched ? (
+                          <>
+                            <p className="drafts-section-title">
+                              Påbegynt (ikke innsendt)
+                            </p>
+                            {draftPhoneSearchState.results.length === 0 ? (
+                              <p>Ingen påbegynt skjema funnet for dette telefonnummeret.</p>
+                            ) : (
+                              <table className="drafts-table">
+                                <thead>
+                                  <tr>
+                                    <th>Navn / tlf</th>
+                                    <th>Startet</th>
+                                    <th>Sist oppdatert</th>
+                                    <th>Svar fylt ut</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {draftPhoneSearchState.results.map((draft) => {
+                                    const startedMs = draft.startedAt?.seconds ? draft.startedAt.seconds * 1000 : null
+                                    const updatedMs = draft.updatedAt?.seconds ? draft.updatedAt.seconds * 1000 : null
+                                    const fmtTime = (ms) => ms ? new Date(ms).toLocaleString('nb-NO', { timeZone: 'Europe/Oslo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'
+                                    const answerCount = Object.values(draft.answers || {}).filter((v) => String(v || '').trim()).length
+                                    return (
+                                      <tr key={draft.id}>
+                                        <td>
+                                          {draft.name ? <strong>{draft.name}</strong> : null}
+                                          {draft.phone ? <span className="drafts-phone">{draft.name ? ' · ' : ''}{draft.phone}</span> : null}
+                                          {!draft.name && !draft.phone ? <span className="drafts-unknown">Ukjent</span> : null}
+                                        </td>
+                                        <td>{fmtTime(startedMs)}</td>
+                                        <td>{fmtTime(updatedMs)}</td>
+                                        <td>{answerCount}</td>
+                                      </tr>
+                                    )
+                                  })}
+                                </tbody>
+                              </table>
+                            )}
+
+                            <p className="drafts-section-title draft-phone-lookup-submissions-title">
+                              Innsendte skjema
+                            </p>
+                            {draftPhoneSearchState.submissionResults.length === 0 ? (
+                              <p>Ingen innsendte skjema funnet for dette telefonnummeret.</p>
+                            ) : (
+                              <table className="drafts-table">
+                                <thead>
+                                  <tr>
+                                    <th>Lokasjon</th>
+                                    <th>Innsendt</th>
+                                    <th>Status</th>
+                                    <th></th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {draftPhoneSearchState.submissionResults.map((submission) => {
+                                    const submittedMs = submission.submittedAt?.seconds ? submission.submittedAt.seconds * 1000 : null
+                                    const fmtTime = (ms) => ms ? new Date(ms).toLocaleString('nb-NO', { timeZone: 'Europe/Oslo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'
+                                    return (
+                                      <tr key={submission.id}>
+                                        <td>{getSubmissionLocation(submission.answers, formData.questions) || '-'}</td>
+                                        <td>{fmtTime(submittedMs)}</td>
+                                        <td>{getSubmissionStatusLabel(submission.status)}</td>
+                                        <td>
+                                          {submission.receiptToken ? (
+                                            <a
+                                              className="ghost"
+                                              href={`/skjema/${activeFormSlug}/kvittering/${submission.receiptToken}`}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                            >
+                                              Åpne
+                                            </a>
+                                          ) : null}
+                                        </td>
+                                      </tr>
+                                    )
+                                  })}
+                                </tbody>
+                              </table>
+                            )}
+                          </>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
                 {formDrafts.length > 0 ? (
                   <div className="drafts-section">
                     <p className="drafts-section-title">Påbegynte skjemaer ({formDrafts.length})</p>
